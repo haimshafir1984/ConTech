@@ -320,7 +320,8 @@ if mode == "🏢 מנהל פרויקט":
                     st.success("הנתונים נשמרו בהצלחה!")
 
             with col_preview:
-                st.image(proj["skeleton"], caption="זיהוי קירות (תצוגה מקדימה)", use_container_width=True)
+                # *** תיקון קריטי לגרסה 1.38.0: החלפת use_container_width ב-use_column_width ***
+                st.image(proj["skeleton"], caption="זיהוי קירות (תצוגה מקדימה)", use_column_width=True)
                 
                 # כרטיסי חומרים מהירים מתחת לתמונה
                 if proj["total_length"] > 0:
@@ -401,14 +402,14 @@ if mode == "🏢 מנהל פרויקט":
                 df = load_stats_df()
                 if not df.empty:
                     # סינון לפי התוכנית שנבחרה אם צריך, כרגע מציג הכל
-                    st.bar_chart(df, x="תאריך", y="מטרים שבוצעו")
+                    st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
                 else:
                     st.info("אין נתונים להצגה בגרף")
             
             with t_col:
                 st.markdown("##### דיווחים אחרונים")
                 if not df.empty:
-                    st.dataframe(df[["תאריך", "מטרים שבוצעו", "הערה"]].head(5), hide_index=True)
+                    st.dataframe(df[["תאריך", "מטרים שבוצעו", "הערה"]].head(5), hide_index=True, use_container_width=True)
 
 elif mode == "👷 דיווח שטח":
     st.title("דיווח ביצוע")
@@ -494,6 +495,15 @@ elif mode == "👷 דיווח שטח":
             # תצוגה
             st.success(f"✅ נמדדו: **{meters:.2f} מטר**")
             
+            # תצוגת דיבאג לויזואליזציה (רק אם יש קווים אך אין מטרים)
+            if meters == 0 and pixels == 0 and cv2.countNonZero(w_mask) > 0:
+                 with st.expander("🔍 דיבאג"):
+                      st.write("מזהה ציור אך ללא חפיפה.")
+                      debug_img = np.zeros((c_height, c_width, 3), dtype=np.uint8)
+                      debug_img[:,:,1] = w_mask # ירוק לציור
+                      debug_img[:,:,2] = walls_res # כחול לקירות
+                      st.image(debug_img, caption="ירוק=ציור, כחול=קירות, שחור=אין", use_column_width=True)
+
             note = st.text_input("הערה לדיווח")
             if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):
                  # לוגיקת שמירה (בדיקה אם קיים ב-DB וכו')

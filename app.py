@@ -146,7 +146,7 @@ if mode == "🏢 מנהל פרויקט":
                     st.success("נשמר!")
 
             with col_preview:
-                # שימוש בפרמטר הישן לגרסה 1.32
+                # שימוש בפרמטר use_column_width המתאים ל-1.27
                 st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
                 if proj["total_length"] > 0:
                     mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
@@ -220,7 +220,7 @@ elif mode == "👷 דיווח שטח":
         canvas = st_canvas(
             stroke_width=5, 
             stroke_color="#00FF00", 
-            background_image=bg_image_resized, # מעבירים אובייקט Image רגיל
+            background_image=bg_image_resized,
             width=c_width, 
             height=c_height, 
             drawing_mode="line", 

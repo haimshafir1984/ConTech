@@ -420,7 +420,7 @@ elif mode == "👷 דיווח שטח":
         plan_name = st.selectbox("בחר תוכנית:", list(st.session_state.projects.keys()))
         proj = st.session_state.projects[plan_name]
         
-        # הכנת התצוגה (לוגיקה זהה למקור עם שיפורי Hitbox)
+        # הכנת התצוגה
         orig_rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
         h, w = orig_rgb.shape[:2]
         
@@ -429,7 +429,7 @@ elif mode == "👷 דיווח שטח":
         if thick_walls.shape[:2] != (h, w):
             thick_walls = cv2.resize(thick_walls, (w, h), interpolation=cv2.INTER_NEAREST)
         
-        # Hitbox מוגדל (15px) כדי להקל על העובד
+        # Hitbox מוגדל
         kernel = np.ones((15, 15), np.uint8)
         mask = (thick_walls > 0).astype(np.uint8) * 255
         dilated_mask = cv2.dilate(mask, kernel, iterations=2)
@@ -445,6 +445,9 @@ elif mode == "👷 דיווח שטח":
         
         combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0)
         
+        # המרה מפורשת ל-RGB uint8 (למניעת תקלות)
+        combined = combined.astype(np.uint8)
+        
         # קנבס
         c_width = 1000
         factor = c_width / w
@@ -452,7 +455,15 @@ elif mode == "👷 דיווח שטח":
         
         combined_res = cv2.resize(combined, (c_width, c_height))
         
+        # --- בדיקת גיבוי: האם התמונה קיימת? ---
+        # אם אתה רואה את התמונה הזו אבל הקנבס למטה ריק -> הבעיה ברכיב הציור
+        # st.image(combined_res, caption="בדיקת מערכת - תמונת רקע", use_column_width=True)
+        
         st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
+        
+        # שימוש ב-Key דינמי שמכריח ריענון כשמשנים פרמטרים
+        unique_key = f"worker_{plan_name}_{opacity}_{c_width}"
+        
         canvas = st_canvas(
             stroke_width=5,
             stroke_color="#00FF00",
@@ -460,57 +471,47 @@ elif mode == "👷 דיווח שטח":
             width=c_width,
             height=c_height,
             drawing_mode="line",
-            key=f"worker_{plan_name}"
+            key=unique_key,
+            update_streamlit=True
         )
         
         # חישוב ביצוע
+        meters = 0.0
         if canvas.json_data and canvas.json_data["objects"]:
             # יצירת מסכת עובד בגודל קנבס
             w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
             df_obj = pd.json_normalize(canvas.json_data["objects"])
             
             for _, obj in df_obj.iterrows():
-                # טיפול בקואורדינטות בצורה בסיסית אך רובסטית
-                p1 = (int(obj['left']), int(obj['top']))
-                # בדיקה אם זה קו (בדרך כלל SVG path או x1/x2)
-                # פישוט: נניח קווים ישרים לפי x1,y1,x2,y2 יחסיים ל-left/top
-                if 'x1' in obj: 
-                    p1 = (int(obj['left'] + obj['x1']), int(obj['top'] + obj['y1']))
-                    p2 = (int(obj['left'] + obj['x2']), int(obj['top'] + obj['y2']))
-                    cv2.line(w_mask, p1, p2, 255, 5)
+                # לוגיקה לטיפול בסוגים שונים של קווים
+                if 'left' in obj and 'top' in obj:
+                    # המרה פשוטה לקואורדינטות שלמות
+                    l, t = int(obj['left']), int(obj['top'])
+                    if 'x1' in obj:
+                        p1 = (l + int(obj['x1']), t + int(obj['y1']))
+                        p2 = (l + int(obj['x2']), t + int(obj['y2']))
+                        cv2.line(w_mask, p1, p2, 255, 5)
 
-            # בדיקת חפיפה (Resize את הקירות לגודל קנבס)
+            # בדיקת חפיפה
             walls_res = cv2.resize(dilated_mask, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
             intersection = cv2.bitwise_and(w_mask, walls_res)
             
-            # חישוב מטרים
             pixels = cv2.countNonZero(intersection)
-            # פקטור המרה: פיקסלים בקנבס -> פיקסלים במקור -> מטרים
-            # scale = פיקסלים במקור למטר
-            # factor = יחס קנבס למקור
             
-            # חישוב מדויק: (פיקסלים בקנבס / פקטור הקטנה) / סקלה
-            meters = (pixels / factor) / proj["scale"]
+            if proj["scale"] > 0:
+                meters = (pixels / factor) / proj["scale"]
             
-            # תצוגה
             st.success(f"✅ נמדדו: **{meters:.2f} מטר**")
             
-            # תצוגת דיבאג לויזואליזציה (רק אם יש קווים אך אין מטרים)
-            if meters == 0 and pixels == 0 and cv2.countNonZero(w_mask) > 0:
-                 with st.expander("🔍 דיבאג"):
-                      st.write("מזהה ציור אך ללא חפיפה.")
-                      debug_img = np.zeros((c_height, c_width, 3), dtype=np.uint8)
-                      debug_img[:,:,1] = w_mask # ירוק לציור
-                      debug_img[:,:,2] = walls_res # כחול לקירות
-                      st.image(debug_img, caption="ירוק=ציור, כחול=קירות, שחור=אין", use_column_width=True)
+            # דיבאג אם יש ציור אבל אין מדידה
+            if meters == 0 and cv2.countNonZero(w_mask) > 0:
+                 st.warning("⚠️ הקו שציירת לא נוגע בקירות הכחולים. נסה לדייק יותר.")
 
             note = st.text_input("הערה לדיווח")
             if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):
-                 # לוגיקת שמירה (בדיקה אם קיים ב-DB וכו')
                  from database import get_plan_by_filename, save_plan
                  rec = get_plan_by_filename(plan_name)
                  
-                 # אם לא נשמר ב-DB עדיין, שומרים אוטומטית
                  pid = rec['id'] if rec else save_plan(
                      plan_name, 
                      proj["metadata"].get("plan_name", plan_name), 

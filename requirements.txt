@@ -1,0 +1,7 @@
+pymupdf
+opencv-python-headless
+pandas
+numpy
+streamlit
+streamlit-drawable-canvas
+groq

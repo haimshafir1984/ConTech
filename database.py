@@ -8,7 +8,6 @@ def init_database():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     
-    # טבלת תוכניות
     c.execute('''CREATE TABLE IF NOT EXISTS plans (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         filename TEXT UNIQUE,
@@ -24,7 +23,6 @@ def init_database():
         material_estimate TEXT
     )''')
     
-    # טבלת דיווחי ביצוע
     c.execute('''CREATE TABLE IF NOT EXISTS progress_reports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         plan_id INTEGER,
@@ -104,11 +102,9 @@ def get_progress_reports(plan_id=None):
     results = []
     for r in reports:
         row = dict(r)
-        # המרת תאריך למשהו קריא
         try:
             dt = datetime.fromisoformat(row['report_date'])
         except:
-            # אם הפורמט שונה, ננסה פרסר בסיסי או נשאיר כפי שהוא
             try:
                 dt = datetime.strptime(row['report_date'], "%Y-%m-%d %H:%M:%S")
             except:
@@ -123,20 +119,12 @@ def get_progress_reports(plan_id=None):
     return results
 
 def calculate_material_estimates(total_length_meters, wall_height_meters=2.5):
-    """
-    חישוב כמויות חומרים גנרי.
-    הנחות יסוד: בלוק 20/20/50, פחת 5%.
-    """
     total_area = total_length_meters * wall_height_meters
     blocks_per_sqm = 10 
-    
-    blocks = total_area * blocks_per_sqm * 1.05 # כולל פחת
-    
-    # הערכת מלט וחול (נפח טיט = שטח קיר * עובי טיט משוער)
-    # הנחה גסה: 0.02 מ"ק טיט למ"ר
+    blocks = total_area * blocks_per_sqm * 1.05
     mortar_volume = total_area * 0.02
-    cement = mortar_volume * 0.3 # שליש מלט
-    sand = mortar_volume * 0.7   # שני שליש חול (יחס 1:2 בערך)
+    cement = mortar_volume * 0.3
+    sand = mortar_volume * 0.7
     
     return {
         "wall_area_sqm": total_area,
@@ -147,21 +135,15 @@ def calculate_material_estimates(total_length_meters, wall_height_meters=2.5):
 
 def get_project_forecast(plan_id):
     plan = get_plan_by_id(plan_id)
-    if not plan:
-        return {}
+    if not plan: return {}
     
     reports = get_progress_reports(plan_id)
     
-    # --- תיקון השגיאה: המרה בטוחה למספרים ---
-    try:
-        confirmed_scale = float(plan.get('confirmed_scale', 0))
-    except (ValueError, TypeError):
-        confirmed_scale = 0.0
+    try: confirmed_scale = float(plan.get('confirmed_scale', 0))
+    except: confirmed_scale = 0.0
         
-    try:
-        raw_pixels = float(plan.get('raw_pixel_count', 0))
-    except (ValueError, TypeError):
-        raw_pixels = 0.0
+    try: raw_pixels = float(plan.get('raw_pixel_count', 0))
+    except: raw_pixels = 0.0
     
     total_planned_meters = 0
     if confirmed_scale > 0:
@@ -172,19 +154,21 @@ def get_project_forecast(plan_id):
     days_passed = 0
     velocity = 0
     if reports:
-        first_report = reports[-1]['report_date'] # הישן ביותר
-        last_report = reports[0]['report_date']   # החדש ביותר
-        
-        # המרת מחרוזות לתאריכים לחישוב ימים
         try:
-            d1 = datetime.strptime(str(first_report).split('.')[0], "%Y-%m-%d %H:%M:%S")
-            d2 = datetime.strptime(str(last_report).split('.')[0], "%Y-%m-%d %H:%M:%S")
+            first = reports[-1]['report_date']
+            last = reports[0]['report_date']
+            # ניקוי פורמט תאריך למקרה שיש מילישניות
+            d1_str = str(first).split('.')[0]
+            d2_str = str(last).split('.')[0]
+            
+            d1 = datetime.strptime(d1_str, "%Y-%m-%d %H:%M:%S")
+            d2 = datetime.strptime(d2_str, "%Y-%m-%d %H:%M:%S")
             delta = (d2 - d1).days
             days_passed = delta if delta > 0 else 1
             velocity = cumulative / days_passed
         except:
             days_passed = 1
-            velocity = cumulative # אם יש רק יום אחד
+            velocity = cumulative
             
     remaining = total_planned_meters - cumulative
     days_to_finish = (remaining / velocity) if velocity > 0 else -1
@@ -194,7 +178,7 @@ def get_project_forecast(plan_id):
         "cumulative_progress": cumulative,
         "remaining_work": max(0, remaining),
         "average_velocity": velocity,
-        "days_to_finish": int(days_to_finish) if days_to_finish != -1 else "לא ידוע"
+        "days_to_finish": int(days_to_finish) # מחזיר תמיד מספר (-1 אם לא ידוע)
     }
 
 def get_project_financial_status(plan_id):
@@ -225,7 +209,7 @@ def reset_all_data():
     c = conn.cursor()
     c.execute("DELETE FROM progress_reports")
     c.execute("DELETE FROM plans")
-    c.execute("DELETE FROM sqlite_sequence") # איפוס מונים אוטומטיים
+    c.execute("DELETE FROM sqlite_sequence")
     conn.commit()
     conn.close()
     return True

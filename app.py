@@ -7,8 +7,6 @@ from analyzer import FloorPlanAnalyzer
 import tempfile
 import os
 import json
-import base64
-from io import BytesIO
 from streamlit_drawable_canvas import st_canvas
 from database import (
     init_database, save_plan, save_progress_report, 
@@ -22,15 +20,6 @@ from datetime import datetime
 # --- הגדרות ראשוניות ---
 Image.MAX_IMAGE_PIXELS = None
 init_database()
-
-# --- 💡 הפתרון מחוץ לקופסא: המרה ידנית ל-Base64 ---
-# פונקציה זו הופכת את התמונה לטקסט, מה שמונע מ-Streamlit לנסות להמיר אותה בעצמו ולהיכשל
-def get_image_data_url(image):
-    buffered = BytesIO()
-    image.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    return f"data:image/png;base64,{img_str}"
-# ---------------------------------------------------
 
 def load_stats_df():
     reports = get_progress_reports()
@@ -157,6 +146,7 @@ if mode == "🏢 מנהל פרויקט":
                     st.success("נשמר!")
 
             with col_preview:
+                # שימוש בפרמטר הישן לגרסה 1.32
                 st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
                 if proj["total_length"] > 0:
                     mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
@@ -225,24 +215,18 @@ elif mode == "👷 דיווח שטח":
         c_height = int(h * factor)
         bg_image_resized = bg_image.resize((c_width, c_height))
         
-        # --- כאן התיקון הקריטי ---
-        # במקום להעביר אובייקט תמונה, אנחנו מעבירים מחרוזת טקסט (Data URL)
-        # זה עוקף את כל השגיאות של Streamlit בטיפול בתמונות
-        bg_image_url = get_image_data_url(bg_image_resized)
-        
         st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
         canvas_key = f"canvas_{plan_name}_{opacity}"
         canvas = st_canvas(
             stroke_width=5, 
             stroke_color="#00FF00", 
-            background_image=bg_image_url, # עכשיו זה מחרוזת, לא אובייקט!
+            background_image=bg_image_resized, # מעבירים אובייקט Image רגיל
             width=c_width, 
             height=c_height, 
             drawing_mode="line", 
             key=canvas_key, 
             update_streamlit=True
         )
-        # ------------------------
         
         if canvas.json_data and canvas.json_data["objects"]:
             w_mask = np.zeros((c_height, c_width), dtype=np.uint8)

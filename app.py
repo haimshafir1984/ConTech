@@ -146,7 +146,7 @@ if mode == "🏢 מנהל פרויקט":
                     st.success("נשמר!")
 
             with col_preview:
-                # שימוש ב-use_column_width (מותאם לגרסה 1.38.0)
+                # שימוש בפרמטר הישן והתואם לגרסה 1.38
                 st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
                 if proj["total_length"] > 0:
                     mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
@@ -207,7 +207,6 @@ elif mode == "👷 דיווח שטח":
         overlay = np.zeros_like(orig_rgb)
         overlay[dilated_mask > 0] = [0, 120, 255]
         
-        # המרה בטוחה ל-RGB
         combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
         bg_image = Image.fromarray(combined).convert("RGB")
         

@@ -1,7 +1,8 @@
-pymupdf
+streamlit==1.38.0
+streamlit-drawable-canvas==0.9.3
 opencv-python-headless
 pandas
 numpy
-streamlit
-streamlit-drawable-canvas
+pymupdf
 groq
+watchdog

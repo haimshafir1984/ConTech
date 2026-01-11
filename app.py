@@ -19,20 +19,6 @@ from database import (
 from brain import learn_from_confirmation, process_plan_metadata
 from datetime import datetime
 
-# --- 🛠️ טלאי לתיקון באג הקנבס (Monkey Patch) 🛠️ ---
-# זה יגרום לתמונה להופיע גם אם הגרסאות בענן לא מסתדרות
-import streamlit.elements.lib.image_utils as image_utils
-try:
-    from streamlit.elements.lib.image_utils import image_to_url as original_image_to_url
-    
-    def patched_image_to_url(image, width, clamp, channels, output_format, image_id, allow_emoji=False):
-        return original_image_to_url(image, width, clamp, channels, output_format, image_id)
-
-    image_utils.image_to_url = patched_image_to_url
-except ImportError:
-    pass # אם הפונקציה לא קיימת (גרסה ישנה מאוד), לא עושים כלום
-# -----------------------------------------------------------
-
 Image.MAX_IMAGE_PIXELS = None
 init_database()
 
@@ -258,7 +244,23 @@ elif mode == "👷 דיווח שטח":
             if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):
                  from database import get_plan_by_filename, save_plan
                  rec = get_plan_by_filename(plan_name)
-                 pid = rec['id'] if rec else save_plan(plan_name, proj["metadata"].get("plan_name", plan_name), "", proj["scale"], proj["raw_pixels"], "{}", proj["scale"])
+                 if rec:
+                     pid = rec['id']
+                 else:
+                     # יצירת תוכנית חדשה אם לא קיימת
+                     metadata_json = json.dumps(proj.get("metadata", {}), ensure_ascii=False)
+                     pid = save_plan(
+                         plan_name, 
+                         proj["metadata"].get("plan_name", plan_name), 
+                         "", 
+                         proj["scale"], 
+                         proj["raw_pixels"], 
+                         metadata_json,
+                         None,  # target_date
+                         0,     # budget_limit
+                         0,     # cost_per_meter
+                         "{}"   # material_estimate
+                     )
                  save_progress_report(pid, meters, note)
                  st.balloons()
                  st.success("הדיווח נשלח!")

@@ -274,3 +274,239 @@ if mode == "🏢 מנהל פרויקט":
             
             with col_edit:
                 st.markdown("### הגדרות תוכנית")
+                
+                # שדות טקסט
+                p_name = st.text_input("שם התוכנית (למשל: קומה א')", key=name_key)
+                p_scale = st.text_input("קנה מידה (למשל: 1:50)", key=scale_key)
+                
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    target_date_val = st.date_input("תאריך יעד", key=f"td_{selected}")
+                    target_date_str = target_date_val.strftime("%Y-%m-%d") if target_date_val else None
+                with col_d2:
+                    budget_limit_val = st.number_input("תקציב (₪)", step=1000.0, key=f"bl_{selected}")
+
+                cost_per_meter_val = st.number_input("עלות למטר רץ (₪)", value=st.session_state.default_cost_per_meter, key=f"cpm_{selected}")
+                
+                st.markdown("#### כיול")
+                scale_val = st.slider("פיקסלים למטר", 10.0, 1000.0, float(proj["scale"]), key=f"sl_{selected}")
+                proj["scale"] = scale_val
+                
+                # חישוב אמת
+                proj["total_length"] = proj["raw_pixels"] / scale_val
+                st.info(f"📏 אורך קירות מזוהה: **{proj['total_length']:.2f} מטר**")
+
+                if st.button("💾 שמור נתונים", type="primary", use_container_width=True):
+                    # עדכון המטא דאטה הפנימי
+                    proj["metadata"]["plan_name"] = p_name
+                    proj["metadata"]["scale"] = p_scale
+                    
+                    from database import save_plan
+                    metadata_json = json.dumps(proj["metadata"], ensure_ascii=False)
+                    materials = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
+                    
+                    save_plan(
+                        filename=selected,
+                        plan_name=p_name,
+                        extracted_scale=p_scale,
+                        confirmed_scale=scale_val,
+                        raw_pixel_count=proj["raw_pixels"],
+                        metadata_json=metadata_json,
+                        target_date=target_date_str,
+                        budget_limit=budget_limit_val,
+                        cost_per_meter=cost_per_meter_val,
+                        material_estimate=json.dumps(materials, ensure_ascii=False)
+                    )
+                    st.success("הנתונים נשמרו בהצלחה!")
+
+            with col_preview:
+                st.image(proj["skeleton"], caption="זיהוי קירות (תצוגה מקדימה)", use_container_width=True)
+                
+                # כרטיסי חומרים מהירים מתחת לתמונה
+                if proj["total_length"] > 0:
+                    mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
+                    st.markdown("###### הערכת חומרים מהירה")
+                    c1, c2, c3 = st.columns(3)
+                    c1.markdown(f"<div class='mat-card'><div class='mat-val'>{mats['block_count']:,}</div><div class='mat-lbl'>בלוקים</div></div>", unsafe_allow_html=True)
+                    c2.markdown(f"<div class='mat-card'><div class='mat-val'>{mats['cement_cubic_meters']:.1f}</div><div class='mat-lbl'>מ\"ק מלט</div></div>", unsafe_allow_html=True)
+                    c3.markdown(f"<div class='mat-card'><div class='mat-val'>{mats['wall_area_sqm']:.0f}</div><div class='mat-lbl'>מ\"ר קיר</div></div>", unsafe_allow_html=True)
+
+    with tab2:
+        # דשבורד מנהלים
+        all_plans = get_all_plans()
+        if not all_plans:
+            st.info("אנא שמור תוכנית אחת לפחות כדי לראות נתונים.")
+        else:
+            plan_options = [f"{p['plan_name']} (ID: {p['id']})" for p in all_plans]
+            selected_display = st.selectbox("בחר פרויקט לניתוח:", plan_options)
+            selected_id = int(selected_display.split("(ID: ")[1].split(")")[0])
+            
+            # שליפת נתונים מחושבים
+            forecast = get_project_forecast(selected_id)
+            fin = get_project_financial_status(selected_id)
+            
+            # --- שורת KPIs ראשית ---
+            st.markdown("#### סטטוס ביצוע")
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            
+            with kpi1:
+                st.markdown(f"""
+                <div class="kpi-container">
+                    <div class="kpi-icon">🏗️</div>
+                    <div class="kpi-label">בוצע בפועל</div>
+                    <div class="kpi-value">{forecast['cumulative_progress']:.1f} מ'</div>
+                    <div class="kpi-sub">מתוך {forecast['total_planned']:.1f} מ'</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with kpi2:
+                pct = (forecast['cumulative_progress'] / forecast['total_planned'] * 100) if forecast['total_planned'] > 0 else 0
+                st.markdown(f"""
+                <div class="kpi-container">
+                    <div class="kpi-icon">📊</div>
+                    <div class="kpi-label">אחוז השלמה</div>
+                    <div class="kpi-value">{pct:.1f}%</div>
+                    <div class="kpi-sub">נותרו {forecast['remaining_work']:.1f} מ'</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with kpi3:
+                days_left = forecast['days_to_finish'] if forecast['days_to_finish'] > 0 else "-"
+                st.markdown(f"""
+                <div class="kpi-container">
+                    <div class="kpi-icon">📅</div>
+                    <div class="kpi-label">ימים לסיום</div>
+                    <div class="kpi-value">{days_left}</div>
+                    <div class="kpi-sub">קצב: {forecast['average_velocity']:.1f} מ'/יום</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with kpi4:
+                cost_color = "#ef4444" if fin['budget_variance'] < 0 else "#10b981"
+                st.markdown(f"""
+                <div class="kpi-container">
+                    <div class="kpi-icon">💰</div>
+                    <div class="kpi-label">עלות נוכחית</div>
+                    <div class="kpi-value">{fin['current_cost']:,.0f} ₪</div>
+                    <div class="kpi-sub" style="color: {cost_color}">תקציב: {fin['budget_limit']:,.0f} ₪</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("###") # ריווח
+            
+            # גרף וטבלה
+            g_col, t_col = st.columns([2, 1])
+            with g_col:
+                st.markdown("##### קצב התקדמות יומי")
+                df = load_stats_df()
+                if not df.empty:
+                    # סינון לפי התוכנית שנבחרה אם צריך, כרגע מציג הכל
+                    st.bar_chart(df, x="תאריך", y="מטרים שבוצעו")
+                else:
+                    st.info("אין נתונים להצגה בגרף")
+            
+            with t_col:
+                st.markdown("##### דיווחים אחרונים")
+                if not df.empty:
+                    st.dataframe(df[["תאריך", "מטרים שבוצעו", "הערה"]].head(5), hide_index=True)
+
+elif mode == "👷 דיווח שטח":
+    st.title("דיווח ביצוע")
+    
+    if not st.session_state.projects:
+        st.info("אין תוכניות זמינות. אנא פנה למנהל הפרויקט.")
+    else:
+        plan_name = st.selectbox("בחר תוכנית:", list(st.session_state.projects.keys()))
+        proj = st.session_state.projects[plan_name]
+        
+        # הכנת התצוגה (לוגיקה זהה למקור עם שיפורי Hitbox)
+        orig_rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
+        h, w = orig_rgb.shape[:2]
+        
+        # התאמת מסכות
+        thick_walls = proj["thick_walls"]
+        if thick_walls.shape[:2] != (h, w):
+            thick_walls = cv2.resize(thick_walls, (w, h), interpolation=cv2.INTER_NEAREST)
+        
+        # Hitbox מוגדל (15px) כדי להקל על העובד
+        kernel = np.ones((15, 15), np.uint8)
+        mask = (thick_walls > 0).astype(np.uint8) * 255
+        dilated_mask = cv2.dilate(mask, kernel, iterations=2)
+        
+        # תצוגה
+        col_opacity, col_spacer = st.columns([2, 1])
+        with col_opacity:
+            opacity = st.slider("עוצמת הדגשת קירות", 0.0, 1.0, 0.4)
+            
+        # יצירת Overlay
+        overlay = np.zeros_like(orig_rgb)
+        overlay[dilated_mask > 0] = [0, 120, 255] # כחול
+        
+        combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0)
+        
+        # קנבס
+        c_width = 1000
+        factor = c_width / w
+        c_height = int(h * factor)
+        
+        combined_res = cv2.resize(combined, (c_width, c_height))
+        
+        st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
+        canvas = st_canvas(
+            stroke_width=5,
+            stroke_color="#00FF00",
+            background_image=Image.fromarray(combined_res),
+            width=c_width,
+            height=c_height,
+            drawing_mode="line",
+            key=f"worker_{plan_name}"
+        )
+        
+        # חישוב ביצוע
+        if canvas.json_data and canvas.json_data["objects"]:
+            # יצירת מסכת עובד בגודל קנבס
+            w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
+            df_obj = pd.json_normalize(canvas.json_data["objects"])
+            
+            for _, obj in df_obj.iterrows():
+                # טיפול בקואורדינטות בצורה בסיסית אך רובסטית
+                p1 = (int(obj['left']), int(obj['top']))
+                # בדיקה אם זה קו (בדרך כלל SVG path או x1/x2)
+                # פישוט: נניח קווים ישרים לפי x1,y1,x2,y2 יחסיים ל-left/top
+                if 'x1' in obj: 
+                    p1 = (int(obj['left'] + obj['x1']), int(obj['top'] + obj['y1']))
+                    p2 = (int(obj['left'] + obj['x2']), int(obj['top'] + obj['y2']))
+                    cv2.line(w_mask, p1, p2, 255, 5)
+
+            # בדיקת חפיפה (Resize את הקירות לגודל קנבס)
+            walls_res = cv2.resize(dilated_mask, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
+            intersection = cv2.bitwise_and(w_mask, walls_res)
+            
+            # חישוב מטרים
+            pixels = cv2.countNonZero(intersection)
+            # פקטור המרה: פיקסלים בקנבס -> פיקסלים במקור -> מטרים
+            # scale = פיקסלים במקור למטר
+            # factor = יחס קנבס למקור
+            
+            # חישוב מדויק: (פיקסלים בקנבס / פקטור הקטנה) / סקלה
+            meters = (pixels / factor) / proj["scale"]
+            
+            # תצוגה
+            st.success(f"✅ נמדדו: **{meters:.2f} מטר**")
+            
+            note = st.text_input("הערה לדיווח")
+            if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):
+                 # לוגיקת שמירה (בדיקה אם קיים ב-DB וכו')
+                 from database import get_plan_by_filename, save_plan
+                 rec = get_plan_by_filename(plan_name)
+                 
+                 # אם לא נשמר ב-DB עדיין, שומרים אוטומטית
+                 pid = rec['id'] if rec else save_plan(
+                     plan_name, 
+                     proj["metadata"].get("plan_name", plan_name), 
+                     "", proj["scale"], proj["raw_pixels"], "{}", proj["scale"]
+                 )
+                 
+                 save_progress_report(pid, meters, note)
+                 st.balloons()
+                 st.success("הדיווח נשלח בהצלחה!")

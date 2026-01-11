@@ -157,10 +157,8 @@ def get_project_forecast(plan_id):
         try:
             first = reports[-1]['report_date']
             last = reports[0]['report_date']
-            # ניקוי פורמט תאריך למקרה שיש מילישניות
             d1_str = str(first).split('.')[0]
             d2_str = str(last).split('.')[0]
-            
             d1 = datetime.strptime(d1_str, "%Y-%m-%d %H:%M:%S")
             d2 = datetime.strptime(d2_str, "%Y-%m-%d %H:%M:%S")
             delta = (d2 - d1).days

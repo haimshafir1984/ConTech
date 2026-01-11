@@ -8,8 +8,6 @@ import tempfile
 import os
 import json
 from streamlit_drawable_canvas import st_canvas
-
-# ייבוא מתוקן למניעת קריסה
 from database import (
     init_database, save_plan, save_progress_report, 
     get_progress_reports, get_plan_by_filename, get_plan_by_id, get_all_plans,
@@ -19,6 +17,7 @@ from database import (
 from brain import learn_from_confirmation, process_plan_metadata
 from datetime import datetime
 
+# --- הגדרות ראשוניות ---
 Image.MAX_IMAGE_PIXELS = None
 init_database()
 
@@ -34,7 +33,6 @@ def load_stats_df():
 
 st.set_page_config(page_title="ConTech Pro", layout="wide", page_icon="🏗️")
 
-# --- CSS ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700&display=swap');
@@ -167,10 +165,10 @@ if mode == "🏢 מנהל פרויקט":
             forecast = get_project_forecast(selected_id)
             fin = get_project_financial_status(selected_id)
             
-            # --- תיקון השגיאה של המנהל כאן ---
-            days_left_val = forecast['days_to_finish']
-            days_left_str = days_left_val if days_left_val > 0 else "-"
-            # --------------------------------
+            # --- טיפול בטוח בתצוגת ימים ---
+            days_val = forecast['days_to_finish']
+            days_left_display = days_val if days_val > 0 else "-"
+            # -----------------------------
 
             st.markdown("#### סטטוס ביצוע")
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
@@ -178,7 +176,7 @@ if mode == "🏢 מנהל פרויקט":
             with kpi2:
                 pct = (forecast['cumulative_progress'] / forecast['total_planned'] * 100) if forecast['total_planned'] > 0 else 0
                 st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">📊</div><div class="kpi-label">אחוז השלמה</div><div class="kpi-value">{pct:.1f}%</div><div class="kpi-sub">נותרו {forecast['remaining_work']:.1f} מ'</div></div>""", unsafe_allow_html=True)
-            with kpi3: st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">📅</div><div class="kpi-label">ימים לסיום</div><div class="kpi-value">{days_left_str}</div><div class="kpi-sub">קצב: {forecast['average_velocity']:.1f} מ'/יום</div></div>""", unsafe_allow_html=True)
+            with kpi3: st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">📅</div><div class="kpi-label">ימים לסיום</div><div class="kpi-value">{days_left_display}</div><div class="kpi-sub">קצב: {forecast['average_velocity']:.1f} מ'/יום</div></div>""", unsafe_allow_html=True)
             with kpi4:
                 cost_color = "#ef4444" if fin['budget_variance'] < 0 else "#10b981"
                 st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">💰</div><div class="kpi-label">עלות נוכחית</div><div class="kpi-value">{fin['current_cost']:,.0f} ₪</div><div class="kpi-sub" style="color: {cost_color}">תקציב: {fin['budget_limit']:,.0f} ₪</div></div>""", unsafe_allow_html=True)
@@ -209,9 +207,11 @@ elif mode == "👷 דיווח שטח":
         with col_opacity: opacity = st.slider("עוצמת הדגשת קירות", 0.0, 1.0, 0.4)
         overlay = np.zeros_like(orig_rgb)
         overlay[dilated_mask > 0] = [0, 120, 255]
-        combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
         
+        # המרה בטוחה ל-RGB כדי למנוע מסך לבן
+        combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
         bg_image = Image.fromarray(combined).convert("RGB")
+        
         c_width = 1000
         factor = c_width / w
         c_height = int(h * factor)
@@ -244,23 +244,7 @@ elif mode == "👷 דיווח שטח":
             if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):
                  from database import get_plan_by_filename, save_plan
                  rec = get_plan_by_filename(plan_name)
-                 if rec:
-                     pid = rec['id']
-                 else:
-                     # יצירת תוכנית חדשה אם לא קיימת
-                     metadata_json = json.dumps(proj.get("metadata", {}), ensure_ascii=False)
-                     pid = save_plan(
-                         plan_name, 
-                         proj["metadata"].get("plan_name", plan_name), 
-                         "", 
-                         proj["scale"], 
-                         proj["raw_pixels"], 
-                         metadata_json,
-                         None,  # target_date
-                         0,     # budget_limit
-                         0,     # cost_per_meter
-                         "{}"   # material_estimate
-                     )
+                 pid = rec['id'] if rec else save_plan(plan_name, proj["metadata"].get("plan_name", plan_name), "", proj["scale"], proj["raw_pixels"], "{}", proj["scale"])
                  save_progress_report(pid, meters, note)
                  st.balloons()
                  st.success("הדיווח נשלח!")

@@ -52,29 +52,65 @@ st.markdown("""
         --accent-orange: #f59e0b;
         --success-green: #10b981;
         --danger-red: #ef4444;
+        --planned-blue: #3b82f6;
+        --completed-green: #10b981;
+        --remaining-orange: #f59e0b;
     }
     
-    /* KPI Cards */
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    /* KPI Cards מעוצבים - צבעים שונים לפי סוג */
+    .kpi-card {
+        background: white;
         padding: 1.5rem;
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        color: white;
+        border-radius: 12px;
+        border: 2px solid #e5e7eb;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
         margin: 0.5rem 0;
+        transition: transform 0.2s, box-shadow 0.2s;
     }
     
-    .metric-card h3 {
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 0.9rem;
+    .kpi-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+    }
+    
+    .kpi-card.planned {
+        border-left: 4px solid var(--planned-blue);
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    }
+    
+    .kpi-card.completed {
+        border-left: 4px solid var(--completed-green);
+        background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    }
+    
+    .kpi-card.remaining {
+        border-left: 4px solid var(--remaining-orange);
+        background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    }
+    
+    .kpi-card .kpi-icon {
+        font-size: 2rem;
         margin-bottom: 0.5rem;
     }
     
-    .metric-card .value {
+    .kpi-card .kpi-label {
+        font-size: 0.85rem;
+        color: #6b7280;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+    }
+    
+    .kpi-card .kpi-value {
         font-size: 2rem;
         font-weight: bold;
-        color: white;
+        color: var(--engineering-gray);
+        margin: 0;
+    }
+    
+    .kpi-card .kpi-delta {
+        font-size: 0.9rem;
+        color: #6b7280;
+        margin-top: 0.5rem;
     }
     
     /* Material Cards */
@@ -111,13 +147,14 @@ st.markdown("""
         color: var(--engineering-gray);
     }
     
-    /* Dangerous Zone */
+    /* Dangerous Zone - רקע אדום דהוי קבוע */
     .danger-zone {
-        background: #fef2f2;
+        background: #fef2f2 !important;
         border: 2px solid var(--danger-red);
         border-radius: 8px;
         padding: 1rem;
-        margin-top: 2rem;
+        margin-top: auto;
+        margin-bottom: 0;
     }
     
     .danger-zone h3 {
@@ -125,19 +162,70 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     
-    /* RTL Support */
-    [dir="rtl"] {
-        text-align: right;
+    /* RTL Support מוחלט - כל הטבלאות והכותרות */
+    [dir="rtl"], 
+    .stDataFrame,
+    .stDataFrame *,
+    .stTable,
+    .stTable *,
+    h1, h2, h3, h4, h5, h6,
+    .stMarkdown,
+    .stText,
+    .stMetric,
+    .stSelectbox,
+    .stTextInput,
+    .stNumberInput,
+    .stSlider,
+    .stDateInput,
+    .stRadio,
+    .stCheckbox,
+    .stButton,
+    .stExpander,
+    .stContainer,
+    div[data-testid],
+    .element-container,
+    .stAlert,
+    .stInfo,
+    .stSuccess,
+    .stWarning,
+    .stError {
+        text-align: right !important;
+        direction: rtl !important;
     }
     
     /* Header Styling */
     h1, h2, h3 {
         color: var(--engineering-gray);
+        text-align: right !important;
     }
     
     /* Progress Bar Custom */
     .stProgress > div > div > div {
         background: linear-gradient(90deg, var(--construction-blue), var(--success-green));
+    }
+    
+    /* Sidebar Styling */
+    .stSidebar {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .stSidebar > div:first-child {
+        flex-grow: 1;
+    }
+    
+    /* Success Message */
+    .success-message {
+        background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+        border: 2px solid var(--success-green);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+        text-align: center;
+        font-size: 1.2rem;
+        font-weight: bold;
+        color: var(--success-green);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -152,10 +240,12 @@ if 'default_cost_per_meter' not in st.session_state:
     st.session_state.default_cost_per_meter = 0.0
 
 with st.sidebar:
+    # בחירת משתמש בראש התפריט
     st.title("🏗️ ConTech Pro")
-    mode = st.radio("בחר משתמש:", ["מנהל פרויקט (Admin)", "דיווח ביצוע (Worker)"])
+    st.divider()
+    mode = st.radio("בחר משתמש:", ["מנהל פרויקט (Admin)", "דיווח ביצוע (Worker)"], key="user_mode")
     
-    st.markdown("---")
+    st.divider()
     
     # Project Settings
     with st.expander("⚙️ הגדרות פרויקט", expanded=False):
@@ -169,8 +259,9 @@ with st.sidebar:
         
         st.info(f"💡 הגדרות אלה ישפיעו על חישובי החומרים והתקציב")
     
-    # Dangerous Zone
-    st.markdown("---")
+    # Dangerous Zone - בתחתית התפריט עם רקע אדום דהוי קבוע
+    st.markdown('<div style="margin-top: auto; padding-top: 2rem;">', unsafe_allow_html=True)
+    st.divider()
     st.markdown('<div class="danger-zone">', unsafe_allow_html=True)
     st.markdown("### ⚠️ אזור מסוכן")
     st.markdown("**🗑️ איפוס נתוני פרויקט**")
@@ -204,6 +295,7 @@ with st.sidebar:
             if st.button("❌ ביטול", use_container_width=True):
                 st.session_state.reset_confirm = False
                 st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- מצב מנהל ---
@@ -368,59 +460,147 @@ if mode == "מנהל פרויקט (Admin)":
             
             plan = get_plan_by_id(selected_plan_id)
             if plan:
-                # KPIs: חיזוי וקצב עבודה
+                # KPIs: חיזוי וקצב עבודה - עם עיצוב מותאם אישית
                 st.subheader("📈 חיזוי וקצב עבודה")
                 forecast = get_project_forecast(selected_plan_id)
                 
+                # Progress Visualization: Execution vs Plan
+                if forecast["total_planned"] > 0:
+                    progress_pct = (forecast["cumulative_progress"] / forecast["total_planned"]) * 100
+                    progress_pct = min(progress_pct, 100.0)
+                    st.markdown(f"**התקדמות:** {forecast['cumulative_progress']:.2f} / {forecast['total_planned']:.2f} מטר ({progress_pct:.1f}%)")
+                    st.progress(progress_pct / 100)
+                
                 col1, col2, col3, col4 = st.columns(4)
+                
                 with col1:
                     if forecast["average_velocity"] > 0:
-                        st.metric("קצב עבודה ממוצע", f"{forecast['average_velocity']:.2f} מטר/יום")
+                        st.markdown(f"""
+                        <div class="kpi-card completed">
+                            <div class="kpi-icon">⚡</div>
+                            <div class="kpi-label">קצב עבודה ממוצע</div>
+                            <div class="kpi-value">{forecast['average_velocity']:.2f} מטר/יום</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     else:
-                        st.metric("קצב עבודה ממוצע", "טרם חושב", help="נדרשים לפחות 2 ימי עבודה")
+                        st.markdown(f"""
+                        <div class="kpi-card">
+                            <div class="kpi-icon">⚡</div>
+                            <div class="kpi-label">קצב עבודה ממוצע</div>
+                            <div class="kpi-value">טרם חושב</div>
+                            <div class="kpi-delta">נדרשים לפחות 2 ימי עבודה</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                 
                 with col2:
-                    st.metric("עבודה נותרה", f"{forecast['remaining_work']:.2f} מטר")
+                    st.markdown(f"""
+                    <div class="kpi-card remaining">
+                        <div class="kpi-icon">📋</div>
+                        <div class="kpi-label">עבודה נותרה</div>
+                        <div class="kpi-value">{forecast['remaining_work']:.2f} מטר</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 
                 with col3:
                     if forecast["days_to_finish"] > 0:
-                        st.metric("ימים לסיום משוער", f"{forecast['days_to_finish']} ימי עבודה")
+                        st.markdown(f"""
+                        <div class="kpi-card planned">
+                            <div class="kpi-icon">📅</div>
+                            <div class="kpi-label">ימים לסיום משוער</div>
+                            <div class="kpi-value">{forecast['days_to_finish']} ימי עבודה</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     else:
-                        st.metric("ימים לסיום משוער", "טרם חושב")
+                        st.markdown(f"""
+                        <div class="kpi-card">
+                            <div class="kpi-icon">📅</div>
+                            <div class="kpi-label">ימים לסיום משוער</div>
+                            <div class="kpi-value">טרם חושב</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                 
                 with col4:
                     if forecast["estimated_completion_date"]:
                         date_str = forecast["estimated_completion_date"].strftime("%d/%m/%Y")
-                        # חישוב אם לפני או אחרי תאריך היעד
+                        delta_html = ""
                         if plan.get("target_date"):
                             target_dt = datetime.strptime(plan["target_date"], "%Y-%m-%d").date()
                             delta_days = (forecast["estimated_completion_date"] - target_dt).days
                             delta_str = f"{abs(delta_days)} יום {'מאחר' if delta_days > 0 else 'מקדים'}"
-                            st.metric("צפי סיום פרויקט", date_str, delta=delta_str)
-                        else:
-                            st.metric("צפי סיום פרויקט", date_str)
+                            delta_color = "color: #ef4444;" if delta_days > 0 else "color: #10b981;"
+                            delta_html = f'<div class="kpi-delta" style="{delta_color}">{delta_str}</div>'
+                        
+                        st.markdown(f"""
+                        <div class="kpi-card planned">
+                            <div class="kpi-icon">🎯</div>
+                            <div class="kpi-label">צפי סיום פרויקט</div>
+                            <div class="kpi-value">{date_str}</div>
+                            {delta_html}
+                        </div>
+                        """, unsafe_allow_html=True)
                     else:
-                        st.metric("צפי סיום פרויקט", "טרם חושב")
+                        st.markdown(f"""
+                        <div class="kpi-card">
+                            <div class="kpi-icon">🎯</div>
+                            <div class="kpi-label">צפי סיום פרויקט</div>
+                            <div class="kpi-value">טרם חושב</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                 
-                # פיננסים
+                # פיננסים - עם עיצוב מותאם אישית ואייקונים
                 st.subheader("💰 מצב פיננסי")
                 financial = get_project_financial_status(selected_plan_id)
                 
                 fin_col1, fin_col2, fin_col3 = st.columns(3)
+                
                 with fin_col1:
                     if financial["budget_limit"] > 0:
-                        st.metric("תקציב כולל", f"{financial['budget_limit']:,.0f} ₪")
+                        st.markdown(f"""
+                        <div class="kpi-card planned">
+                            <div class="kpi-icon">💰</div>
+                            <div class="kpi-label">תקציב כולל</div>
+                            <div class="kpi-value">{financial['budget_limit']:,.0f} ₪</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     else:
-                        st.metric("תקציב כולל", "לא הוגדר")
+                        st.markdown(f"""
+                        <div class="kpi-card">
+                            <div class="kpi-icon">💰</div>
+                            <div class="kpi-label">תקציב כולל</div>
+                            <div class="kpi-value">לא הוגדר</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                 
                 with fin_col2:
-                    st.metric("עלות נוכחית", f"{financial['current_cost']:,.0f} ₪")
+                    st.markdown(f"""
+                    <div class="kpi-card completed">
+                        <div class="kpi-icon">💸</div>
+                        <div class="kpi-label">עלות נוכחית</div>
+                        <div class="kpi-value">{financial['current_cost']:,.0f} ₪</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 
                 with fin_col3:
                     if financial["budget_limit"] > 0:
                         variance = financial["budget_variance"]
+                        variance_icon = "📉" if variance < 0 else "📊"
+                        variance_color = "color: #ef4444;" if variance < 0 else "color: #10b981;"
                         variance_label = f"{abs(variance):,.0f} ₪ {'יתרה' if variance >= 0 else 'חריגה'}"
-                        st.metric("יתרה/חריגה", variance_label, delta=None if variance >= 0 else variance_label)
+                        st.markdown(f"""
+                        <div class="kpi-card {'remaining' if variance < 0 else 'completed'}">
+                            <div class="kpi-icon">{variance_icon}</div>
+                            <div class="kpi-label">יתרה/חריגה</div>
+                            <div class="kpi-value" style="{variance_color}">{variance_label}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+                        <div class="kpi-card">
+                            <div class="kpi-icon">📊</div>
+                            <div class="kpi-label">יתרה/חריגה</div>
+                            <div class="kpi-value">לא ניתן לחשב</div>
+                        </div>
+                        """, unsafe_allow_html=True)
                 
                 # גרף התקדמות תקציבית
                 if financial["budget_limit"] > 0:
@@ -522,8 +702,23 @@ elif mode == "דיווח ביצוע (Worker)":
         else:
             wall_mask_binary = (thick_walls.sum(axis=2) > 0).astype(np.uint8) * 255
         
-        # הרחבת הקירות כדי שיהיו נראים יותר
-        kernel = np.ones((9, 9), np.uint8)
+        # הגדרת שקיפות - סליידר למשתמש
+        if 'wall_opacity' not in st.session_state:
+            st.session_state.wall_opacity = 0.3
+        
+        opacity_col1, opacity_col2 = st.columns([3, 1])
+        with opacity_col1:
+            wall_opacity = st.slider("שקיפות שכבה כחולה (קירות מתוכננים):", 0.0, 1.0, 
+                                     st.session_state.wall_opacity, 0.1, 
+                                     help="התאם את השקיפות כדי לראות טוב יותר את הקירות המתוכננים")
+            st.session_state.wall_opacity = wall_opacity
+        with opacity_col2:
+            st.markdown("<br>", unsafe_allow_html=True)  # יישור
+            st.caption(f"שקיפות: {int(wall_opacity * 100)}%")
+        
+        # הרחבת הקירות כדי שיהיו נראים יותר (עם hitbox גדול יותר)
+        # הגדלת ה-hitbox ל-15 פיקסלים במקום 9
+        kernel = np.ones((15, 15), np.uint8)
         wall_mask_thick = cv2.dilate(wall_mask_binary, kernel, iterations=2)
         
         # יצירת overlay כחול
@@ -536,8 +731,10 @@ elif mode == "דיווח ביצוע (Worker)":
         blue_mask_3d = wall_mask_thick[:, :, np.newaxis] / 255.0
         blue_overlay = (blue_overlay * blue_mask_3d).astype(np.uint8)
         
-        # מיזוג התמונה המקורית עם overlay כחול
-        combined = cv2.addWeighted(orig_rgb, 0.7, blue_overlay, 0.3, 0)
+        # מיזוג התמונה המקורית עם overlay כחול (עם שקיפות משתנה)
+        orig_weight = 1.0 - wall_opacity
+        blue_weight = wall_opacity
+        combined = cv2.addWeighted(orig_rgb, orig_weight, blue_overlay, blue_weight, 0)
         combined = np.clip(combined, 0, 255).astype(np.uint8)
         
         # התאמת גודל קנבס
@@ -835,9 +1032,10 @@ elif mode == "דיווח ביצוע (Worker)":
                 
                 # דיבאג: שמירת מידע גם על השטח (לצורך השוואה)
                 # הרחבת worker_mask למרווח טעות (רק לדיבאג)
-                kernel_worker = np.ones((9, 9), np.uint8)
+                # הגדלת ה-hitbox ל-15 פיקסלים במקום 9
+                kernel_worker = np.ones((15, 15), np.uint8)
                 worker_mask_dilated = cv2.dilate(worker_mask, kernel_worker, iterations=3)
-                wall_mask_dilated = cv2.dilate(wall_mask_thick_resized, kernel_worker, iterations=1)
+                wall_mask_dilated = cv2.dilate(wall_mask_thick_resized, kernel_worker, iterations=2)
                 intersection = cv2.bitwise_and(worker_mask_dilated, wall_mask_dilated)
                 intersection_pixels_canvas = cv2.countNonZero(intersection)
                 total_worker_pixels = cv2.countNonZero(worker_mask_dilated)
@@ -883,6 +1081,14 @@ elif mode == "דיווח ביצוע (Worker)":
 
     with col1:
             st.metric("נמדד לדיווח זה:", f"{meters_today:.2f} מטר")
+            
+            # הודעת עידוד בזמן אמת
+            if meters_today > 0:
+                st.markdown(f"""
+                <div class="success-message">
+                    ✅ סימנת בהצלחה {meters_today:.2f} מטרים!
+                </div>
+                """, unsafe_allow_html=True)
             
             # הצגת debug info תמיד (בגרסה מפורטת) אם יש קווים
             if canvas_result.json_data is not None and pd.json_normalize(canvas_result.json_data.get("objects", [])).shape[0] > 0:

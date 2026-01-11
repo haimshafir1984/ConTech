@@ -17,27 +17,7 @@ from database import (
 from brain import learn_from_confirmation, process_plan_metadata
 from datetime import datetime
 
-# --- 🛠️ טלאי לתיקון באג התמונה בקנבס (Monkey Patch) 🛠️ ---
-# קטע קוד זה מתקן את הבעיה שבה התמונה לא מופיעה (מסך לבן) בגרסאות חדשות של Streamlit
-import streamlit.elements.lib.image_utils as image_utils
-from streamlit.elements.lib.image_utils import image_to_url as original_image_to_url
-
-def patched_image_to_url(image, width, clamp, channels, output_format, image_id, allow_emoji=False):
-    # פונקציה זו מגשרת בין מה שהקנבס שולח לבין מה ש-Streamlit מצפה לקבל
-    return original_image_to_url(
-        image, 
-        width, 
-        clamp, 
-        channels, 
-        output_format, 
-        image_id
-        # הפרמטר allow_emoji מושמט בכוונה כי הוא גורם לקריסה בגרסאות מסוימות
-    )
-
-# החלפת הפונקציה המקורית בפונקציה המתוקנת
-image_utils.image_to_url = patched_image_to_url
-# -----------------------------------------------------------
-
+# --- הגדרות ראשוניות ---
 Image.MAX_IMAGE_PIXELS = None
 init_database()
 
@@ -268,7 +248,8 @@ if mode == "🏢 מנהל פרויקט":
                     st.success("נשמר!")
 
             with col_preview:
-                st.image(proj["skeleton"], caption="זיהוי קירות", use_container_width=True)
+                # שימוש ב-use_column_width שתואם ל-1.38.0
+                st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
                 if proj["total_length"] > 0:
                     mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
                     st.markdown("###### הערכה מהירה")
@@ -316,8 +297,11 @@ if mode == "🏢 מנהל פרויקט":
 
 elif mode == "👷 דיווח שטח":
     st.title("דיווח ביצוע")
-    st.caption(f"System Version: {st.__version__} | Patch Active: ✅")
     
+    # בדיקת גרסה ויזואלית
+    if st.__version__ != "1.38.0":
+        st.warning(f"⚠️ גרסה נוכחית: {st.__version__} | גרסה נדרשת: 1.38.0 (יש לבצע מחיקת אפליקציה)")
+
     if not st.session_state.projects:
         st.info("אין תוכניות זמינות.")
     else:
@@ -345,7 +329,6 @@ elif mode == "👷 דיווח שטח":
         combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0)
         combined = combined.astype(np.uint8)
         
-        # המרה ל-PIL ו-RGB כדי שהקנבס יוכל לקרוא את זה בוודאות
         bg_image = Image.fromarray(combined).convert("RGB")
         
         c_width = 1000
@@ -358,6 +341,7 @@ elif mode == "👷 דיווח שטח":
         
         canvas_key = f"canvas_{plan_name}_{opacity}"
         
+        # הקנבס בגרסה הנקייה
         canvas = st_canvas(
             stroke_width=5,
             stroke_color="#00FF00",

@@ -17,13 +17,7 @@ from database import (
 from brain import learn_from_confirmation, process_plan_metadata
 from datetime import datetime
 
-# תיקון תאימות תמונות
-try:
-    import streamlit.elements.image as st_image
-    from streamlit.elements.lib.image_utils import image_to_url
-    st_image.image_to_url = image_to_url
-except ImportError:
-    pass
+# --- מחקנו כאן את התיקון שהפריע לגרסה 1.38.0 ---
 
 Image.MAX_IMAGE_PIXELS = None
 init_database()
@@ -320,7 +314,7 @@ if mode == "🏢 מנהל פרויקט":
                     st.success("הנתונים נשמרו בהצלחה!")
 
             with col_preview:
-                # *** תיקון קריטי לגרסה 1.38.0: החלפת use_container_width ב-use_column_width ***
+                # שימוש ב-use_column_width שתואם ל-1.38
                 st.image(proj["skeleton"], caption="זיהוי קירות (תצוגה מקדימה)", use_column_width=True)
                 
                 # כרטיסי חומרים מהירים מתחת לתמונה
@@ -401,7 +395,7 @@ if mode == "🏢 מנהל פרויקט":
                 st.markdown("##### קצב התקדמות יומי")
                 df = load_stats_df()
                 if not df.empty:
-                    # סינון לפי התוכנית שנבחרה אם צריך, כרגע מציג הכל
+                    # שימוש ב-use_column_width לגרסאות ישנות
                     st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
                 else:
                     st.info("אין נתונים להצגה בגרף")
@@ -414,10 +408,8 @@ if mode == "🏢 מנהל פרויקט":
 elif mode == "👷 דיווח שטח":
     st.title("דיווח ביצוע")
     
-    # --- בדיקת גרסה (יופיע למעלה) ---
+    # בדיקת גרסה קטנה (רק כדי שתהיה רגוע שהתיקון עובד)
     st.caption(f"Streamlit Version: {st.__version__}")
-    if st.__version__ != "1.38.0":
-        st.error("⚠️ גרסת המערכת אינה תואמת! יש לבצע Reboot בלוח הבקרה.")
     
     if not st.session_state.projects:
         st.info("אין תוכניות זמינות. אנא פנה למנהל הפרויקט.")
@@ -449,7 +441,7 @@ elif mode == "👷 דיווח שטח":
         overlay[dilated_mask > 0] = [0, 120, 255] # כחול
         
         combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0)
-        combined = combined.astype(np.uint8) # חשוב מאוד!
+        combined = combined.astype(np.uint8)
         
         # המרה ל-PIL
         bg_image = Image.fromarray(combined).convert("RGB")
@@ -459,23 +451,19 @@ elif mode == "👷 דיווח שטח":
         factor = c_width / w
         c_height = int(h * factor)
         
-        # שינוי גודל לתמונה הסופית
         bg_image_resized = bg_image.resize((c_width, c_height))
         
-        # --- דיבאג ויזואלי (האם התמונה קיימת?) ---
-        st.markdown("### בדיקת תמונה (אם רואים כאן, הנתונים תקינים)")
-        st.image(bg_image_resized, caption="תצוגה רגילה (לא קנבס)", use_column_width=True)
+        # בדיקת תמונה מהירה
+        st.image(bg_image_resized, caption="תצוגת מקור", use_column_width=True)
         
-        st.markdown("---")
         st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
         
-        # שימוש ב-Key דינמי
         canvas_key = f"canvas_{plan_name}_{opacity}"
         
         canvas = st_canvas(
             stroke_width=5,
             stroke_color="#00FF00",
-            background_image=bg_image_resized, # מעבירים אובייקט PIL ולא Numpy
+            background_image=bg_image_resized,
             width=c_width,
             height=c_height,
             drawing_mode="line",
@@ -483,10 +471,8 @@ elif mode == "👷 דיווח שטח":
             update_streamlit=True
         )
         
-        # מכאן המשך הקוד הרגיל...
         meters = 0.0
         if canvas.json_data and canvas.json_data["objects"]:
-            # יצירת מסכת עובד בגודל קנבס
             w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
             df_obj = pd.json_normalize(canvas.json_data["objects"])
             

@@ -146,7 +146,8 @@ if mode == "🏢 מנהל פרויקט":
                     st.success("נשמר!")
 
             with col_preview:
-                st.image(proj["skeleton"], caption="זיהוי קירות", use_container_width=True)
+                # שימוש ב-use_column_width (מותאם לגרסה 1.38.0)
+                st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
                 if proj["total_length"] > 0:
                     mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
                     st.markdown("###### הערכה מהירה")
@@ -165,10 +166,8 @@ if mode == "🏢 מנהל פרויקט":
             forecast = get_project_forecast(selected_id)
             fin = get_project_financial_status(selected_id)
             
-            # --- טיפול בטוח בתצוגת ימים ---
             days_val = forecast['days_to_finish']
             days_left_display = days_val if days_val > 0 else "-"
-            # -----------------------------
 
             st.markdown("#### סטטוס ביצוע")
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
@@ -208,7 +207,7 @@ elif mode == "👷 דיווח שטח":
         overlay = np.zeros_like(orig_rgb)
         overlay[dilated_mask > 0] = [0, 120, 255]
         
-        # המרה בטוחה ל-RGB כדי למנוע מסך לבן
+        # המרה בטוחה ל-RGB
         combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
         bg_image = Image.fromarray(combined).convert("RGB")
         

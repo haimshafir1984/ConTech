@@ -414,6 +414,11 @@ if mode == "🏢 מנהל פרויקט":
 elif mode == "👷 דיווח שטח":
     st.title("דיווח ביצוע")
     
+    # --- בדיקת גרסה (יופיע למעלה) ---
+    st.caption(f"Streamlit Version: {st.__version__}")
+    if st.__version__ != "1.38.0":
+        st.error("⚠️ גרסת המערכת אינה תואמת! יש לבצע Reboot בלוח הבקרה.")
+    
     if not st.session_state.projects:
         st.info("אין תוכניות זמינות. אנא פנה למנהל הפרויקט.")
     else:
@@ -444,38 +449,41 @@ elif mode == "👷 דיווח שטח":
         overlay[dilated_mask > 0] = [0, 120, 255] # כחול
         
         combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0)
+        combined = combined.astype(np.uint8) # חשוב מאוד!
         
-        # המרה מפורשת ל-RGB uint8 (למניעת תקלות)
-        combined = combined.astype(np.uint8)
+        # המרה ל-PIL
+        bg_image = Image.fromarray(combined).convert("RGB")
         
         # קנבס
         c_width = 1000
         factor = c_width / w
         c_height = int(h * factor)
         
-        combined_res = cv2.resize(combined, (c_width, c_height))
+        # שינוי גודל לתמונה הסופית
+        bg_image_resized = bg_image.resize((c_width, c_height))
         
-        # --- בדיקת גיבוי: האם התמונה קיימת? ---
-        # אם אתה רואה את התמונה הזו אבל הקנבס למטה ריק -> הבעיה ברכיב הציור
-        # st.image(combined_res, caption="בדיקת מערכת - תמונת רקע", use_column_width=True)
+        # --- דיבאג ויזואלי (האם התמונה קיימת?) ---
+        st.markdown("### בדיקת תמונה (אם רואים כאן, הנתונים תקינים)")
+        st.image(bg_image_resized, caption="תצוגה רגילה (לא קנבס)", use_column_width=True)
         
+        st.markdown("---")
         st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
         
-        # שימוש ב-Key דינמי שמכריח ריענון כשמשנים פרמטרים
-        unique_key = f"worker_{plan_name}_{opacity}_{c_width}"
+        # שימוש ב-Key דינמי
+        canvas_key = f"canvas_{plan_name}_{opacity}"
         
         canvas = st_canvas(
             stroke_width=5,
             stroke_color="#00FF00",
-            background_image=Image.fromarray(combined_res),
+            background_image=bg_image_resized, # מעבירים אובייקט PIL ולא Numpy
             width=c_width,
             height=c_height,
             drawing_mode="line",
-            key=unique_key,
+            key=canvas_key,
             update_streamlit=True
         )
         
-        # חישוב ביצוע
+        # מכאן המשך הקוד הרגיל...
         meters = 0.0
         if canvas.json_data and canvas.json_data["objects"]:
             # יצירת מסכת עובד בגודל קנבס
@@ -483,41 +491,27 @@ elif mode == "👷 דיווח שטח":
             df_obj = pd.json_normalize(canvas.json_data["objects"])
             
             for _, obj in df_obj.iterrows():
-                # לוגיקה לטיפול בסוגים שונים של קווים
                 if 'left' in obj and 'top' in obj:
-                    # המרה פשוטה לקואורדינטות שלמות
                     l, t = int(obj['left']), int(obj['top'])
                     if 'x1' in obj:
                         p1 = (l + int(obj['x1']), t + int(obj['y1']))
                         p2 = (l + int(obj['x2']), t + int(obj['y2']))
                         cv2.line(w_mask, p1, p2, 255, 5)
 
-            # בדיקת חפיפה
             walls_res = cv2.resize(dilated_mask, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
             intersection = cv2.bitwise_and(w_mask, walls_res)
-            
             pixels = cv2.countNonZero(intersection)
             
             if proj["scale"] > 0:
                 meters = (pixels / factor) / proj["scale"]
             
             st.success(f"✅ נמדדו: **{meters:.2f} מטר**")
-            
-            # דיבאג אם יש ציור אבל אין מדידה
-            if meters == 0 and cv2.countNonZero(w_mask) > 0:
-                 st.warning("⚠️ הקו שציירת לא נוגע בקירות הכחולים. נסה לדייק יותר.")
 
             note = st.text_input("הערה לדיווח")
             if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):
                  from database import get_plan_by_filename, save_plan
                  rec = get_plan_by_filename(plan_name)
-                 
-                 pid = rec['id'] if rec else save_plan(
-                     plan_name, 
-                     proj["metadata"].get("plan_name", plan_name), 
-                     "", proj["scale"], proj["raw_pixels"], "{}", proj["scale"]
-                 )
-                 
+                 pid = rec['id'] if rec else save_plan(plan_name, proj["metadata"].get("plan_name", plan_name), "", proj["scale"], proj["raw_pixels"], "{}", proj["scale"])
                  save_progress_report(pid, meters, note)
                  st.balloons()
                  st.success("הדיווח נשלח בהצלחה!")

@@ -8,10 +8,11 @@ import tempfile
 import os
 import json
 from streamlit_drawable_canvas import st_canvas
+# --- התיקון כאן: הורדנו את calculate_velocity מהרשימה ---
 from database import (
     init_database, save_plan, save_progress_report, 
     get_progress_reports, get_plan_by_filename, get_plan_by_id, get_all_plans,
-    calculate_velocity, get_project_forecast, 
+    get_project_forecast, 
     calculate_material_estimates, get_project_financial_status, reset_all_data
 )
 from brain import learn_from_confirmation, process_plan_metadata
@@ -300,7 +301,7 @@ elif mode == "👷 דיווח שטח":
     
     # בדיקת גרסה ויזואלית
     if st.__version__ != "1.38.0":
-        st.warning(f"⚠️ גרסה נוכחית: {st.__version__} | גרסה נדרשת: 1.38.0 (יש לבצע מחיקת אפליקציה)")
+        st.warning(f"⚠️ גרסה נוכחית: {st.__version__} | גרסה נדרשת: 1.38.0")
 
     if not st.session_state.projects:
         st.info("אין תוכניות זמינות.")

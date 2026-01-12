@@ -246,11 +246,9 @@ elif mode == "👷 דיווח שטח":
             overlay[dilated > 0] = [0, 120, 255]
             
             combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
-            bg_image = Image.fromarray(combined).convert("RGB")
             
-            # --- תיקון חשוב: הקטנת גודל הקנבס למניעת בעיות זיכרון ---
-            # במקום 1000, נשתמש בגודל מותאם שלא יעבור את מגבלת Streamlit Cloud
-            max_canvas_width = 800  # הקטנה מ-1000 ל-800
+            # --- תיקון קריטי: הקטנת גודל הקנבס למניעת בעיות זיכרון ---
+            max_canvas_width = 800
             if w > max_canvas_width:
                 factor = max_canvas_width / w
                 c_width = max_canvas_width
@@ -265,22 +263,25 @@ elif mode == "👷 דיווח שטח":
                 st.session_state.canvas_factor = {}
             st.session_state.canvas_factor[plan_name] = factor
             
-            bg_image_resized = bg_image.resize((c_width, c_height), Image.Resampling.LANCZOS)
+            # המרה ושינוי גודל
+            combined_resized = cv2.resize(combined, (c_width, c_height), interpolation=cv2.INTER_AREA)
+            # combined כבר RGB, אז פשוט נהפוך ל-PIL Image
+            bg_image = Image.fromarray(combined_resized)
             
             st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
             st.caption(f"גודל קנבס: {c_width}x{c_height} פיקסלים")
             
-            # --- תיקון חשוב: שימוש במפתח יציב ---
+            # --- מפתח יציב ---
             canvas_key = f"canvas_{plan_name}"
             
             canvas = st_canvas(
-                fill_color="rgba(0, 0, 0, 0)",  # שקוף
-                stroke_width=8,  # הגדלה ל-8 לנראות טובה יותר
+                fill_color="rgba(0, 0, 0, 0)",
+                stroke_width=8,
                 stroke_color="#00FF00", 
-                background_image=bg_image_resized,
+                background_image=bg_image,
                 width=c_width, 
                 height=c_height, 
-                drawing_mode="freedraw",  # שינוי ל-freedraw לחוויה טובה יותר
+                drawing_mode="freedraw",
                 point_display_radius=0,
                 key=canvas_key, 
                 update_streamlit=True

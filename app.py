@@ -3,21 +3,14 @@ import sys
 import types
 
 # --- 🛠️ התיקון המנצח (The Magic Patch) 🛠️ ---
-# קטע זה מתקן את הבעיה בטעינת תמונות בקנבס בגרסאות חדשות של Streamlit
 try:
     from streamlit.elements.lib.image_utils import image_to_url
-    
-    # יצירת מודול מדומה אם הוא חסר, כדי שהקנבס ימצא את מה שהוא מחפש
     if "streamlit.elements.image" not in sys.modules:
         sys.modules["streamlit.elements.image"] = types.ModuleType("streamlit.elements.image")
-    
-    # הזרקת הפונקציה למקום שהקנבס מחפש אותה
     import streamlit.elements.image
     streamlit.elements.image.image_to_url = image_to_url
-
 except ImportError:
-    pass # אם אנחנו בגרסה שזה לא נדרש, מדלגים
-# ---------------------------------------------
+    pass
 
 from PIL import Image
 import cv2
@@ -34,12 +27,21 @@ from database import (
     get_project_forecast, 
     calculate_material_estimates, get_project_financial_status, reset_all_data
 )
-from brain import learn_from_confirmation, process_plan_metadata
 from datetime import datetime
 
 # --- הגדרות ראשוניות ---
 Image.MAX_IMAGE_PIXELS = None
 init_database()
+
+# --- פונקציית עזר לטיפול בקובץ brain.py חסר ---
+def safe_process_metadata(raw_text):
+    """ניסיון לעבד מטא-דאטה עם fallback אם brain.py חסר"""
+    try:
+        from brain import process_plan_metadata
+        return process_plan_metadata(raw_text)
+    except (ImportError, Exception) as e:
+        st.warning(f"AI metadata processing unavailable: {str(e)}")
+        return {}
 
 def load_stats_df():
     reports = get_progress_reports()
@@ -110,35 +112,42 @@ if mode == "🏢 מנהל פרויקט":
         if files:
             for f in files:
                 if f.name not in st.session_state.projects:
-                    with st.spinner(f"מפענח את {f.name} באמצעות AI..."):
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                            tmp.write(f.getvalue())
-                            path = tmp.name
-                        analyzer = FloorPlanAnalyzer()
-                        pix, skel, thick, orig, meta = analyzer.process_file(path)
-                        if not meta.get("plan_name"): meta["plan_name"] = f.name.replace(".pdf", "").replace("-", " ").strip()
-                        raw_text = meta.get("raw_text", "")
-                        llm_metadata = {}
-                        if raw_text:
-                            try:
-                                llm_metadata = process_plan_metadata(raw_text)
-                                if llm_metadata.get("plan_name"): meta["plan_name"] = llm_metadata["plan_name"]
-                                if llm_metadata.get("scale"): meta["scale"] = llm_metadata["scale"]
-                            except: pass
-                        st.session_state.projects[f.name] = {
-                            "skeleton": skel, "thick_walls": thick, "original": orig,
-                            "raw_pixels": pix, "scale": 200.0, "metadata": meta,
-                            "total_length": pix / 200.0, "llm_suggestions": llm_metadata
-                        }
-                        os.unlink(path)
+                    with st.spinner(f"מפענח את {f.name}..."):
+                        try:
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                                tmp.write(f.getvalue())
+                                path = tmp.name
+                            analyzer = FloorPlanAnalyzer()
+                            pix, skel, thick, orig, meta = analyzer.process_file(path)
+                            if not meta.get("plan_name"): 
+                                meta["plan_name"] = f.name.replace(".pdf", "").replace("-", " ").strip()
+                            
+                            raw_text = meta.get("raw_text", "")
+                            llm_metadata = {}
+                            if raw_text:
+                                llm_metadata = safe_process_metadata(raw_text)
+                                if llm_metadata.get("plan_name"): 
+                                    meta["plan_name"] = llm_metadata["plan_name"]
+                                if llm_metadata.get("scale"): 
+                                    meta["scale"] = llm_metadata["scale"]
+                            
+                            st.session_state.projects[f.name] = {
+                                "skeleton": skel, "thick_walls": thick, "original": orig,
+                                "raw_pixels": pix, "scale": 200.0, "metadata": meta,
+                                "total_length": pix / 200.0, "llm_suggestions": llm_metadata
+                            }
+                            os.unlink(path)
+                            st.success(f"✅ {f.name} נטען בהצלחה")
+                        except Exception as e:
+                            st.error(f"❌ שגיאה בטעינת {f.name}: {str(e)}")
 
         if st.session_state.projects:
             st.markdown("---")
             selected = st.selectbox("בחר תוכנית לעריכה:", options=list(st.session_state.projects.keys()))
             proj = st.session_state.projects[selected]
-            name_key = f"n_{selected}"
-            scale_key = f"s_{selected}"
-            if name_key not in st.session_state: st.session_state[name_key] = proj["metadata"].get("plan_name", selected.replace(".pdf", ""))
+            name_key = f"name_{selected}"
+            scale_key = f"scale_{selected}"
+            if name_key not in st.session_state: st.session_state[name_key] = proj["metadata"].get("plan_name", "")
             if scale_key not in st.session_state: st.session_state[scale_key] = proj["metadata"].get("scale", "")
 
             col_edit, col_preview = st.columns([1, 1.5])
@@ -210,68 +219,138 @@ if mode == "🏢 מנהל פרויקט":
 
 elif mode == "👷 דיווח שטח":
     st.title("דיווח ביצוע")
-    if not st.session_state.projects: st.info("אין תוכניות זמינות.")
+    if not st.session_state.projects: 
+        st.info("אין תוכניות זמינות. עבור למנהל פרויקט להעלאת תוכניות.")
     else:
         plan_name = st.selectbox("בחר תוכנית:", list(st.session_state.projects.keys()))
         proj = st.session_state.projects[plan_name]
-        orig_rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
-        h, w = orig_rgb.shape[:2]
-        thick_walls = proj["thick_walls"]
-        if thick_walls.shape[:2] != (h, w): thick_walls = cv2.resize(thick_walls, (w, h), interpolation=cv2.INTER_NEAREST)
-        kernel = np.ones((15, 15), np.uint8)
         
-        # --- כאן היה התיקון: אחידות בשם המשתנה 'dilated' ---
-        dilated = cv2.dilate((thick_walls > 0).astype(np.uint8) * 255, kernel, iterations=2)
-        
-        col_opacity, col_spacer = st.columns([2, 1])
-        with col_opacity: opacity = st.slider("עוצמת הדגשת קירות", 0.0, 1.0, 0.4)
-        overlay = np.zeros_like(orig_rgb)
-        
-        # עכשיו המשתנה dilated מוגדר וקיים
-        overlay[dilated > 0] = [0, 120, 255]
-        
-        combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
-        bg_image = Image.fromarray(combined).convert("RGB")
-        
-        c_width = 1000
-        factor = c_width / w
-        c_height = int(h * factor)
-        bg_image_resized = bg_image.resize((c_width, c_height))
-        
-        st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
-        canvas_key = f"canvas_{plan_name}_{opacity}"
-        canvas = st_canvas(
-            stroke_width=5, 
-            stroke_color="#00FF00", 
-            background_image=bg_image_resized,
-            width=c_width, 
-            height=c_height, 
-            drawing_mode="line", 
-            key=canvas_key, 
-            update_streamlit=True
-        )
-        
-        if canvas.json_data and canvas.json_data["objects"]:
-            w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
-            df_obj = pd.json_normalize(canvas.json_data["objects"])
-            for _, obj in df_obj.iterrows():
-                if 'left' in obj and 'top' in obj:
-                    l, t = int(obj['left']), int(obj['top'])
-                    if 'x1' in obj:
-                        p1 = (l + int(obj['x1']), t + int(obj['y1']))
-                        p2 = (l + int(obj['x2']), t + int(obj['y2']))
-                        cv2.line(w_mask, p1, p2, 255, 5)
-            walls_res = cv2.resize(dilated, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
-            intersection = cv2.bitwise_and(w_mask, walls_res)
-            pixels = cv2.countNonZero(intersection)
-            meters = (pixels / factor) / proj["scale"] if proj["scale"] > 0 else 0
+        try:
+            orig_rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
+            h, w = orig_rgb.shape[:2]
+            thick_walls = proj["thick_walls"]
             
-            st.success(f"✅ נמדדו: **{meters:.2f} מטר**")
-            note = st.text_input("הערה לדיווח")
-            if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):
-                 from database import get_plan_by_filename, save_plan
-                 rec = get_plan_by_filename(plan_name)
-                 pid = rec['id'] if rec else save_plan(plan_name, proj["metadata"].get("plan_name", plan_name), "", proj["scale"], proj["raw_pixels"], "{}", proj["scale"])
-                 save_progress_report(pid, meters, note)
-                 st.balloons()
-                 st.success("הדיווח נשלח!")
+            # וידוא שהממדים תואמים
+            if thick_walls.shape[:2] != (h, w): 
+                thick_walls = cv2.resize(thick_walls, (w, h), interpolation=cv2.INTER_NEAREST)
+            
+            # --- תיקון: הגדרת המשתנה dilated ---
+            kernel = np.ones((15, 15), np.uint8)
+            dilated = cv2.dilate((thick_walls > 0).astype(np.uint8) * 255, kernel, iterations=2)
+            
+            col_opacity, col_spacer = st.columns([2, 1])
+            with col_opacity: 
+                opacity = st.slider("עוצמת הדגשת קירות", 0.0, 1.0, 0.4)
+            
+            overlay = np.zeros_like(orig_rgb)
+            overlay[dilated > 0] = [0, 120, 255]
+            
+            combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
+            bg_image = Image.fromarray(combined).convert("RGB")
+            
+            # --- תיקון חשוב: הקטנת גודל הקנבס למניעת בעיות זיכרון ---
+            # במקום 1000, נשתמש בגודל מותאם שלא יעבור את מגבלת Streamlit Cloud
+            max_canvas_width = 800  # הקטנה מ-1000 ל-800
+            if w > max_canvas_width:
+                factor = max_canvas_width / w
+                c_width = max_canvas_width
+                c_height = int(h * factor)
+            else:
+                c_width = w
+                c_height = h
+                factor = 1.0
+            
+            # שמירת הפקטור בסשן סטייט לשימוש בחישובים
+            if 'canvas_factor' not in st.session_state:
+                st.session_state.canvas_factor = {}
+            st.session_state.canvas_factor[plan_name] = factor
+            
+            bg_image_resized = bg_image.resize((c_width, c_height), Image.Resampling.LANCZOS)
+            
+            st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
+            st.caption(f"גודל קנבס: {c_width}x{c_height} פיקסלים")
+            
+            # --- תיקון חשוב: שימוש במפתח יציב ---
+            canvas_key = f"canvas_{plan_name}"
+            
+            canvas = st_canvas(
+                fill_color="rgba(0, 0, 0, 0)",  # שקוף
+                stroke_width=8,  # הגדלה ל-8 לנראות טובה יותר
+                stroke_color="#00FF00", 
+                background_image=bg_image_resized,
+                width=c_width, 
+                height=c_height, 
+                drawing_mode="freedraw",  # שינוי ל-freedraw לחוויה טובה יותר
+                point_display_radius=0,
+                key=canvas_key, 
+                update_streamlit=True
+            )
+            
+            if canvas.json_data is not None and canvas.json_data.get("objects"):
+                try:
+                    w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
+                    df_obj = pd.json_normalize(canvas.json_data["objects"])
+                    
+                    for _, obj in df_obj.iterrows():
+                        # טיפול בשני סוגי אובייקטים: line ו-path
+                        if 'path' in obj:  # freedraw
+                            path = obj['path']
+                            if isinstance(path, list) and len(path) > 0:
+                                points = []
+                                for p in path:
+                                    if isinstance(p, list) and len(p) >= 3:
+                                        points.append([int(p[1]), int(p[2])])
+                                if len(points) > 1:
+                                    points = np.array(points, dtype=np.int32)
+                                    cv2.polylines(w_mask, [points], False, 255, 8)
+                        
+                        elif 'left' in obj and 'top' in obj and 'x1' in obj:  # line mode
+                            l, t = int(obj['left']), int(obj['top'])
+                            p1 = (l + int(obj['x1']), t + int(obj['y1']))
+                            p2 = (l + int(obj['x2']), t + int(obj['y2']))
+                            cv2.line(w_mask, p1, p2, 255, 8)
+                    
+                    # שינוי גודל של dilated לגודל הקנבס
+                    walls_res = cv2.resize(dilated, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
+                    intersection = cv2.bitwise_and(w_mask, walls_res)
+                    pixels = cv2.countNonZero(intersection)
+                    
+                    # חישוב מטרים - תיקון החישוב
+                    if proj["scale"] > 0 and factor > 0:
+                        meters = (pixels / factor) / proj["scale"]
+                    else:
+                        meters = 0
+                    
+                    if meters > 0:
+                        st.success(f"✅ נמדדו: **{meters:.2f} מטר**")
+                        note = st.text_input("הערה לדיווח (אופציונלי)")
+                        
+                        if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):
+                            rec = get_plan_by_filename(plan_name)
+                            if rec:
+                                pid = rec['id']
+                            else:
+                                # יצירת רשומה חדשה אם לא קיימת
+                                pid = save_plan(
+                                    plan_name, 
+                                    proj["metadata"].get("plan_name", plan_name), 
+                                    proj["metadata"].get("scale", ""), 
+                                    proj["scale"], 
+                                    proj["raw_pixels"], 
+                                    json.dumps(proj["metadata"], ensure_ascii=False)
+                                )
+                            
+                            save_progress_report(pid, meters, note)
+                            st.balloons()
+                            st.success("הדיווח נשלח בהצלחה!")
+                    else:
+                        st.info("⏳ סמן על הקירות כדי לחשב את המדידה")
+                        
+                except Exception as e:
+                    st.error(f"שגיאה בעיבוד הציור: {str(e)}")
+            else:
+                st.info("⏳ התחל לצייר על הקנבס")
+                
+        except Exception as e:
+            st.error(f"❌ שגיאה בטעינת הקנבס: {str(e)}")
+            st.info("נסה לרענן את הדף או לבחור תוכנית אחרת")

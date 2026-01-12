@@ -1,17 +1,4 @@
 import streamlit as st
-import sys
-import types
-
-# --- 🛠️ התיקון המנצח (The Magic Patch) 🛠️ ---
-try:
-    from streamlit.elements.lib.image_utils import image_to_url
-    if "streamlit.elements.image" not in sys.modules:
-        sys.modules["streamlit.elements.image"] = types.ModuleType("streamlit.elements.image")
-    import streamlit.elements.image
-    streamlit.elements.image.image_to_url = image_to_url
-except ImportError:
-    pass
-
 from PIL import Image
 import cv2
 import numpy as np
@@ -20,8 +7,6 @@ from analyzer import FloorPlanAnalyzer
 import tempfile
 import os
 import json
-import base64
-from io import BytesIO
 from streamlit_drawable_canvas import st_canvas
 from database import (
     init_database, save_plan, save_progress_report, 
@@ -37,12 +22,10 @@ init_database()
 
 # --- פונקציית עזר לטיפול בקובץ brain.py חסר ---
 def safe_process_metadata(raw_text):
-    """ניסיון לעבד מטא-דאטה עם fallback אם brain.py חסר"""
     try:
         from brain import process_plan_metadata
         return process_plan_metadata(raw_text)
-    except (ImportError, Exception) as e:
-        st.warning(f"AI metadata processing unavailable: {str(e)}")
+    except (ImportError, Exception):
         return {}
 
 def load_stats_df():
@@ -64,17 +47,12 @@ st.markdown("""
     :root { --primary-blue: #0F62FE; --bg-gray: #F4F7F6; --card-border: #E0E0E0; --text-dark: #161616; --text-meta: #6F6F6F; }
     .stCard { background-color: white; padding: 24px; border-radius: 12px; border: 1px solid var(--card-border); box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; }
     .kpi-container { display: flex; flex-direction: column; background: white; padding: 20px; border-radius: 12px; border: 1px solid #EAEAEA; box-shadow: 0 4px 12px rgba(0,0,0,0.03); height: 100%; }
-    .kpi-icon { font-size: 24px; margin-bottom: 12px; background: #F0F5FF; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
-    .kpi-label { font-size: 14px; color: var(--text-meta); font-weight: 500; }
-    .kpi-value { font-size: 28px; font-weight: 700; color: var(--text-dark); margin-top: 4px; }
-    .kpi-sub { font-size: 13px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #F0F0F0; }
     .mat-card { text-align: center; background: white; border: 1px solid #EEE; border-radius: 10px; padding: 15px; }
     .mat-val { font-size: 20px; font-weight: bold; color: var(--primary-blue); }
     .mat-lbl { font-size: 14px; color: #666; }
     .stTextInput label, .stNumberInput label, .stSelectbox label, .stDateInput label { text-align: right !important; width: 100%; direction: rtl; }
     .stButton button { border-radius: 8px; font-weight: 500; height: 45px; }
     section[data-testid="stSidebar"] { background-color: #FAFAFA; border-left: 1px solid #EEE; }
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -232,11 +210,9 @@ elif mode == "👷 דיווח שטח":
             h, w = orig_rgb.shape[:2]
             thick_walls = proj["thick_walls"]
             
-            # וידוא שהממדים תואמים
             if thick_walls.shape[:2] != (h, w): 
                 thick_walls = cv2.resize(thick_walls, (w, h), interpolation=cv2.INTER_NEAREST)
             
-            # --- תיקון: הגדרת המשתנה dilated ---
             kernel = np.ones((15, 15), np.uint8)
             dilated = cv2.dilate((thick_walls > 0).astype(np.uint8) * 255, kernel, iterations=2)
             
@@ -248,8 +224,9 @@ elif mode == "👷 דיווח שטח":
             overlay[dilated > 0] = [0, 120, 255]
             
             combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
+            bg_image = Image.fromarray(combined).convert("RGB")
             
-            # --- תיקון קריטי: הקטנת גודל הקנבס למניעת בעיות זיכרון ---
+            # --- הקטנת תמונה למניעת עומס ---
             max_canvas_width = 800
             if w > max_canvas_width:
                 factor = max_canvas_width / w
@@ -260,79 +237,34 @@ elif mode == "👷 דיווח שטח":
                 c_height = h
                 factor = 1.0
             
-            # שמירת הפקטור בסשן סטייט לשימוש בחישובים
-            if 'canvas_factor' not in st.session_state:
-                st.session_state.canvas_factor = {}
-            st.session_state.canvas_factor[plan_name] = factor
-            
-            # וידוא שהערכים הם integers
-            c_width = int(c_width)
-            c_height = int(c_height)
-            
-            # המרה ושינוי גודל - חשוב! combined כבר RGB
-            combined_resized = cv2.resize(combined, (c_width, c_height), interpolation=cv2.INTER_AREA)
-            
-            # וידוא שהמערך הוא uint8
-            if combined_resized.dtype != np.uint8:
-                combined_resized = combined_resized.astype(np.uint8)
-            
-            # המרה ל-PIL Image
-            bg_image_pil = Image.fromarray(combined_resized, mode='RGB')
+            bg_image_resized = bg_image.resize((c_width, c_height), Image.Resampling.LANCZOS)
             
             st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
-            st.caption(f"גודל קנבס: {c_width}x{c_height} | תמונה: {bg_image_pil.size} | מצב: {bg_image_pil.mode}")
+            st.caption(f"גודל קנבס: {c_width}x{c_height} פיקסלים")
             
-            # --- מפתח יציב ---
             canvas_key = f"canvas_{plan_name}"
             
-            try:
-                # שימוש ב-PIL Image - הדרך התקנית
-                canvas = st_canvas(
-                    fill_color="rgba(0, 0, 0, 0)",
-                    stroke_width=8,
-                    stroke_color="#00FF00", 
-                    background_image=bg_image_pil,
-                    height=c_height,  # חשוב: height לפני width
-                    width=c_width,
-                    drawing_mode="freedraw",
-                    point_display_radius=0,
-                    key=canvas_key, 
-                    update_streamlit=True
-                )
-                st.success("✅ הקנבס נטען בהצלחה")
-            except AttributeError as e:
-                if "'str' object has no attribute" in str(e):
-                    st.error("השגיאה מצביעה על בעיית גרסה. מנסה numpy array...")
-                    try:
-                        canvas = st_canvas(
-                            stroke_width=8,
-                            stroke_color="#00FF00", 
-                            background_image=combined_resized,  # numpy array
-                            height=c_height,
-                            width=c_width,
-                            drawing_mode="freedraw",
-                            key=f"{canvas_key}_numpy", 
-                            update_streamlit=True
-                        )
-                        st.success("✅ הקנבס נטען עם numpy array")
-                    except Exception as e2:
-                        st.error(f"numpy גם לא עבד: {str(e2)}")
-                        canvas = None
-                else:
-                    st.error(f"שגיאה: {str(e)}")
-                    canvas = None
-            except Exception as canvas_error:
-                st.error(f"❌ שגיאה בטעינת הקנבס: {str(canvas_error)}")
-                canvas = None
+            # העברת אובייקט תמונה תקין (PIL Image)
+            canvas = st_canvas(
+                fill_color="rgba(0, 0, 0, 0)",
+                stroke_width=8,
+                stroke_color="#00FF00", 
+                background_image=bg_image_resized,
+                height=c_height,
+                width=c_width,
+                drawing_mode="freedraw",
+                point_display_radius=0,
+                key=canvas_key, 
+                update_streamlit=True
+            )
             
-            if canvas and canvas.json_data is not None and canvas.json_data.get("objects"):
+            if canvas.json_data is not None and canvas.json_data.get("objects"):
                 try:
                     w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
                     df_obj = pd.json_normalize(canvas.json_data["objects"])
                     
                     for _, obj in df_obj.iterrows():
-                        # טיפול בשני סוגי אובייקטים: line ו-path
-                        if 'path' in obj:  # freedraw
+                        if 'path' in obj:
                             path = obj['path']
                             if isinstance(path, list) and len(path) > 0:
                                 points = []
@@ -343,18 +275,16 @@ elif mode == "👷 דיווח שטח":
                                     points = np.array(points, dtype=np.int32)
                                     cv2.polylines(w_mask, [points], False, 255, 8)
                         
-                        elif 'left' in obj and 'top' in obj and 'x1' in obj:  # line mode
+                        elif 'left' in obj and 'top' in obj and 'x1' in obj:
                             l, t = int(obj['left']), int(obj['top'])
                             p1 = (l + int(obj['x1']), t + int(obj['y1']))
                             p2 = (l + int(obj['x2']), t + int(obj['y2']))
                             cv2.line(w_mask, p1, p2, 255, 8)
                     
-                    # שינוי גודל של dilated לגודל הקנבס
                     walls_res = cv2.resize(dilated, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
                     intersection = cv2.bitwise_and(w_mask, walls_res)
                     pixels = cv2.countNonZero(intersection)
                     
-                    # חישוב מטרים - תיקון החישוב
                     if proj["scale"] > 0 and factor > 0:
                         meters = (pixels / factor) / proj["scale"]
                     else:
@@ -369,7 +299,6 @@ elif mode == "👷 דיווח שטח":
                             if rec:
                                 pid = rec['id']
                             else:
-                                # יצירת רשומה חדשה אם לא קיימת
                                 pid = save_plan(
                                     plan_name, 
                                     proj["metadata"].get("plan_name", plan_name), 

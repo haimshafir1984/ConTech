@@ -3,7 +3,7 @@ import sys
 import types
 
 # --- 🛠️ התיקון המנצח (The Magic Patch) 🛠️ ---
-# זה מתקן את הניתוק בין Streamlit לקנבס באופן כירורגי
+# קטע זה מתקן את הבעיה בטעינת תמונות בקנבס בגרסאות חדשות של Streamlit
 try:
     from streamlit.elements.lib.image_utils import image_to_url
     
@@ -16,7 +16,7 @@ try:
     streamlit.elements.image.image_to_url = image_to_url
 
 except ImportError:
-    pass # אם אנחנו בגרסה ישנה שזה לא צריך, ממשיכים הלאה
+    pass # אם אנחנו בגרסה שזה לא נדרש, מדלגים
 # ---------------------------------------------
 
 from PIL import Image
@@ -219,11 +219,15 @@ elif mode == "👷 דיווח שטח":
         thick_walls = proj["thick_walls"]
         if thick_walls.shape[:2] != (h, w): thick_walls = cv2.resize(thick_walls, (w, h), interpolation=cv2.INTER_NEAREST)
         kernel = np.ones((15, 15), np.uint8)
-        dilated_mask = cv2.dilate((thick_walls > 0).astype(np.uint8) * 255, kernel, iterations=2)
+        
+        # --- כאן היה התיקון: אחידות בשם המשתנה 'dilated' ---
+        dilated = cv2.dilate((thick_walls > 0).astype(np.uint8) * 255, kernel, iterations=2)
         
         col_opacity, col_spacer = st.columns([2, 1])
         with col_opacity: opacity = st.slider("עוצמת הדגשת קירות", 0.0, 1.0, 0.4)
         overlay = np.zeros_like(orig_rgb)
+        
+        # עכשיו המשתנה dilated מוגדר וקיים
         overlay[dilated > 0] = [0, 120, 255]
         
         combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
@@ -251,11 +255,13 @@ elif mode == "👷 דיווח שטח":
             w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
             df_obj = pd.json_normalize(canvas.json_data["objects"])
             for _, obj in df_obj.iterrows():
-                if 'left' in obj:
-                    p1 = (int(obj['left'] + obj.get('x1', 0)), int(obj['top'] + obj.get('y1', 0)))
-                    p2 = (int(obj['left'] + obj.get('x2', 0)), int(obj['top'] + obj.get('y2', 0)))
-                    cv2.line(w_mask, p1, p2, 255, 5)
-            walls_res = cv2.resize(dilated_mask, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
+                if 'left' in obj and 'top' in obj:
+                    l, t = int(obj['left']), int(obj['top'])
+                    if 'x1' in obj:
+                        p1 = (l + int(obj['x1']), t + int(obj['y1']))
+                        p2 = (l + int(obj['x2']), t + int(obj['y2']))
+                        cv2.line(w_mask, p1, p2, 255, 5)
+            walls_res = cv2.resize(dilated, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
             intersection = cv2.bitwise_and(w_mask, walls_res)
             pixels = cv2.countNonZero(intersection)
             meters = (pixels / factor) / proj["scale"] if proj["scale"] > 0 else 0

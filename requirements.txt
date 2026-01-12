@@ -1,22 +1,8 @@
-# Core Streamlit
-streamlit>=1.38.0
-
-# Canvas component - גרסה תואמת
-streamlit-drawable-canvas>=0.9.3
-
-# Computer Vision
-opencv-python-headless>=4.8.0.74
-Pillow>=10.0.0
-
-# Data Processing
-pandas>=2.0.0
-numpy>=1.24.0
-
-# PDF Processing
-PyMuPDF>=1.23.0
-
-# Optional: AI/LLM (אם יש לך)
-# groq>=0.4.0
-
-# Development
-watchdog>=3.0.0
+streamlit==1.38.0
+streamlit-drawable-canvas==0.9.3
+opencv-python-headless==4.8.1.78
+Pillow==10.3.0
+pandas==2.0.3
+numpy==1.24.4
+PyMuPDF==1.23.26
+watchdog==3.0.0

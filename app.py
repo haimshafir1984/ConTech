@@ -269,43 +269,60 @@ elif mode == "👷 דיווח שטח":
             c_width = int(c_width)
             c_height = int(c_height)
             
-            # המרה ושינוי גודל
+            # המרה ושינוי גודל - חשוב! combined כבר RGB
             combined_resized = cv2.resize(combined, (c_width, c_height), interpolation=cv2.INTER_AREA)
             
-            # המרה ל-PIL Image
-            bg_image_pil = Image.fromarray(combined_resized.astype('uint8'), mode='RGB')
+            # וידוא שהמערך הוא uint8
+            if combined_resized.dtype != np.uint8:
+                combined_resized = combined_resized.astype(np.uint8)
             
-            # המרה ל-base64 - הפתרון הכי יציב לכל הגרסאות!
-            buffered = BytesIO()
-            bg_image_pil.save(buffered, format="PNG", optimize=False)
-            img_base64 = base64.b64encode(buffered.getvalue()).decode()
-            background_data_url = f"data:image/png;base64,{img_base64}"
+            # המרה ל-PIL Image
+            bg_image_pil = Image.fromarray(combined_resized, mode='RGB')
             
             st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
-            st.caption(f"גודל קנבס: {c_width}x{c_height} פיקסלים")
+            st.caption(f"גודל קנבס: {c_width}x{c_height} | תמונה: {bg_image_pil.size} | מצב: {bg_image_pil.mode}")
             
             # --- מפתח יציב ---
             canvas_key = f"canvas_{plan_name}"
             
             try:
+                # שימוש ב-PIL Image - הדרך התקנית
                 canvas = st_canvas(
                     fill_color="rgba(0, 0, 0, 0)",
                     stroke_width=8,
                     stroke_color="#00FF00", 
-                    background_image=None,
-                    width=c_width, 
-                    height=c_height, 
+                    background_image=bg_image_pil,
+                    height=c_height,  # חשוב: height לפני width
+                    width=c_width,
                     drawing_mode="freedraw",
                     point_display_radius=0,
                     key=canvas_key, 
                     update_streamlit=True
                 )
+                st.success("✅ הקנבס נטען בהצלחה")
+            except AttributeError as e:
+                if "'str' object has no attribute" in str(e):
+                    st.error("השגיאה מצביעה על בעיית גרסה. מנסה numpy array...")
+                    try:
+                        canvas = st_canvas(
+                            stroke_width=8,
+                            stroke_color="#00FF00", 
+                            background_image=combined_resized,  # numpy array
+                            height=c_height,
+                            width=c_width,
+                            drawing_mode="freedraw",
+                            key=f"{canvas_key}_numpy", 
+                            update_streamlit=True
+                        )
+                        st.success("✅ הקנבס נטען עם numpy array")
+                    except Exception as e2:
+                        st.error(f"numpy גם לא עבד: {str(e2)}")
+                        canvas = None
+                else:
+                    st.error(f"שגיאה: {str(e)}")
+                    canvas = None
             except Exception as canvas_error:
                 st.error(f"❌ שגיאה בטעינת הקנבס: {str(canvas_error)}")
-                st.write(f"סוג השגיאה: {type(canvas_error).__name__}")
-                import traceback
-                with st.expander("פרטי שגיאה מלאים"):
-                    st.code(traceback.format_exc())
                 canvas = None
             
             if canvas and canvas.json_data is not None and canvas.json_data.get("objects"):

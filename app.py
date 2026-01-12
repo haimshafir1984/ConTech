@@ -1,4 +1,24 @@
 import streamlit as st
+import sys
+import types
+
+# --- 🛠️ התיקון המנצח (The Magic Patch) 🛠️ ---
+# זה מתקן את הניתוק בין Streamlit לקנבס באופן כירורגי
+try:
+    from streamlit.elements.lib.image_utils import image_to_url
+    
+    # יצירת מודול מדומה אם הוא חסר, כדי שהקנבס ימצא את מה שהוא מחפש
+    if "streamlit.elements.image" not in sys.modules:
+        sys.modules["streamlit.elements.image"] = types.ModuleType("streamlit.elements.image")
+    
+    # הזרקת הפונקציה למקום שהקנבס מחפש אותה
+    import streamlit.elements.image
+    streamlit.elements.image.image_to_url = image_to_url
+
+except ImportError:
+    pass # אם אנחנו בגרסה ישנה שזה לא צריך, ממשיכים הלאה
+# ---------------------------------------------
+
 from PIL import Image
 import cv2
 import numpy as np
@@ -146,7 +166,6 @@ if mode == "🏢 מנהל פרויקט":
                     st.success("נשמר!")
 
             with col_preview:
-                # שימוש בפרמטר use_column_width המתאים ל-1.27
                 st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
                 if proj["total_length"] > 0:
                     mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
@@ -205,9 +224,8 @@ elif mode == "👷 דיווח שטח":
         col_opacity, col_spacer = st.columns([2, 1])
         with col_opacity: opacity = st.slider("עוצמת הדגשת קירות", 0.0, 1.0, 0.4)
         overlay = np.zeros_like(orig_rgb)
-        overlay[dilated_mask > 0] = [0, 120, 255]
+        overlay[dilated > 0] = [0, 120, 255]
         
-        # המרה רגילה ל-RGB - זה מה שעובד בגרסה 1.27
         combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
         bg_image = Image.fromarray(combined).convert("RGB")
         
@@ -218,30 +236,25 @@ elif mode == "👷 דיווח שטח":
         
         st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
         canvas_key = f"canvas_{plan_name}_{opacity}"
-        
-        # --- השינוי החשוב: חזרה לשיטה הרגילה ---
         canvas = st_canvas(
             stroke_width=5, 
             stroke_color="#00FF00", 
-            background_image=bg_image_resized, # מעבירים את אובייקט התמונה!
+            background_image=bg_image_resized,
             width=c_width, 
             height=c_height, 
             drawing_mode="line", 
             key=canvas_key, 
             update_streamlit=True
         )
-        # -------------------------------------
         
         if canvas.json_data and canvas.json_data["objects"]:
             w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
             df_obj = pd.json_normalize(canvas.json_data["objects"])
             for _, obj in df_obj.iterrows():
-                if 'left' in obj and 'top' in obj:
-                    l, t = int(obj['left']), int(obj['top'])
-                    if 'x1' in obj:
-                        p1 = (l + int(obj['x1']), t + int(obj['y1']))
-                        p2 = (l + int(obj['x2']), t + int(obj['y2']))
-                        cv2.line(w_mask, p1, p2, 255, 5)
+                if 'left' in obj:
+                    p1 = (int(obj['left'] + obj.get('x1', 0)), int(obj['top'] + obj.get('y1', 0)))
+                    p2 = (int(obj['left'] + obj.get('x2', 0)), int(obj['top'] + obj.get('y2', 0)))
+                    cv2.line(w_mask, p1, p2, 255, 5)
             walls_res = cv2.resize(dilated_mask, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
             intersection = cv2.bitwise_and(w_mask, walls_res)
             pixels = cv2.countNonZero(intersection)

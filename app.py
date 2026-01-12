@@ -20,6 +20,8 @@ from analyzer import FloorPlanAnalyzer
 import tempfile
 import os
 import json
+import base64
+from io import BytesIO
 from streamlit_drawable_canvas import st_canvas
 from database import (
     init_database, save_plan, save_progress_report, 
@@ -263,10 +265,21 @@ elif mode == "👷 דיווח שטח":
                 st.session_state.canvas_factor = {}
             st.session_state.canvas_factor[plan_name] = factor
             
+            # וידוא שהערכים הם integers
+            c_width = int(c_width)
+            c_height = int(c_height)
+            
             # המרה ושינוי גודל
             combined_resized = cv2.resize(combined, (c_width, c_height), interpolation=cv2.INTER_AREA)
-            # combined כבר RGB, אז פשוט נהפוך ל-PIL Image
-            bg_image = Image.fromarray(combined_resized)
+            
+            # המרה ל-PIL Image
+            bg_image_pil = Image.fromarray(combined_resized.astype('uint8'), mode='RGB')
+            
+            # המרה ל-base64 - הפתרון הכי יציב לכל הגרסאות!
+            buffered = BytesIO()
+            bg_image_pil.save(buffered, format="PNG", optimize=False)
+            img_base64 = base64.b64encode(buffered.getvalue()).decode()
+            background_data_url = f"data:image/png;base64,{img_base64}"
             
             st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
             st.caption(f"גודל קנבס: {c_width}x{c_height} פיקסלים")
@@ -274,20 +287,28 @@ elif mode == "👷 דיווח שטח":
             # --- מפתח יציב ---
             canvas_key = f"canvas_{plan_name}"
             
-            canvas = st_canvas(
-                fill_color="rgba(0, 0, 0, 0)",
-                stroke_width=8,
-                stroke_color="#00FF00", 
-                background_image=bg_image,
-                width=c_width, 
-                height=c_height, 
-                drawing_mode="freedraw",
-                point_display_radius=0,
-                key=canvas_key, 
-                update_streamlit=True
-            )
+            try:
+                canvas = st_canvas(
+                    fill_color="rgba(0, 0, 0, 0)",
+                    stroke_width=8,
+                    stroke_color="#00FF00", 
+                    background_image=background_data_url,
+                    width=c_width, 
+                    height=c_height, 
+                    drawing_mode="freedraw",
+                    point_display_radius=0,
+                    key=canvas_key, 
+                    update_streamlit=True
+                )
+            except Exception as canvas_error:
+                st.error(f"❌ שגיאה בטעינת הקנבס: {str(canvas_error)}")
+                st.write(f"סוג השגיאה: {type(canvas_error).__name__}")
+                import traceback
+                with st.expander("פרטי שגיאה מלאים"):
+                    st.code(traceback.format_exc())
+                canvas = None
             
-            if canvas.json_data is not None and canvas.json_data.get("objects"):
+            if canvas and canvas.json_data is not None and canvas.json_data.get("objects"):
                 try:
                     w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
                     df_obj = pd.json_normalize(canvas.json_data["objects"])

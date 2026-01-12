@@ -1,182 +1,203 @@
+import os
 import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import json
 from datetime import datetime
 
-DB_NAME = "contech.db"
+# בדיקה האם אנחנו בענן (Postgres) או מקומי (SQLite)
+DB_URL = os.environ.get("DATABASE_URL")
+
+def get_connection():
+    """יוצר חיבור למסד הנתונים המתאים (Postgres או SQLite)"""
+    if DB_URL:
+        try:
+            conn = psycopg2.connect(DB_URL, cursor_factory=RealDictCursor)
+            return conn
+        except Exception as e:
+            print(f"Error connecting to Postgres: {e}")
+            return None
+    else:
+        # מצב מקומי - שימוש בקובץ
+        conn = sqlite3.connect('local_database.db', check_same_thread=False)
+        conn.row_factory = sqlite3.Row  # מאפשר גישה לשדות לפי שם
+        return conn
 
 def init_database():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+    """יצירת הטבלאות אם לא קיימות"""
+    conn = get_connection()
+    if not conn: return
     
-    c.execute('''CREATE TABLE IF NOT EXISTS plans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT UNIQUE,
-        plan_name TEXT,
-        extracted_scale TEXT,
-        confirmed_scale REAL,
-        raw_pixel_count INTEGER,
-        metadata_json TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        target_date TEXT,
-        budget_limit REAL DEFAULT 0,
-        cost_per_meter REAL DEFAULT 0,
-        material_estimate TEXT
-    )''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS progress_reports (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        plan_id INTEGER,
-        report_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        meters_built REAL,
-        worker_name TEXT,
-        note TEXT,
-        FOREIGN KEY(plan_id) REFERENCES plans(id)
-    )''')
-    
-    conn.commit()
-    conn.close()
+    # שאילתות יצירה - מותאמות לשני סוגי המסדים
+    if DB_URL:
+        # Syntax for PostgreSQL
+        id_type = "SERIAL PRIMARY KEY"
+        json_type = "TEXT" # פשטות
+    else:
+        # Syntax for SQLite
+        id_type = "INTEGER PRIMARY KEY AUTOINCREMENT"
+        json_type = "TEXT"
 
-def get_db_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def save_plan(filename, plan_name, extracted_scale, confirmed_scale, raw_pixel_count, metadata_json, target_date=None, budget_limit=0, cost_per_meter=0, material_estimate="{}"):
-    conn = get_db_connection()
-    c = conn.cursor()
+    queries = [
+        f"""CREATE TABLE IF NOT EXISTS plans (
+            id {id_type},
+            filename TEXT UNIQUE,
+            plan_name TEXT,
+            scale_text TEXT,
+            scale_value REAL,
+            raw_pixels INTEGER,
+            metadata {json_type},
+            target_date TEXT,
+            budget_limit REAL,
+            cost_per_meter REAL,
+            materials_json {json_type},
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );""",
+        
+        f"""CREATE TABLE IF NOT EXISTS progress_reports (
+            id {id_type},
+            plan_id INTEGER,
+            meters_built REAL,
+            note TEXT,
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(plan_id) REFERENCES plans(id)
+        );"""
+    ]
+    
     try:
-        c.execute('''INSERT OR REPLACE INTO plans 
-            (filename, plan_name, extracted_scale, confirmed_scale, raw_pixel_count, metadata_json, target_date, budget_limit, cost_per_meter, material_estimate)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-            (filename, plan_name, extracted_scale, confirmed_scale, raw_pixel_count, metadata_json, target_date, budget_limit, cost_per_meter, material_estimate))
+        cur = conn.cursor()
+        for q in queries:
+            cur.execute(q)
         conn.commit()
-        return c.lastrowid
+    except Exception as e:
+        print(f"DB Init Error: {e}")
     finally:
         conn.close()
 
-def save_progress_report(plan_id, meters, note=""):
-    conn = get_db_connection()
-    c = conn.cursor()
+# --- פונקציות עזר לשאילתות (Wrapper) ---
+def run_query(query, params=(), fetch="all"):
+    conn = get_connection()
+    if not conn: return None
+    
+    # המרת Placeholder מ-? (SQLite) ל-%s (Postgres) אם צריך
+    if DB_URL:
+        query = query.replace("?", "%s")
+        
     try:
-        c.execute("INSERT INTO progress_reports (plan_id, meters_built, note) VALUES (?, ?, ?)",
-                  (plan_id, meters, note))
-        conn.commit()
+        cur = conn.cursor()
+        cur.execute(query, params)
+        if fetch == "all":
+            res = cur.fetchall()
+            # המרה למילון רגיל
+            return [dict(row) for row in res]
+        elif fetch == "one":
+            res = cur.fetchone()
+            return dict(res) if res else None
+        elif fetch == "insert":
+            conn.commit()
+            if DB_URL:
+                # ב-Postgres צריך לבקש את ה-ID בחזרה
+                try:
+                    return cur.fetchone()['id']
+                except:
+                    return cur.lastrowid
+            else:
+                return cur.lastrowid
+        else:
+            conn.commit()
+    except Exception as e:
+        print(f"Query Error: {e} | Query: {query}")
+        return None
     finally:
         conn.close()
+
+# --- פונקציות האפליקציה ---
+
+def save_plan(filename, plan_name, scale_text, scale_val, pixels, metadata, target_date=None, budget=0, cost=0, materials="{}"):
+    # בדיקה אם קיים כבר
+    existing = get_plan_by_filename(filename)
+    if existing:
+        query = """UPDATE plans SET plan_name=?, scale_text=?, scale_value=?, raw_pixels=?, metadata=?, 
+                   target_date=?, budget_limit=?, cost_per_meter=?, materials_json=? WHERE id=?"""
+        run_query(query, (plan_name, scale_text, scale_val, pixels, metadata, target_date, budget, cost, materials, existing['id']), fetch="commit")
+        return existing['id']
+    else:
+        if DB_URL:
+            # Postgres דורש RETURNING כדי לקבל ID
+            query = """INSERT INTO plans (filename, plan_name, scale_text, scale_value, raw_pixels, metadata, target_date, budget_limit, cost_per_meter, materials_json) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"""
+            
+            # ביצוע ישיר כדי לקבל את ה-ID ב-Postgres
+            conn = get_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(query.replace("?", "%s"), (filename, plan_name, scale_text, scale_val, pixels, metadata, target_date, budget, cost, materials))
+                new_id = cur.fetchone()['id']
+                conn.commit()
+                return new_id
+            finally:
+                conn.close()
+        else:
+            query = """INSERT INTO plans (filename, plan_name, scale_text, scale_value, raw_pixels, metadata, target_date, budget_limit, cost_per_meter, materials_json) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            return run_query(query, (filename, plan_name, scale_text, scale_val, pixels, metadata, target_date, budget, cost, materials), fetch="insert")
+
+def save_progress_report(plan_id, meters, note):
+    query = "INSERT INTO progress_reports (plan_id, meters_built, note) VALUES (?, ?, ?)"
+    run_query(query, (plan_id, meters, note), fetch="insert")
 
 def get_all_plans():
-    conn = get_db_connection()
-    plans = conn.execute("SELECT * FROM plans ORDER BY created_at DESC").fetchall()
-    conn.close()
-    return [dict(p) for p in plans]
+    return run_query("SELECT * FROM plans ORDER BY created_at DESC")
 
 def get_plan_by_filename(filename):
-    conn = get_db_connection()
-    plan = conn.execute("SELECT * FROM plans WHERE filename = ?", (filename,)).fetchone()
-    conn.close()
-    return dict(plan) if plan else None
+    return run_query("SELECT * FROM plans WHERE filename = ?", (filename,), fetch="one")
 
-def get_plan_by_id(plan_id):
-    conn = get_db_connection()
-    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
-    conn.close()
-    return dict(plan) if plan else None
+def get_plan_by_id(pid):
+    return run_query("SELECT * FROM plans WHERE id = ?", (pid,), fetch="one")
 
 def get_progress_reports(plan_id=None):
-    conn = get_db_connection()
-    query = """
-        SELECT r.*, p.plan_name 
-        FROM progress_reports r
-        JOIN plans p ON r.plan_id = p.id
-    """
-    params = []
     if plan_id:
-        query += " WHERE r.plan_id = ?"
-        params.append(plan_id)
-    
-    query += " ORDER BY r.report_date DESC"
-    
-    reports = conn.execute(query, params).fetchall()
-    conn.close()
-    
-    results = []
-    for r in reports:
-        row = dict(r)
-        try:
-            dt = datetime.fromisoformat(row['report_date'])
-        except:
-            try:
-                dt = datetime.strptime(row['report_date'], "%Y-%m-%d %H:%M:%S")
-            except:
-                dt = row['report_date']
-        
-        if isinstance(dt, datetime):
-            row['date'] = dt.strftime("%d/%m/%Y %H:%M")
-        else:
-            row['date'] = str(dt)
-            
-        results.append(row)
-    return results
+        return run_query("SELECT r.*, p.plan_name FROM progress_reports r JOIN plans p ON r.plan_id = p.id WHERE r.plan_id = ? ORDER BY r.date DESC", (plan_id,))
+    else:
+        return run_query("SELECT r.*, p.plan_name FROM progress_reports r JOIN plans p ON r.plan_id = p.id ORDER BY r.date DESC")
 
-def calculate_material_estimates(total_length_meters, wall_height_meters=2.5):
-    total_area = total_length_meters * wall_height_meters
-    blocks_per_sqm = 10 
-    blocks = total_area * blocks_per_sqm * 1.05
-    mortar_volume = total_area * 0.02
-    cement = mortar_volume * 0.3
-    sand = mortar_volume * 0.7
-    
-    return {
-        "wall_area_sqm": total_area,
-        "block_count": int(blocks),
-        "cement_cubic_meters": cement,
-        "sand_cubic_meters": sand
-    }
+def reset_all_data():
+    run_query("DELETE FROM progress_reports", fetch="commit")
+    run_query("DELETE FROM plans", fetch="commit")
+    return True
 
+# --- פונקציות חישוב (Business Logic) ---
+# אלו לא נוגעות ב-DB ישירות אבל משתמשות בנתונים
 def get_project_forecast(plan_id):
     plan = get_plan_by_id(plan_id)
     if not plan: return {}
     
     reports = get_progress_reports(plan_id)
+    total_built = sum([r['meters_built'] for r in reports]) if reports else 0
+    total_planned = plan['scale_value'] * plan['raw_pixels'] if plan['scale_value'] else 0 # זו טעות לוגית קטנה בקוד המקורי, נתקן: אורך = פיקסלים / סקייל
+    total_len_meters = plan['raw_pixels'] / plan['scale_value'] if plan['scale_value'] and plan['scale_value'] > 0 else 0
     
-    try: confirmed_scale = float(plan.get('confirmed_scale', 0))
-    except: confirmed_scale = 0.0
-        
-    try: raw_pixels = float(plan.get('raw_pixel_count', 0))
-    except: raw_pixels = 0.0
-    
-    total_planned_meters = 0
-    if confirmed_scale > 0:
-        total_planned_meters = raw_pixels / confirmed_scale
-        
-    cumulative = sum([float(r['meters_built']) for r in reports])
-    
+    # חישוב ימים
     days_passed = 0
     velocity = 0
     if reports:
-        try:
-            first = reports[-1]['report_date']
-            last = reports[0]['report_date']
-            d1_str = str(first).split('.')[0]
-            d2_str = str(last).split('.')[0]
-            d1 = datetime.strptime(d1_str, "%Y-%m-%d %H:%M:%S")
-            d2 = datetime.strptime(d2_str, "%Y-%m-%d %H:%M:%S")
-            delta = (d2 - d1).days
-            days_passed = delta if delta > 0 else 1
-            velocity = cumulative / days_passed
-        except:
+        dates = [datetime.strptime(str(r['date'])[:10], "%Y-%m-%d") for r in reports]
+        if len(dates) >= 2:
+            days_passed = (max(dates) - min(dates)).days + 1
+            velocity = total_built / days_passed if days_passed > 0 else total_built
+        else:
             days_passed = 1
-            velocity = cumulative
+            velocity = total_built
             
-    remaining = total_planned_meters - cumulative
-    days_to_finish = (remaining / velocity) if velocity > 0 else -1
+    remaining = max(0, total_len_meters - total_built)
+    days_to_finish = remaining / velocity if velocity > 0 else 999
     
     return {
-        "total_planned": total_planned_meters,
-        "cumulative_progress": cumulative,
-        "remaining_work": max(0, remaining),
+        "cumulative_progress": total_built,
+        "total_planned": total_len_meters,
+        "remaining_work": remaining,
         "average_velocity": velocity,
-        "days_to_finish": int(days_to_finish) # מחזיר תמיד מספר (-1 אם לא ידוע)
+        "days_to_finish": int(days_to_finish)
     }
 
 def get_project_financial_status(plan_id):
@@ -184,30 +205,26 @@ def get_project_financial_status(plan_id):
     if not plan: return {}
     
     reports = get_progress_reports(plan_id)
-    cumulative_meters = sum([float(r['meters_built']) for r in reports])
+    total_built = sum([r['meters_built'] for r in reports]) if reports else 0
     
-    try:
-        cost_per_meter = float(plan.get('cost_per_meter', 0))
-        budget_limit = float(plan.get('budget_limit', 0))
-    except:
-        cost_per_meter = 0
-        budget_limit = 0
-        
-    current_cost = cumulative_meters * cost_per_meter
-    variance = budget_limit - current_cost
+    cost_per_m = plan['cost_per_meter'] if plan['cost_per_meter'] else 0
+    current_cost = total_built * cost_per_m
+    budget = plan['budget_limit'] if plan['budget_limit'] else 0
     
     return {
-        "budget_limit": budget_limit,
         "current_cost": current_cost,
-        "budget_variance": variance
+        "budget_limit": budget,
+        "budget_variance": budget - current_cost
     }
 
-def reset_all_data():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("DELETE FROM progress_reports")
-    c.execute("DELETE FROM plans")
-    c.execute("DELETE FROM sqlite_sequence")
-    conn.commit()
-    conn.close()
-    return True
+def calculate_material_estimates(total_length_meters, height_meters=2.5):
+    # הערכה גסה: 10 בלוקים למ"ר, עובי 20 ס"מ
+    wall_area = total_length_meters * height_meters
+    blocks = wall_area * 10 
+    cement = wall_area * 0.02 # הערכה: 0.02 קוב למ"ר
+    
+    return {
+        "block_count": int(blocks),
+        "cement_cubic_meters": round(cement, 1),
+        "wall_area_sqm": round(wall_area, 1)
+    }

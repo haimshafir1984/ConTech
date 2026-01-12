@@ -292,7 +292,7 @@ elif mode == "👷 דיווח שטח":
                     fill_color="rgba(0, 0, 0, 0)",
                     stroke_width=8,
                     stroke_color="#00FF00", 
-                    background_image=background_data_url,
+                    background_image=None,
                     width=c_width, 
                     height=c_height, 
                     drawing_mode="freedraw",

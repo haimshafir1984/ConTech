@@ -301,11 +301,14 @@ if mode == "🏢 מנהל פרויקט":
                     st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
                 
                 # גרף חלוקה
-                chart_data = pd.DataFrame({
-                    "סוג": ["בטון", "בלוקים"],
-                    "מטרים": [conc_len, block_len]
-                })
-                st.bar_chart(chart_data, x="סוג", y="מטרים", color=["#1E90FF", "#FFA500"])
+               # גרף חלוקה (מתוקן)
+                # בנינו את הדאטה כעמודות נפרדות כדי שנוכל לתת צבע לכל עמודה
+                chart_data = pd.DataFrame(
+                    [[conc_len, block_len]], 
+                    columns=["בטון", "בלוקים"]
+                )
+                # עכשיו יש 2 עמודות ו-2 צבעים -> השגיאה תיעלם
+                st.bar_chart(chart_data, color=["#1E90FF", "#FFA500"])
                 
                 if proj["total_length"] > 0:
                     mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)

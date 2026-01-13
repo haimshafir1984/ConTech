@@ -7,8 +7,8 @@ import gc
 
 class FloorPlanAnalyzer:
     """
-    גרסה מאוזנת (Smart & Safe):
-    שומרת על הפרדת בטון/בלוקים אבל מנהלת זיכרון בצורה חכמה למניעת קריסות (502).
+    גרסה מתוקנת: מתקנת את באג חוסר ההתאמה בגדלים (IndexError).
+    כעת המסכות מוחזרות תמיד בגודל המקורי של התמונה, גם אם בוצעה הקטנה לצורך עיבוד.
     """
     
     def pdf_to_image(self, pdf_path: str, max_size: int = 3500) -> np.ndarray:
@@ -16,11 +16,8 @@ class FloorPlanAnalyzer:
         page = doc[0]
         rect = page.rect
         
-        # הורדנו את הזום מ-2.5 ל-2.0
-        # זה נותן איכות מספיק טובה להפרדת בטון, אבל חוסך המון זיכרון
+        # זום חסכוני
         base_scale = 2.0 
-        
-        # אם הקובץ המקורי ענק, נרד ל-1.5 כדי למנוע קריסה
         if rect.width > 3000 or rect.height > 3000:
             base_scale = 1.5 
             
@@ -43,46 +40,34 @@ class FloorPlanAnalyzer:
             return img_bgr
 
     def preprocess_image(self, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        # הגבלת גודל מקסימלי ל-3500 פיקסלים (במקום 4500)
-        # זה גבול בטיחות קריטי לשרת של 2GB
+        # --- תיקון קריטי: שמירת הגודל המקורי לפני השינוי ---
+        original_h, original_w = image.shape[:2]
+        
+        # הקטנה לצורך עיבוד מהיר וחסכוני
         if max(image.shape) > 3500:
             scale = 3500 / max(image.shape)
             image = cv2.resize(image, None, fx=scale, fy=scale)
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # שימוש ב-Gaussian Blur במקום Bilateral Filter הכבד
-        # זה הרבה יותר מהיר וקל לזיכרון, ועדיין עושה עבודה טובה בניקוי רעש
         denoised = cv2.GaussianBlur(gray, (5, 5), 0)
-        
         _, binary = cv2.threshold(denoised, 150, 255, cv2.THRESH_BINARY_INV)
         
-        # --- לוגיקת זיהוי חכמה ---
-        # שימוש ב-connectivity=4 חוסך זיכרון לעומת 8
+        # לוגיקת זיהוי קירות
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=4)
         mask = np.zeros_like(binary)
-        
-        total_pixels = image.shape[0] * image.shape[1]
         
         for i in range(1, num_labels):
             area = stats[i, cv2.CC_STAT_AREA]
             width = stats[i, cv2.CC_STAT_WIDTH]
             height = stats[i, cv2.CC_STAT_HEIGHT]
-            
             longer = max(width, height)
             shorter = min(width, height) if min(width, height) > 0 else 1
             aspect_ratio = longer / shorter
             
             is_wall = True
-            
-            # סינון רעשים מותאם לרזולוציה החדשה
             if area < 30: is_wall = False
-            elif area < 250 and aspect_ratio < 2.0: is_wall = False # סינון טקסט
-            
-            # הגנה על קירות
+            elif area < 250 and aspect_ratio < 2.0: is_wall = False
             if aspect_ratio > 4.5 and area > 80: is_wall = True
-            
-            # סינון מסגרות ענק
             if width > image.shape[1] * 0.95 or height > image.shape[0] * 0.95: is_wall = False
 
             if is_wall:
@@ -91,27 +76,25 @@ class FloorPlanAnalyzer:
         # חיבור וסגירה
         kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 6))
         kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (6, 2))
-        det_v = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_v, iterations=2)
-        det_h = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_h, iterations=2)
-        combined = cv2.bitwise_or(det_v, det_h)
-        
-        # סגירה סופית
+        combined = cv2.bitwise_or(
+            cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_v, iterations=2),
+            cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_h, iterations=2)
+        )
         final_mask = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), iterations=1)
         
-        # --- הפרדת בטון (עבה) ובלוקים (דק) ---
-        # התאמנו את פרמטר השחיקה לזום החדש (4 במקום 6)
+        # הפרדת בטון/בלוקים
         erosion_size = 4 
         element = cv2.getStructuringElement(cv2.MORPH_RECT, (erosion_size, erosion_size))
         concrete_core = cv2.erode(final_mask, element, iterations=1)
         concrete_mask = cv2.dilate(concrete_core, element, iterations=1)
-        
         blocks_mask = cv2.subtract(final_mask, concrete_mask)
         
-        # החזרה לגודל מקורי במידת הצורך
-        if final_mask.shape[:2] != image.shape[:2]:
-             final_mask = cv2.resize(final_mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
-             concrete_mask = cv2.resize(concrete_mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
-             blocks_mask = cv2.resize(blocks_mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
+        # --- תיקון קריטי: החזרה לגודל המקורי שנשמר בהתחלה ---
+        # אנחנו מוודאים שהמסכות תואמות בדיוק את התמונה המקורית שנכנסה לפונקציה
+        if final_mask.shape[:2] != (original_h, original_w):
+             final_mask = cv2.resize(final_mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
+             concrete_mask = cv2.resize(concrete_mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
+             blocks_mask = cv2.resize(blocks_mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
              
         return final_mask, concrete_mask, blocks_mask
     

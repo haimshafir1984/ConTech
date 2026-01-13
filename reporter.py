@@ -3,75 +3,70 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 import io
 from datetime import datetime
+import cv2
+import numpy as np
+from PIL import Image
 
-def generate_status_pdf(plan_name, original_img_rgb, overlay_img, stats):
+def generate_status_pdf(plan_name, original_img_rgb, stats):
     """
     יוצר דוח PDF עם תמונת המצב הנוכחית ונתונים
+    מקבל 3 פרמטרים בלבד (תואם ל-app.py החדש)
     """
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=landscape(A4))
     width, height = landscape(A4)
     
-    # 1. כותרות (באנגלית כרגע למניעת בעיות פונט בענן)
+    # 1. כותרות
     c.setFont("Helvetica-Bold", 24)
-    c.drawString(50, height - 50, f"Project Status Report: {plan_name}")
+    c.drawString(50, height - 50, f"Project Status: {plan_name}")
     
     c.setFont("Helvetica", 12)
-    c.drawString(50, height - 70, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    c.drawString(50, height - 75, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     
-    # 2. נתונים סטטיסטיים
-    c.drawString(50, height - 100, f"Completed: {stats['built']:.2f} meters")
-    c.drawString(250, height - 100, f"Total Planned: {stats['total']:.2f} meters")
-    c.drawString(450, height - 100, f"Progress: {stats['percent']:.1f}%")
+    # 2. נתונים
+    built = stats.get('built', 0)
+    total = stats.get('total', 1)
+    percent = stats.get('percent', 0)
     
-    # 3. שילוב התמונות (בניית תמונה ויזואלית ל-PDF)
-    # אנו משתמשים ב-OpenCV כדי לחבר את המקור עם הסימון (כמו באפליקציה)
-    import cv2
-    import numpy as np
-    from PIL import Image
+    c.drawString(50, height - 110, f"Completed: {built:.2f} m")
+    c.drawString(200, height - 110, f"Total Scope: {total:.2f} m")
+    c.drawString(400, height - 110, f"Progress: {percent:.1f}%")
     
-    # יצירת שכבה משולבת
-    # overlay_img מגיע כשכבה אדומה/ירוקה על רקע שחור
-    # אנחנו צריכים להפוך את הרקע השחור לשקוף או לחבר בחוכמה
-    
-    # המרה ל-PIL לצורך שמירה ב-PDF
-    # כאן אנו מניחים שמקבלים כבר תמונה סופית משולבת (Combined) מהאפליקציה
-    # או שנבצע את החיבור כאן:
+    # 3. המרת התמונה ל-PDF
     try:
-        # המרה ל-RGB אם צריך
+        # המרה ל-RGB בטוחה
         if len(original_img_rgb.shape) == 2:
-            original_img_rgb = cv2.cvtColor(original_img_rgb, cv2.COLOR_GRAY2RGB)
+            img_to_show = cv2.cvtColor(original_img_rgb, cv2.COLOR_GRAY2RGB)
+        else:
+            img_to_show = original_img_rgb.copy()
             
-        # שילוב פשוט (50% שקיפות)
-        # overlay_img צריך להיות באותו גודל
-        if original_img_rgb.shape[:2] != overlay_img.shape[:2]:
-            overlay_img = cv2.resize(overlay_img, (original_img_rgb.shape[1], original_img_rgb.shape[0]))
-            
-        combined = cv2.addWeighted(original_img_rgb, 0.7, overlay_img, 0.3, 0)
+        # המרה ל-PIL
+        img_pil = Image.fromarray(img_to_show)
         
-        # המרה לפורמט ש-ReportLab מבין
-        img_pil = Image.fromarray(combined)
+        # שמירה לזיכרון כ-PNG
         img_byte_arr = io.BytesIO()
         img_pil.save(img_byte_arr, format='PNG')
         img_byte_arr.seek(0)
         
-        # ציור התמונה על ה-PDF (תוך שמירה על יחס גובה-רוחב)
         img_reader = ImageReader(img_byte_arr)
+        
+        # חישוב פרופורציות
         img_w, img_h = img_pil.size
         aspect = img_h / float(img_w)
         
         display_width = width - 100
         display_height = display_width * aspect
         
-        # אם זה גבוה מדי, נתאים לפי הגובה
-        if display_height > (height - 150):
-            display_height = height - 150
+        # הגבלת גובה כדי לא לחרוג מהדף
+        max_h = height - 150
+        if display_height > max_h:
+            display_height = max_h
             display_width = display_height / aspect
             
-        c.drawImage(img_reader, 50, height - 130 - display_height, width=display_width, height=display_height)
+        c.drawImage(img_reader, 50, height - 140 - display_height, width=display_width, height=display_height)
         
     except Exception as e:
-        c.drawString(50, height/2, f"Error generating image: {str(e)}")
+        c.drawString(50, height/2, f"Image Error: {str(e)}")
 
     c.showPage()
     c.save()

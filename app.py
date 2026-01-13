@@ -168,30 +168,33 @@ if mode == "🏢 מנהל פרויקט":
                 p_name = st.text_input("שם התוכנית", key=name_key)
                 p_scale = st.text_input("קנה מידה", key=scale_key)
                 
-                # === תיקון: לימוד מקרא עם גודל דינמי ===
+                # === תיקון: לימוד מקרא עם שליטה ברוחב ===
                 with st.expander("📖 לימוד מקרא (AI Vision)", expanded=False):
                     st.info("סמן את המקרא בשרטוט כדי שהמערכת תלמד אותו.")
                     
+                    # הוספת סליידר לשליטה בגודל
+                    zoom_col, _ = st.columns([1, 1])
+                    with zoom_col:
+                        target_width = st.slider("🔍 רוחב תצוגה (זום)", 500, 1500, 800, step=50, key=f"zoom_{selected}")
+
                     # 1. המרה לתמונה
                     img_for_legend = Image.fromarray(cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB))
                     
-                    # 2. חישוב גודל דינמי כדי למנוע חיתוך
-                    # נקבע רוחב קבוע לתצוגה, והגובה יחושב אוטומטית
-                    target_width = 700 
+                    # 2. חישוב גודל דינמי לפי הסליידר
                     w_percent = (target_width / float(img_for_legend.size[0]))
                     h_size = int((float(img_for_legend.size[1]) * float(w_percent)))
                     
-                    # שינוי גודל התמונה לפרופורציה הנכונה
+                    # שינוי גודל התמונה
                     img_for_legend = img_for_legend.resize((target_width, h_size), Image.Resampling.LANCZOS)
                     
-                    # 3. יצירת הקנבס בגודל המדויק של התמונה
+                    # 3. יצירת הקנבס
                     canvas_legend = st_canvas(
                         fill_color="rgba(255, 165, 0, 0.3)",
                         stroke_width=2,
                         stroke_color="#FFA500",
                         background_image=img_for_legend,
-                        height=h_size,        # גובה דינמי!
-                        width=target_width,   # רוחב דינמי!
+                        height=h_size,        
+                        width=target_width,   
                         drawing_mode="rect",
                         key=f"legend_{selected}",
                         display_toolbar=True
@@ -200,15 +203,12 @@ if mode == "🏢 מנהל פרויקט":
                     if canvas_legend.json_data and canvas_legend.json_data["objects"]:
                         if st.button("👁️ פענח את הסימון"):
                             obj = canvas_legend.json_data["objects"][-1]
-                            # המרה חזרה לקנה מידה של התמונה המוצגת
                             left, top = int(obj["left"]), int(obj["top"])
                             width, height = int(obj["width"]), int(obj["height"])
                             
                             img_arr = np.array(img_for_legend)
-                            # הוספת בדיקת גבולות כדי למנוע קריסה
                             if width > 0 and height > 0:
                                 cropped = img_arr[top:top+height, left:left+width]
-                                
                                 if cropped.size > 0:
                                     pil_crop = Image.fromarray(cropped)
                                     buf = io.BytesIO()

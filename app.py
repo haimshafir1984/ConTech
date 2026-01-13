@@ -168,57 +168,74 @@ if mode == "🏢 מנהל פרויקט":
                 p_name = st.text_input("שם התוכנית", key=name_key)
                 p_scale = st.text_input("קנה מידה", key=scale_key)
                 
-                # === תיקון: לימוד מקרא עם שליטה ברוחב ===
+           # === לימוד מקרא משופר ===
                 with st.expander("📖 לימוד מקרא (AI Vision)", expanded=False):
                     st.info("סמן את המקרא בשרטוט כדי שהמערכת תלמד אותו.")
                     
-                    # הוספת סליידר לשליטה בגודל
-                    zoom_col, _ = st.columns([1, 1])
-                    with zoom_col:
-                        target_width = st.slider("🔍 רוחב תצוגה (זום)", 500, 1500, 800, step=50, key=f"zoom_{selected}")
-
-                    # 1. המרה לתמונה
+                    # אפשרות לגלילה מלאה
+                    use_full_width = st.checkbox("🔍 הצג תמונה בגודל מלא (עם גלילה)", value=False)
+                    
+                    # טעינת התמונה
                     img_for_legend = Image.fromarray(cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB))
                     
-                    # 2. חישוב גודל דינמי לפי הסליידר
+                    if use_full_width:
+                        # מצב מלא: רוחב מקסימלי כדי לאפשר גלילה ודיוק
+                        target_width = 2500 # רוחב ענק בכוונה
+                        st.caption("השתמש בפס הגלילה בתחתית השרטוט כדי להגיע למקרא")
+                    else:
+                        # מצב רגיל: סליידר לנוחות
+                        target_width = st.slider("זום תצוגה", 600, 2000, 800, step=100, key=f"z_{selected}")
+
+                    # חישוב גובה שומר יחס
                     w_percent = (target_width / float(img_for_legend.size[0]))
                     h_size = int((float(img_for_legend.size[1]) * float(w_percent)))
                     
-                    # שינוי גודל התמונה
-                    img_for_legend = img_for_legend.resize((target_width, h_size), Image.Resampling.LANCZOS)
+                    # שינוי גודל איכותי
+                    img_resized = img_for_legend.resize((target_width, h_size), Image.Resampling.LANCZOS)
                     
-                    # 3. יצירת הקנבס
+                    # הקנבס
                     canvas_legend = st_canvas(
                         fill_color="rgba(255, 165, 0, 0.3)",
                         stroke_width=2,
                         stroke_color="#FFA500",
-                        background_image=img_for_legend,
-                        height=h_size,        
-                        width=target_width,   
+                        background_image=img_resized,
+                        height=h_size,
+                        width=target_width,
                         drawing_mode="rect",
-                        key=f"legend_{selected}",
+                        key=f"legend_canv_{selected}_{use_full_width}", # מפתח ייחודי לרענון
                         display_toolbar=True
                     )
                     
                     if canvas_legend.json_data and canvas_legend.json_data["objects"]:
                         if st.button("👁️ פענח את הסימון"):
                             obj = canvas_legend.json_data["objects"][-1]
-                            left, top = int(obj["left"]), int(obj["top"])
-                            width, height = int(obj["width"]), int(obj["height"])
+                            left = int(obj["left"])
+                            top = int(obj["top"])
+                            width = int(obj["width"])
+                            height = int(obj["height"])
                             
-                            img_arr = np.array(img_for_legend)
+                            # חיתוך מתוך התמונה המוקטנת (מה שרואים בעיניים)
+                            # המרה למערך numpy
+                            img_arr = np.array(img_resized)
+                            
                             if width > 0 and height > 0:
                                 cropped = img_arr[top:top+height, left:left+width]
+                                
                                 if cropped.size > 0:
+                                    # המרה ל-Bytes לשליחה ל-AI
                                     pil_crop = Image.fromarray(cropped)
                                     buf = io.BytesIO()
                                     pil_crop.save(buf, format="PNG")
                                     byte_im = buf.getvalue()
+                                    
                                     with st.spinner("ה-AI מנתח את המקרא..."):
                                         analysis = safe_analyze_legend(byte_im)
                                         st.success("פענוח הושלם!")
                                         st.text_area("תוצאת AI:", value=analysis, height=100)
                                         proj["metadata"]["legend_analysis"] = analysis
+                                        
+                                        # כאן נשמור בעתיד את התיקון שלך
+                                        st.text_input("הערתך (לשיפור ה-AI בעתיד):", placeholder="למשל: קיוקוו אלכסוני = קיר בטון 20")
                             else:
                                 st.warning("אנא סמן אזור תקין")
 

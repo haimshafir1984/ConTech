@@ -47,6 +47,25 @@ def load_stats_df():
         })
     return pd.DataFrame()
 
+# --- פונקציה חדשה: יצירת תמונה צבעונית (בטון+בלוקים) ---
+def create_colored_overlay(original, concrete_mask, blocks_mask):
+    # המרה ל-RGB
+    img_vis = cv2.cvtColor(original, cv2.COLOR_BGR2RGB).astype(float)
+    
+    # יצירת שכבת צבע
+    overlay = img_vis.copy()
+    
+    # צביעת בטון (כחול חזק: R=0, G=0, B=255)
+    # שימ לב: ב-numpy המערך הוא RGB, אז [0,0,255] זה כחול ב-Matplotlib/Streamlit
+    overlay[concrete_mask > 0] = [30, 144, 255] 
+    
+    # צביעת בלוקים (כתום: R=255, G=165, B=0)
+    overlay[blocks_mask > 0] = [255, 165, 0]
+    
+    # שילוב עם שקיפות (0.6 מקור, 0.4 צבע)
+    cv2.addWeighted(overlay, 0.6, img_vis, 0.4, 0, img_vis)
+    return img_vis.astype(np.uint8)
+
 st.set_page_config(page_title="ConTech Pro", layout="wide", page_icon="🏗️")
 
 # --- CSS ---
@@ -60,6 +79,7 @@ st.markdown("""
     .mat-card { text-align: center; background: white; border: 1px solid #EEE; border-radius: 10px; padding: 15px; }
     .mat-val { font-size: 20px; font-weight: bold; color: var(--primary-blue); }
     .mat-lbl { font-size: 14px; color: #666; }
+    .price-box { background-color: #f0f2f6; padding: 15px; border-radius: 10px; border-right: 4px solid #0F62FE; margin-bottom: 10px; }
     .stTextInput label, .stNumberInput label, .stSelectbox label, .stDateInput label { text-align: right !important; width: 100%; direction: rtl; }
     .stButton button { border-radius: 8px; font-weight: 500; height: 45px; }
     section[data-testid="stSidebar"] { background-color: #FAFAFA; border-left: 1px solid #EEE; }
@@ -110,8 +130,11 @@ if mode == "🏢 מנהל פרויקט":
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                                 tmp.write(f.getvalue())
                                 path = tmp.name
+                            
                             analyzer = FloorPlanAnalyzer()
-                            pix, skel, thick, orig, meta = analyzer.process_file(path)
+                            # --- שינוי: קבלת 7 פרמטרים (כולל בטון/בלוקים) ---
+                            pix, skel, thick, orig, meta, conc_mask, blok_mask = analyzer.process_file(path)
+                            
                             if not meta.get("plan_name"): 
                                 meta["plan_name"] = f.name.replace(".pdf", "").replace("-", " ").strip()
                             
@@ -119,16 +142,15 @@ if mode == "🏢 מנהל פרויקט":
                             llm_metadata = {}
                             if raw_text:
                                 llm_metadata = safe_process_metadata(raw_text)
-                                if llm_metadata.get("plan_name"): 
-                                    meta["plan_name"] = llm_metadata["plan_name"]
-                                if llm_metadata.get("scale"): 
-                                    meta["scale"] = llm_metadata["scale"]
-                                if llm_metadata.get("plan_type"):
-                                    meta["plan_type"] = llm_metadata["plan_type"]
+                                if llm_metadata.get("plan_name"): meta["plan_name"] = llm_metadata["plan_name"]
+                                if llm_metadata.get("scale"): meta["scale"] = llm_metadata["scale"]
+                                if llm_metadata.get("plan_type"): meta["plan_type"] = llm_metadata["plan_type"]
                             
+                            # שמירה בזיכרון כולל המסכות החדשות
                             st.session_state.projects[f.name] = {
                                 "skeleton": skel, "thick_walls": thick, "original": orig,
                                 "raw_pixels": pix, "scale": 200.0, "metadata": meta,
+                                "concrete_mask": conc_mask, "blocks_mask": blok_mask,
                                 "total_length": pix / 200.0, "llm_suggestions": llm_metadata
                             }
                             os.unlink(path)
@@ -168,24 +190,15 @@ if mode == "🏢 מנהל פרויקט":
                 p_name = st.text_input("שם התוכנית", key=name_key)
                 p_scale = st.text_input("קנה מידה", key=scale_key)
                 
-               # === לימוד מקרא (גרסה יציבה) ===
+               # === לימוד מקרא (נשאר הגרסה היציבה) ===
                 with st.expander("📖 לימוד מקרא (AI Vision)", expanded=False):
                     st.info("סמן את המקרא בשרטוט כדי שהמערכת תלמד אותו.")
-                    
-                    # 1. סליידר לשליטה בגודל (עד 1500 פיקסלים - בטוח לשימוש)
                     target_width = st.slider("🔍 זום (רוחב תצוגה)", 600, 1500, 800, step=50, key=f"zoom_{selected}")
-
-                    # 2. המרה ושינוי גודל (שיטה קלה לזיכרון)
                     img_for_legend = Image.fromarray(cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB))
-                    
-                    # חישוב גובה שומר יחס
                     w_percent = (target_width / float(img_for_legend.size[0]))
                     h_size = int((float(img_for_legend.size[1]) * float(w_percent)))
-                    
-                    # שימוש ב-NEAREST במקום LANCZOS למניעת קריסות זיכרון
                     img_resized = img_for_legend.resize((target_width, h_size), Image.Resampling.NEAREST)
                     
-                    # 3. הקנבס
                     canvas_legend = st_canvas(
                         fill_color="rgba(255, 165, 0, 0.3)",
                         stroke_width=2,
@@ -194,7 +207,6 @@ if mode == "🏢 מנהל פרויקט":
                         height=h_size,
                         width=target_width,
                         drawing_mode="rect",
-                        # המפתח כולל את הרוחב - זה מכריח רענון בטוח בשינוי זום
                         key=f"legend_canv_{selected}_{target_width}",
                         display_toolbar=True
                     )
@@ -204,9 +216,7 @@ if mode == "🏢 מנהל פרויקט":
                             obj = canvas_legend.json_data["objects"][-1]
                             left, top = int(obj["left"]), int(obj["top"])
                             width, height = int(obj["width"]), int(obj["height"])
-                            
                             img_arr = np.array(img_resized)
-                            
                             if width > 0 and height > 0:
                                 cropped = img_arr[top:top+height, left:left+width]
                                 if cropped.size > 0:
@@ -214,12 +224,10 @@ if mode == "🏢 מנהל פרויקט":
                                     buf = io.BytesIO()
                                     pil_crop.save(buf, format="PNG")
                                     byte_im = buf.getvalue()
-                                    
                                     with st.spinner("ה-AI מנתח את המקרא..."):
                                         analysis = safe_analyze_legend(byte_im)
                                         st.success("פענוח הושלם!")
                                         st.text_area("תוצאת AI:", value=analysis, height=100)
-                                        # שמירה במטא-דאטה
                                         proj["metadata"]["legend_analysis"] = analysis
                             else:
                                 st.warning("אנא סמן אזור תקין")
@@ -235,9 +243,46 @@ if mode == "🏢 מנהל פרויקט":
                 st.markdown("#### כיול")
                 scale_val = st.slider("פיקסלים למטר", 10.0, 1000.0, float(proj["scale"]), key=f"sl_{selected}")
                 proj["scale"] = scale_val
-                proj["total_length"] = proj["raw_pixels"] / scale_val
-                st.info(f"📏 אורך קירות: **{proj['total_length']:.2f} מטר**")
                 
+                # חישוב כמויות לפי הסקייל החדש
+                total_len = proj["raw_pixels"] / scale_val
+                conc_len = proj["metadata"].get("pixels_concrete", 0) / scale_val
+                block_len = proj["metadata"].get("pixels_blocks", 0) / scale_val
+                proj["total_length"] = total_len
+                
+                st.info(f"📏 אורך קירות: **{total_len:.2f} מטר**")
+
+                # --- פיצ'ר חדש: מחשבון הצעת מחיר ---
+                with st.expander("💰 מחשבון הצעת מחיר", expanded=True):
+                    st.markdown("""<div class="price-box">
+                    <strong>מחירון בסיס:</strong><br>
+                    בטון: ₪1,200/מטר | בלוקים: ₪600/מטר
+                    </div>""", unsafe_allow_html=True)
+                    
+                    c_price = st.number_input("מחיר למטר בטון (₪)", value=1200.0, step=50.0)
+                    b_price = st.number_input("מחיר למטר בלוקים (₪)", value=600.0, step=50.0)
+                    
+                    total_cost_calc = (conc_len * c_price) + (block_len * b_price)
+                    st.markdown(f"#### 💵 סה\"כ: {total_cost_calc:,.0f} ₪")
+                    
+                    # ייצוא לאקסל
+                    quote_data = {
+                        "פריט": ["קירות בטון (מעטפת)", "קירות בלוקים (פנים)", "סה\"כ"],
+                        "כמות (מטר אורך)": [f"{conc_len:.2f}", f"{block_len:.2f}", f"{total_len:.2f}"],
+                        "מחיר ליחידה (₪)": [c_price, b_price, "-"],
+                        "סה\"כ (₪)": [f"{conc_len*c_price:.2f}", f"{block_len*b_price:.2f}", f"{total_cost_calc:.2f}"]
+                    }
+                    df_quote = pd.DataFrame(quote_data)
+                    csv = df_quote.to_csv(index=False).encode('utf-8-sig')
+                    
+                    st.download_button(
+                        "📥 הורד הצעת מחיר (Excel/CSV)",
+                        data=csv,
+                        file_name=f"quote_{p_name}.csv",
+                        mime="text/csv",
+                        type="primary"
+                    )
+
                 if st.button("💾 שמור נתונים", type="primary", use_container_width=True):
                     proj["metadata"]["plan_name"] = p_name
                     proj["metadata"]["scale"] = p_scale
@@ -247,7 +292,21 @@ if mode == "🏢 מנהל פרויקט":
                     st.success("נשמר!")
 
             with col_preview:
-                st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
+                st.markdown("### 👁️ ניתוח ויזואלי")
+                # תצוגה צבעונית חכמה
+                if "concrete_mask" in proj and "blocks_mask" in proj:
+                    colored_img = create_colored_overlay(proj["original"], proj["concrete_mask"], proj["blocks_mask"])
+                    st.image(colored_img, caption="🔵 כחול = בטון | 🟠 כתום = בלוקים", use_column_width=True)
+                else:
+                    st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
+                
+                # גרף חלוקה
+                chart_data = pd.DataFrame({
+                    "סוג": ["בטון", "בלוקים"],
+                    "מטרים": [conc_len, block_len]
+                })
+                st.bar_chart(chart_data, x="סוג", y="מטרים", color=["#1E90FF", "#FFA500"])
+                
                 if proj["total_length"] > 0:
                     mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
                     st.markdown("###### הערכה מהירה")
@@ -257,7 +316,7 @@ if mode == "🏢 מנהל פרויקט":
                     c3.markdown(f"<div class='mat-card'><div class='mat-val'>{mats['wall_area_sqm']:.0f}</div><div class='mat-lbl'>מ\"ר קיר</div></div>", unsafe_allow_html=True)
 
     with tab2:
-        # שליפה מה-DB
+        # שליפה מה-DB (דשבורד מלא כפי שהיה)
         all_plans_db = get_all_plans()
         
         if not all_plans_db:

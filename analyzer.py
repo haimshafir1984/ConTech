@@ -2,145 +2,142 @@ import cv2
 import numpy as np
 import fitz  # PyMuPDF
 from typing import Tuple, Dict, Optional
-import pandas as pd
 import re
 import os
 import gc
 
 class FloorPlanAnalyzer:
-    """מחלקה לניתוח תוכניות בנייה - מותאמת לשרתים עם זיכרון מוגבל (Render Free Tier)"""
+    """מחלקה לניתוח תוכניות בנייה - גרסה V2 (הכנה לזיהוי דפוסים)"""
     
     def __init__(self):
-        pass
+        # בעתיד: כאן נחזיק את המידע על הדפוסים שה-AI זיהה
+        self.active_patterns = {} 
     
-    def pdf_to_image(self, pdf_path: str, max_size: int = 2000) -> np.ndarray:
-        """
-        המרה חכמה שחוסכת זיכרון: מחשבת את הזום הנדרש כדי לא לחרוג
-        מגודל מקסימלי, ורק אז יוצרת את התמונה.
-        """
+    def pdf_to_image(self, pdf_path: str, max_size: int = 2500) -> np.ndarray:
+        # העלינו מעט את הרזולוציה (מ-1800 ל-2500) כדי לאפשר זיהוי טוב יותר של דפוסים עדינים
         doc = fitz.open(pdf_path)
         page = doc[0]
-        
-        # חישוב יחס ההמרה כדי לא לחרוג מ-2000 פיקסלים (מונע קריסה)
         rect = page.rect
         zoom = 1.0
         if max(rect.width, rect.height) > 0:
             zoom = max_size / max(rect.width, rect.height)
         
-        # יצירת המטריצה עם הזום המחושב מראש
         mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=mat, alpha=False) # alpha=False חוסך ערוץ שקיפות מיותר
-        
-        # המרה ישירה ל-numpy
+        pix = page.get_pixmap(matrix=mat, alpha=False)
         img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-        
-        if pix.n == 3: # RGB
-            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        else:
-            img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-            
+        if pix.n == 3: img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        else: img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         doc.close()
-        del pix # שחרור זיכרון מיידי
+        del pix
         gc.collect()
-        
         return img_bgr
     
-    def remove_margins(self, image: np.ndarray, margin_percent: float = 0.15) -> np.ndarray:
-        h, w = image.shape[:2]
-        m_t, m_b = int(h * margin_percent), int(h * margin_percent)
-        m_l, m_r = int(w * margin_percent), int(w * margin_percent)
-        
-        cropped = image.copy()
-        cropped[0:m_t, :] = 0
-        cropped[h-m_b:h, :] = 0
-        cropped[:, 0:m_l] = 0
-        cropped[:, w-m_r:w] = 0
-        return cropped
+    # --- פונקציות חדשות (Placeholders) לעתיד ---
+    def detect_hatch_pattern(self, img_gray: np.ndarray, angle: int = 45) -> np.ndarray:
+        """
+        פונקציית עתיד: תזהה קיוקווים בזווית מסוימת (למשל לבטון).
+        כרגע היא מחזירה תמונה ריקה.
+        """
+        # כאן יבוא קוד לשימוש בפילטרים (Gabor/Sobel) לזיהוי כיווניות
+        return np.zeros_like(img_gray)
 
-    def skeletonize(self, img: np.ndarray) -> np.ndarray:
-        # שיטת השלד הוחלפה לגרסה מהירה יותר (Thinning) אם אפשר,
-        # אבל נשאיר את המקורית עם ניהול זיכרון טוב יותר
-        skel = np.zeros(img.shape, np.uint8)
-        element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
-        temp_img = img.copy()
-        
-        while True:
-            open_img = cv2.morphologyEx(temp_img, cv2.MORPH_OPEN, element)
-            temp = cv2.subtract(temp_img, open_img)
-            eroded = cv2.erode(temp_img, element)
-            skel = cv2.bitwise_or(skel, temp)
-            temp_img = eroded.copy()
-            if cv2.countNonZero(temp_img) == 0:
-                break
-        
-        return skel
+    def detect_solid_fill(self, img_gray: np.ndarray) -> np.ndarray:
+        """
+        פונקציית עתיד: תזהה מילוי מלא (למשל לבלוקים/עמודים).
+        """
+        # כאן יבוא קוד לזיהוי אזורים כהים גדולים
+        return np.zeros_like(img_gray)
+    # -------------------------------------------
 
     def preprocess_image(self, image: np.ndarray) -> np.ndarray:
-        # הקטנת רזולוציה נוספת אם התמונה עדיין ענקית
-        if max(image.shape) > 2000:
-            scale = 2000 / max(image.shape)
-            image = cv2.resize(image, None, fx=scale, fy=scale)
-            
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        """
+        הפונקציה המרכזית לזיהוי קירות - שופרה לסינון רעשים טוב יותר.
+        """
+        # הקטנת רזולוציה אם התמונה ענקית, לשיפור ביצועים
+        proc_img = image.copy()
+        if max(proc_img.shape) > 3000:
+             scale = 3000 / max(proc_img.shape)
+             proc_img = cv2.resize(proc_img, None, fx=scale, fy=scale)
+
+        gray = cv2.cvtColor(proc_img, cv2.COLOR_BGR2GRAY)
         
-        # שימוש ב-Gaussian במקום Median למהירות
-        filtered = cv2.GaussianBlur(gray, (5, 5), 0)
+        # שיפור 1: ניקוי רעשים אגרסיבי יותר לפני הסף
+        # שימוש ב-Bilateral Filter שומר על קצוות חדים אבל מנקה רעש בתוך משטחים
+        denoised = cv2.bilateralFilter(gray, 9, 75, 75)
         
-        # סף בינארי אדפטיבי
-        _, binary = cv2.threshold(filtered, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        binary = self.remove_margins(binary, margin_percent=0.10)
+        # סף בינארי (THRESH_OTSU מחשב אוטומטית את הסף האופטימלי)
+        _, binary = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         
-        kernel = np.ones((3, 3), np.uint8)
-        processed = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        # שיפור 2: פעולות מורפולוגיות לחיבור קווים מקווקווים וניקוי נקודות בודדות
+        # Kernel מלבני עוזר לחבר קווים ארוכים
+        morph_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        processed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, morph_kernel, iterations=2)
+        processed = cv2.morphologyEx(processed, cv2.MORPH_OPEN, morph_kernel, iterations=1)
         
-        # סינון רעשים
+        # שיפור 3: סינון לפי גודל (Area Filtering)
+        # מחיקת אלמנטים קטנים מדי שאינם קירות (כמו טקסט קטן או לכלוך)
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(processed, connectivity=8)
         mask = np.zeros_like(processed)
         
-        # סינון חכם יותר לפי שטח יחסי
-        min_area = (image.shape[0] * image.shape[1]) * 0.0001 # 0.01% מהשטח
+        total_area = proc_img.shape[0] * proc_img.shape[1]
+        # סף מינימלי: אלמנט חייב להיות לפחות 0.05% מהתמונה כדי להיחשב קיר
+        min_area_threshold = total_area * 0.0005 
         
         for i in range(1, num_labels):
-            if stats[i, cv2.CC_STAT_AREA] >= min_area:
-                mask[labels == i] = 255
+            # סינון נוסף: התעלמות ממסגרות דקות וארוכות מדי (כמו קווי גבול של השרטוט)
+            w, h = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
+            aspect_ratio = float(w) / h if h > 0 else 0
+            
+            # אם האלמנט גדול מספיק, ואינו "דק וארוך" בצורה קיצונית (כמו קו מסגרת)
+            if stats[i, cv2.CC_STAT_AREA] >= min_area_threshold:
+                if not (aspect_ratio > 20 or aspect_ratio < 0.05): # סינון קווים דקיקים מאוד
+                    mask[labels == i] = 255
         
-        result = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-        return result
+        # החזרת התמונה לגודל המקורי אם הקטנו אותה
+        if mask.shape[:2] != image.shape[:2]:
+             mask = cv2.resize(mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
+             
+        return mask
     
+    def skeletonize(self, img: np.ndarray) -> np.ndarray:
+        # שימוש בפונקציה המובנית של OpenCV לביצועים טובים יותר (אם קיימת בגרסה)
+        try:
+            skel = cv2.ximgproc.thinning(img, thinningType=cv2.ximgproc.THINNING_ZHANGSUEN)
+        except:
+            # Fallback לשיטה הישנה והאיטית יותר אם ximgproc לא קיים
+            skel = np.zeros(img.shape, np.uint8)
+            element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+            temp_img = img.copy()
+            while True:
+                open_img = cv2.morphologyEx(temp_img, cv2.MORPH_OPEN, element)
+                temp = cv2.subtract(temp_img, open_img)
+                eroded = cv2.erode(temp_img, element)
+                skel = cv2.bitwise_or(skel, temp)
+                temp_img = eroded.copy()
+                if cv2.countNonZero(temp_img) == 0: break
+        return skel
+
     def extract_metadata(self, pdf_path: str) -> Dict[str, Optional[str]]:
         try:
             doc = fitz.open(pdf_path)
-            # קריאת טקסט רק מהעמוד הראשון וללא פריסה מלאה לחסכון בזיכרון
             text = doc[0].get_text()
             doc.close()
-            
-            metadata = {"plan_name": None, "scale": None, "raw_text": text[:1000]} # הגדלת טווח החיפוש
-            
-            # חיפוש שם
-            match = re.search(r"(?:תוכנית|שם\s*שרטוט|Project)[\s:]+([^\n\r]+)", text, re.IGNORECASE)
-            metadata["plan_name"] = match.group(1).strip() if match else os.path.basename(pdf_path).replace(".pdf", "")
-            
-            # חיפוש קנה מידה
-            match_s = re.search(r"(\d+)[\s:]*[:/][\s]*(\d+)", text)
-            if match_s: metadata["scale"] = f"{match_s.group(1)}:{match_s.group(2)}"
-            
-            return metadata
+            # ניסיון בסיסי לחילוץ שם (ה-AI ב-brain.py יעשה עבודה טובה יותר)
+            plan_name = os.path.basename(pdf_path).replace(".pdf", "")
+            return {"plan_name": plan_name, "scale": None, "raw_text": text[:2500]}
         except Exception:
             return {"plan_name": os.path.basename(pdf_path), "scale": None, "raw_text": ""}
     
     def process_file(self, pdf_path: str) -> Tuple[int, np.ndarray, np.ndarray, np.ndarray, Dict[str, Optional[str]]]:
-        # 1. טעינה מותאמת זיכרון
-        image_proc = self.pdf_to_image(pdf_path, max_size=1800) # הגבלה ל-1800 פיקסלים
-        
-        # 2. עיבוד
+        # 1. טעינה
+        image_proc = self.pdf_to_image(pdf_path, max_size=2500)
+        # 2. עיבוד (זיהוי קירות כללי)
         thick_walls = self.preprocess_image(image_proc)
+        # 3. שלד (לחישוב אורך)
         skeleton = self.skeletonize(thick_walls)
-        
-        # 3. חישובים
+        # 4. נתונים
         total_pixels = cv2.countNonZero(skeleton)
         metadata = self.extract_metadata(pdf_path)
         
-        # ניקוי זיכרון אגרסיבי לפני החזרה
         gc.collect()
-        
         return total_pixels, skeleton, thick_walls, image_proc, metadata

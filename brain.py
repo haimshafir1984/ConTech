@@ -51,10 +51,12 @@ def process_plan_metadata(raw_text):
         print(f"Error calling Groq (Text): {e}")
         return {}
 
+# ... (חלק עליון של הקובץ ללא שינוי) ...
+
 def analyze_legend_image(image_bytes):
     """
     מקבל בייטס של תמונה (חיתוך של המקרא), שולח ל-Llama Vision 
-    ומחזיר הסבר טקסטואלי על סוגי הקירות.
+    ומנסה לחלץ את שם החומר ואת הדפוס הויזואלי שלו.
     """
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key: return "חסר מפתח API"
@@ -65,12 +67,24 @@ def analyze_legend_image(image_bytes):
         
         client = Groq(api_key=api_key)
         
+        # פרומפט משופר שמתמקד בדפוס הויזואלי
+        prompt = """
+        You are an expert in reading construction blueprints. Look at this cropped image from a legend (key).
+        Your task is to identify:
+        1. What material or element is depicted (e.g., "Concrete Wall", "Block Wall", "Drywall").
+        2. What is the exact visual pattern defining it (e.g., "Diagonal hatching", "Solid black fill", "Double parallel lines", "Cross-hatch").
+
+        Return ONLY a concise string in this format: "Material Name | Visual Pattern Description".
+        Example: "Concrete | Diagonal hatching lines"
+        If you cannot clearly identify it, return "Unknown | Unclear pattern".
+        """
+        
         chat_completion = client.chat.completions.create(
             messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "This is a legend (key) from a construction blueprint. Identify exactly what the hatch patterns or line styles represent (e.g., 'Diagonal hatch = Concrete', 'Double line = Block'). Return a short list in Hebrew if possible, or English."},
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -80,7 +94,7 @@ def analyze_legend_image(image_bytes):
                     ],
                 }
             ],
-            model="llama-3.2-11b-vision-preview", # מודל ראייה
+            model="llama-3.2-11b-vision-preview",
         )
         return chat_completion.choices[0].message.content
     except Exception as e:

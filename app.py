@@ -131,9 +131,49 @@ if mode == "🏢 מנהל פרויקט":
             if scale_key not in st.session_state: st.session_state[scale_key] = proj["metadata"].get("scale", "")
 
             col_edit, col_preview = st.columns([1, 1.5])
+            # ... בתוך החלק של עריכת תוכנית ...
             with col_edit:
                 st.markdown("### הגדרות תוכנית")
+                
+                # שליפת הנתונים הקיימים
+                current_meta = proj.get("metadata", {})
+                
+                # --- החלק החדש: הצגת סוג התוכנית ---
+                detected_type = current_meta.get("plan_type", "construction")
+                
+                # רשימת אפשרויות בעברית
+                type_map = {
+                    "construction": "בנייה (ברירת מחדל)",
+                    "demolition": "הריסה 🔨",
+                    "ceiling": "תקרה (לא למדידה) 💡",
+                    "electricity": "חשמל ⚡",
+                    "plumbing": "אינסטלציה 💧",
+                    "other": "אחר"
+                }
+                
+                # המרה למפתח שה-Selectbox יבין
+                index_val = list(type_map.keys()).index(detected_type) if detected_type in type_map else 0
+                
+                selected_type_key = st.selectbox(
+                    "סוג תוכנית (זוהה ע\"י AI)",
+                    options=list(type_map.keys()),
+                    format_func=lambda x: type_map[x],
+                    index=index_val,
+                    key=f"type_{selected}"
+                )
+                
+                # אזהרה חכמה
+                if selected_type_key == "ceiling":
+                    st.warning("⚠️ שים לב: זו תוכנית תקרה. ייתכן שקווים מסומנים אינם קירות בנויים!")
+                elif selected_type_key == "demolition":
+                    st.error("🛑 זו תוכנית הריסה. הקירות המסומנים מיועדים להריסה.")
+                
+                # עדכון המטא-דאטה בזמן אמת
+                proj["metadata"]["plan_type"] = selected_type_key
+                # ----------------------------------------
+
                 p_name = st.text_input("שם התוכנית", key=name_key)
+                # ... המשך הקוד הרגיל ...
                 p_scale = st.text_input("קנה מידה", key=scale_key)
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:

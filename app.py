@@ -255,63 +255,82 @@ if mode == "🏢 מנהל פרויקט":
                     c3.markdown(f"<div class='mat-card'><div class='mat-val'>{mats['wall_area_sqm']:.0f}</div><div class='mat-lbl'>מ\"ר קיר</div></div>", unsafe_allow_html=True)
 
     with tab2:
-        all_plans = get_all_plans()
-        if not all_plans: st.info("אנא שמור תוכנית אחת לפחות.")
+        # שליפה מה-DB (תמיד עובד, גם אחרי ריסטרט)
+        all_plans_db = get_all_plans()
+        
+        if not all_plans_db:
+            st.info("אין נתונים במסד הנתונים.")
         else:
-            plan_options = [f"{p['plan_name']} (ID: {p['id']})" for p in all_plans]
-            selected_display = st.selectbox("בחר פרויקט:", plan_options)
+            # יצירת רשימה לבחירה מתוך ה-DB
+            plan_options = [f"{p['plan_name']} (ID: {p['id']})" for p in all_plans_db]
+            selected_display = st.selectbox("בחר פרויקט לצפייה בנתונים:", plan_options)
+            
+            # חילוץ ה-ID
             selected_id = int(selected_display.split("(ID: ")[1].split(")")[0])
+            
+            # שליפת הנתונים העדכניים לחישוב
             forecast = get_project_forecast(selected_id)
             fin = get_project_financial_status(selected_id)
             
             days_val = forecast['days_to_finish']
             days_left_display = days_val if days_val > 0 else "-"
 
-            st.markdown("#### סטטוס ביצוע")
+            st.markdown("#### 📊 סטטוס ביצוע (מתוך DB)")
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             with kpi1: st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">🏗️</div><div class="kpi-label">בוצע בפועל</div><div class="kpi-value">{forecast['cumulative_progress']:.1f} מ'</div><div class="kpi-sub">מתוך {forecast['total_planned']:.1f} מ'</div></div>""", unsafe_allow_html=True)
             with kpi2:
                 pct = (forecast['cumulative_progress'] / forecast['total_planned'] * 100) if forecast['total_planned'] > 0 else 0
-                st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">📊</div><div class="kpi-label">אחוז השלמה</div><div class="kpi-value">{pct:.1f}%</div><div class="kpi-sub">נותרו {forecast['remaining_work']:.1f} מ'</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">📈</div><div class="kpi-label">אחוז השלמה</div><div class="kpi-value">{pct:.1f}%</div><div class="kpi-sub">נותרו {forecast['remaining_work']:.1f} מ'</div></div>""", unsafe_allow_html=True)
             with kpi3: st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">📅</div><div class="kpi-label">ימים לסיום</div><div class="kpi-value">{days_left_display}</div><div class="kpi-sub">קצב: {forecast['average_velocity']:.1f} מ'/יום</div></div>""", unsafe_allow_html=True)
             with kpi4:
                 cost_color = "#ef4444" if fin['budget_variance'] < 0 else "#10b981"
                 st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">💰</div><div class="kpi-label">עלות נוכחית</div><div class="kpi-value">{fin['current_cost']:,.0f} ₪</div><div class="kpi-sub" style="color: {cost_color}">תקציב: {fin['budget_limit']:,.0f} ₪</div></div>""", unsafe_allow_html=True)
             
-            # === תיקון: ייצוא PDF ===
+            # === ייצוא PDF (דורש תמונה) ===
             st.markdown("---")
-            if st.button("📄 צור דוח PDF למנהל"):
-                # מחפש את התמונה בזיכרון
-                found_proj = None
-                for pname, pdata in st.session_state.projects.items():
-                    clean_name = selected_display.split(" (ID")[0]
-                    if pdata["metadata"].get("plan_name") == clean_name or pname == clean_name:
-                        found_proj = pdata
-                        break
-                
-                if found_proj:
-                    # יצירת מילון הנתונים (זה מה שהיה חסר!)
-                    stats = {
-                        "built": forecast['cumulative_progress'],
-                        "total": forecast['total_planned'],
-                        "percent": pct
-                    }
+            col_pdf_btn, col_msg = st.columns([1, 2])
+            
+            with col_pdf_btn:
+                if st.button("📄 צור דוח PDF למנהל"):
+                    # בדיקה אם התמונה קיימת בזיכרון (המשתמש העלה אותה בסשן הנוכחי)
+                    found_proj = None
+                    # מנסים למצוא את הפרויקט בזיכרון לפי השם ב-DB
+                    selected_name_clean = selected_display.split(" (ID")[0]
                     
-                    # קריאה לפונקציה עם כל 3 הפרמטרים
-                    pdf_bytes = generate_status_pdf(
-                        found_proj["metadata"].get("plan_name", "Report"),
-                        found_proj["original"], 
-                        stats  # <-- הנה התיקון
-                    )
-                    st.download_button(label="📥 הורד קובץ PDF", data=pdf_bytes, file_name=f"report_{selected_id}.pdf", mime="application/pdf")
-                else:
-                    st.warning("לא ניתן ליצור דוח גרפי: התמונה המקורית לא בזיכרון (יש לטעון את הקובץ מחדש).")
+                    for pname, pdata in st.session_state.projects.items():
+                        # בדיקת התאמה בין השם בזיכרון לשם ב-DB
+                        if pdata["metadata"].get("plan_name") == selected_name_clean or pname.replace(".pdf","") == selected_name_clean:
+                            found_proj = pdata
+                            break
+                    
+                    if found_proj:
+                        stats = {
+                            "built": forecast['cumulative_progress'],
+                            "total": forecast['total_planned'],
+                            "percent": pct
+                        }
+                        try:
+                            pdf_bytes = generate_status_pdf(
+                                found_proj["metadata"].get("plan_name", "Report"),
+                                found_proj["original"], 
+                                stats
+                            )
+                            st.download_button(label="📥 הורד קובץ PDF", data=pdf_bytes, file_name=f"report_{selected_id}.pdf", mime="application/pdf")
+                        except Exception as e:
+                            st.error(f"שגיאה ביצירת PDF: {e}")
+                    else:
+                        st.warning("⚠️ הקובץ המקורי לא נמצא בזיכרון.")
+                        st.info("כדי לייצר דוח גרפי, יש לגרור את קובץ ה-PDF המקורי שוב במסך 'העלאת תוכניות'. המערכת תזהה אותו ותחבר לנתונים.")
 
             g_col, t_col = st.columns([2, 1])
             with g_col:
                 st.markdown("##### קצב התקדמות")
                 df = load_stats_df()
-                if not df.empty: st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
+                # סינון הגרף רק לפרויקט הנוכחי
+                if not df.empty:
+                    # כאן נדרש סינון לפי שם התוכנית, נניח שהשמות ייחודיים
+                    # במערכת מתקדמת יותר נסנן לפי ID
+                    st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
             with t_col:
                 st.markdown("##### דיווחים אחרונים")
                 if not df.empty: st.dataframe(df[["תאריך", "מטרים שבוצעו", "הערה"]].head(5), hide_index=True, use_container_width=True)

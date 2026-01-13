@@ -43,26 +43,27 @@ def load_stats_df():
         df = pd.DataFrame(reports)
         return df.rename(columns={
             'date': 'תאריך', 'plan_name': 'שם תוכנית',
-            'meters_built': 'מטרים שבוצעו', 'note': 'הערה'
+            'meters_built': 'כמות שבוצעה', 'note': 'הערה'
         })
     return pd.DataFrame()
 
-# --- פונקציה חדשה: יצירת תמונה צבעונית (בטון+בלוקים) ---
-def create_colored_overlay(original, concrete_mask, blocks_mask):
+# --- פונקציה משודרגת: יצירת תמונה צבעונית (בטון+בלוקים+ריצוף) ---
+def create_colored_overlay(original, concrete_mask, blocks_mask, flooring_mask=None):
     # המרה ל-RGB
     img_vis = cv2.cvtColor(original, cv2.COLOR_BGR2RGB).astype(float)
-    
-    # יצירת שכבת צבע
     overlay = img_vis.copy()
     
-    # צביעת בטון (כחול חזק: R=0, G=0, B=255)
-    # שימ לב: ב-numpy המערך הוא RGB, אז [0,0,255] זה כחול ב-Matplotlib/Streamlit
+    # צביעת בטון (כחול)
     overlay[concrete_mask > 0] = [30, 144, 255] 
     
-    # צביעת בלוקים (כתום: R=255, G=165, B=0)
+    # צביעת בלוקים (כתום)
     overlay[blocks_mask > 0] = [255, 165, 0]
     
-    # שילוב עם שקיפות (0.6 מקור, 0.4 צבע)
+    # צביעת ריצוף (סגול בהיר) - אם נבחר להציג
+    if flooring_mask is not None:
+         overlay[flooring_mask > 0] = [200, 100, 255]
+    
+    # שילוב עם שקיפות
     cv2.addWeighted(overlay, 0.6, img_vis, 0.4, 0, img_vis)
     return img_vis.astype(np.uint8)
 
@@ -132,8 +133,8 @@ if mode == "🏢 מנהל פרויקט":
                                 path = tmp.name
                             
                             analyzer = FloorPlanAnalyzer()
-                            # --- שינוי: קבלת 7 פרמטרים (כולל בטון/בלוקים) ---
-                            pix, skel, thick, orig, meta, conc_mask, blok_mask = analyzer.process_file(path)
+                            # --- שדרוג: קבלת 8 ערכים כולל flooring_mask ---
+                            pix, skel, thick, orig, meta, conc_mask, blok_mask, floor_mask = analyzer.process_file(path)
                             
                             if not meta.get("plan_name"): 
                                 meta["plan_name"] = f.name.replace(".pdf", "").replace("-", " ").strip()
@@ -146,11 +147,12 @@ if mode == "🏢 מנהל פרויקט":
                                 if llm_metadata.get("scale"): meta["scale"] = llm_metadata["scale"]
                                 if llm_metadata.get("plan_type"): meta["plan_type"] = llm_metadata["plan_type"]
                             
-                            # שמירה בזיכרון כולל המסכות החדשות
+                            # שמירה בזיכרון
                             st.session_state.projects[f.name] = {
                                 "skeleton": skel, "thick_walls": thick, "original": orig,
                                 "raw_pixels": pix, "scale": 200.0, "metadata": meta,
                                 "concrete_mask": conc_mask, "blocks_mask": blok_mask,
+                                "flooring_mask": floor_mask,  # שומרים את הריצוף
                                 "total_length": pix / 200.0, "llm_suggestions": llm_metadata
                             }
                             os.unlink(path)
@@ -190,7 +192,7 @@ if mode == "🏢 מנהל פרויקט":
                 p_name = st.text_input("שם התוכנית", key=name_key)
                 p_scale = st.text_input("קנה מידה", key=scale_key)
                 
-               # === לימוד מקרא (נשאר הגרסה היציבה) ===
+               # === לימוד מקרא ===
                 with st.expander("📖 לימוד מקרא (AI Vision)", expanded=False):
                     st.info("סמן את המקרא בשרטוט כדי שהמערכת תלמד אותו.")
                     target_width = st.slider("🔍 זום (רוחב תצוגה)", 600, 1500, 800, step=50, key=f"zoom_{selected}")
@@ -232,7 +234,7 @@ if mode == "🏢 מנהל פרויקט":
                             else:
                                 st.warning("אנא סמן אזור תקין")
 
-                # --- המשך הגדרות ---
+                # --- הגדרות תקציב וכיול ---
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:
                     target_date_val = st.date_input("תאריך יעד", key=f"td_{selected}")
@@ -244,33 +246,38 @@ if mode == "🏢 מנהל פרויקט":
                 scale_val = st.slider("פיקסלים למטר", 10.0, 1000.0, float(proj["scale"]), key=f"sl_{selected}")
                 proj["scale"] = scale_val
                 
-                # חישוב כמויות לפי הסקייל החדש
+                # חישוב כמויות
                 total_len = proj["raw_pixels"] / scale_val
                 conc_len = proj["metadata"].get("pixels_concrete", 0) / scale_val
                 block_len = proj["metadata"].get("pixels_blocks", 0) / scale_val
+                
+                # שטח ריצוף (מ"ר) = פיקסלים / (סקייל^2)
+                floor_area_sqm = proj["metadata"].get("pixels_flooring_area", 0) / (scale_val * scale_val)
                 proj["total_length"] = total_len
                 
-                st.info(f"📏 אורך קירות: **{total_len:.2f} מטר**")
+                st.info(f"📏 קירות: {total_len:.1f} מ' | 🔲 ריצוף: {floor_area_sqm:.1f} מ\"ר")
 
-                # --- פיצ'ר חדש: מחשבון הצעת מחיר ---
+                # --- מחשבון הצעת מחיר (כולל ריצוף) ---
                 with st.expander("💰 מחשבון הצעת מחיר", expanded=True):
                     st.markdown("""<div class="price-box">
                     <strong>מחירון בסיס:</strong><br>
-                    בטון: ₪1,200/מטר | בלוקים: ₪600/מטר
+                    בטון: 1200 | בלוקים: 600 | ריצוף: 250
                     </div>""", unsafe_allow_html=True)
                     
-                    c_price = st.number_input("מחיר למטר בטון (₪)", value=1200.0, step=50.0)
-                    b_price = st.number_input("מחיר למטר בלוקים (₪)", value=600.0, step=50.0)
+                    c_price = st.number_input("מחיר בטון (₪/מ')", value=1200.0, step=50.0)
+                    b_price = st.number_input("מחיר בלוקים (₪/מ')", value=600.0, step=50.0)
+                    f_price = st.number_input("מחיר ריצוף (₪/מ\"ר)", value=250.0, step=50.0)
                     
-                    total_cost_calc = (conc_len * c_price) + (block_len * b_price)
+                    total_cost_calc = (conc_len * c_price) + (block_len * b_price) + (floor_area_sqm * f_price)
                     st.markdown(f"#### 💵 סה\"כ: {total_cost_calc:,.0f} ₪")
                     
                     # ייצוא לאקסל
                     quote_data = {
-                        "פריט": ["קירות בטון (מעטפת)", "קירות בלוקים (פנים)", "סה\"כ"],
-                        "כמות (מטר אורך)": [f"{conc_len:.2f}", f"{block_len:.2f}", f"{total_len:.2f}"],
-                        "מחיר ליחידה (₪)": [c_price, b_price, "-"],
-                        "סה\"כ (₪)": [f"{conc_len*c_price:.2f}", f"{block_len*b_price:.2f}", f"{total_cost_calc:.2f}"]
+                        "פריט": ["קירות בטון", "קירות בלוקים", "ריצוף/חיפוי", "סה\"כ"],
+                        "יחידה": ["מטר אורך", "מטר אורך", "מ\"ר", "-"],
+                        "כמות": [f"{conc_len:.2f}", f"{block_len:.2f}", f"{floor_area_sqm:.2f}", "-"],
+                        "מחיר יחידה (₪)": [c_price, b_price, f_price, "-"],
+                        "סה\"כ (₪)": [f"{conc_len*c_price:.2f}", f"{block_len*b_price:.2f}", f"{floor_area_sqm*f_price:.2f}", f"{total_cost_calc:.2f}"]
                     }
                     df_quote = pd.DataFrame(quote_data)
                     csv = df_quote.to_csv(index=False).encode('utf-8-sig')
@@ -283,7 +290,7 @@ if mode == "🏢 מנהל פרויקט":
                         type="primary"
                     )
 
-                if st.button("💾 שמור נתונים", type="primary", use_container_width=True):
+                if st.button("💾 שמור נתונים ל-DB", type="primary", use_container_width=True):
                     proj["metadata"]["plan_name"] = p_name
                     proj["metadata"]["scale"] = p_scale
                     metadata_json = json.dumps(proj["metadata"], ensure_ascii=False)
@@ -293,22 +300,24 @@ if mode == "🏢 מנהל פרויקט":
 
             with col_preview:
                 st.markdown("### 👁️ ניתוח ויזואלי")
-                # תצוגה צבעונית חכמה
+                
+                # אפשרות להציג/להסתיר ריצוף
+                show_floor = st.checkbox("הצג שכבת ריצוף (סגול)", value=True)
+                f_mask_to_show = proj["flooring_mask"] if show_floor else None
+                
+                # תצוגה צבעונית
                 if "concrete_mask" in proj and "blocks_mask" in proj:
-                    colored_img = create_colored_overlay(proj["original"], proj["concrete_mask"], proj["blocks_mask"])
-                    st.image(colored_img, caption="🔵 כחול = בטון | 🟠 כתום = בלוקים", use_column_width=True)
+                    colored_img = create_colored_overlay(proj["original"], proj["concrete_mask"], proj["blocks_mask"], f_mask_to_show)
+                    st.image(colored_img, caption="🔵 כחול=בטון | 🟠 כתום=בלוקים | 🟣 סגול=ריצוף", use_column_width=True)
                 else:
                     st.image(proj["skeleton"], caption="זיהוי קירות", use_column_width=True)
                 
                 # גרף חלוקה
-               # גרף חלוקה (מתוקן)
-                # בנינו את הדאטה כעמודות נפרדות כדי שנוכל לתת צבע לכל עמודה
                 chart_data = pd.DataFrame(
-                    [[conc_len, block_len]], 
-                    columns=["בטון", "בלוקים"]
+                    [[conc_len, block_len, floor_area_sqm]], 
+                    columns=["בטון", "בלוקים", "ריצוף"]
                 )
-                # עכשיו יש 2 עמודות ו-2 צבעים -> השגיאה תיעלם
-                st.bar_chart(chart_data, color=["#1E90FF", "#FFA500"])
+                st.bar_chart(chart_data, color=["#1E90FF", "#FFA500", "#C864FF"])
                 
                 if proj["total_length"] > 0:
                     mats = calculate_material_estimates(proj["total_length"], st.session_state.wall_height)
@@ -319,7 +328,7 @@ if mode == "🏢 מנהל פרויקט":
                     c3.markdown(f"<div class='mat-card'><div class='mat-val'>{mats['wall_area_sqm']:.0f}</div><div class='mat-lbl'>מ\"ר קיר</div></div>", unsafe_allow_html=True)
 
     with tab2:
-        # שליפה מה-DB (דשבורד מלא כפי שהיה)
+        # דשבורד מנהלים מלא
         all_plans_db = get_all_plans()
         
         if not all_plans_db:
@@ -335,7 +344,7 @@ if mode == "🏢 מנהל פרויקט":
             days_val = forecast['days_to_finish']
             days_left_display = days_val if days_val > 0 else "-"
 
-            st.markdown("#### 📊 סטטוס ביצוע (מתוך DB)")
+            st.markdown("#### 📊 סטטוס ביצוע")
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             with kpi1: st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">🏗️</div><div class="kpi-label">בוצע בפועל</div><div class="kpi-value">{forecast['cumulative_progress']:.1f} מ'</div><div class="kpi-sub">מתוך {forecast['total_planned']:.1f} מ'</div></div>""", unsafe_allow_html=True)
             with kpi2:
@@ -348,54 +357,37 @@ if mode == "🏢 מנהל פרויקט":
             
             # === ייצוא PDF ===
             st.markdown("---")
-            col_pdf_btn, col_msg = st.columns([1, 2])
-            
-            with col_pdf_btn:
-                if st.button("📄 צור דוח PDF למנהל"):
-                    found_proj = None
-                    selected_name_clean = selected_display.split(" (ID")[0]
-                    
-                    for pname, pdata in st.session_state.projects.items():
-                        if pdata["metadata"].get("plan_name") == selected_name_clean or pname.replace(".pdf","") == selected_name_clean:
-                            found_proj = pdata
-                            break
-                    
-                    if found_proj:
-                        stats = {
-                            "built": forecast['cumulative_progress'],
-                            "total": forecast['total_planned'],
-                            "percent": pct
-                        }
-                        try:
-                            pdf_bytes = generate_status_pdf(
-                                found_proj["metadata"].get("plan_name", "Report"),
-                                found_proj["original"], 
-                                stats
-                            )
-                            st.download_button(label="📥 הורד קובץ PDF", data=pdf_bytes, file_name=f"report_{selected_id}.pdf", mime="application/pdf")
-                        except Exception as e:
-                            st.error(f"שגיאה ביצירת PDF: {e}")
-                    else:
-                        st.warning("⚠️ הקובץ המקורי לא נמצא בזיכרון.")
-                        st.info("כדי לייצר דוח גרפי, יש לגרור את קובץ ה-PDF המקורי שוב במסך 'העלאת תוכניות'. המערכת תזהה אותו ותחבר לנתונים.")
+            if st.button("📄 צור דוח PDF למנהל"):
+                found_proj = None
+                selected_name_clean = selected_display.split(" (ID")[0]
+                for pname, pdata in st.session_state.projects.items():
+                    if pdata["metadata"].get("plan_name") == selected_name_clean or pname.replace(".pdf","") == selected_name_clean:
+                        found_proj = pdata
+                        break
+                if found_proj:
+                    stats = {
+                        "built": forecast['cumulative_progress'],
+                        "total": forecast['total_planned'],
+                        "percent": pct
+                    }
+                    try:
+                        pdf_bytes = generate_status_pdf(found_proj["metadata"].get("plan_name", "Report"), found_proj["original"], stats)
+                        st.download_button(label="📥 הורד קובץ PDF", data=pdf_bytes, file_name=f"report_{selected_id}.pdf", mime="application/pdf")
+                    except Exception as e: st.error(f"שגיאה ביצירת PDF: {e}")
+                else: st.warning("יש לטעון את הקובץ המקורי לזיכרון כדי לייצר PDF.")
 
-            # === עמודות גרף וטבלה ===
             g_col, t_col = st.columns([2, 1])
             with g_col:
                 st.markdown("##### קצב התקדמות")
                 df = load_stats_df()
-                if not df.empty:
-                    st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
-                else:
-                    st.info("אין נתונים להצגה בגרף עדיין")
+                if not df.empty: st.bar_chart(df, x="תאריך", y="כמות שבוצעה", use_container_width=True)
+                else: st.info("אין נתונים להצגה")
             with t_col:
                 st.markdown("##### דיווחים אחרונים")
-                if not df.empty:
-                    st.dataframe(df[["תאריך", "מטרים שבוצעו", "הערה"]].head(5), hide_index=True, use_container_width=True)
-                else:
-                    st.caption("אין דיווחים אחרונים")
+                if not df.empty: st.dataframe(df[["תאריך", "כמות שבוצעה", "הערה"]].head(5), hide_index=True, use_container_width=True)
+                else: st.caption("אין דיווחים אחרונים")
 
-# --- דיווח שטח ---
+# --- דיווח שטח (משודרג וחכם) ---
 elif mode == "👷 דיווח שטח":
     st.title("דיווח ביצוע")
     if not st.session_state.projects: 
@@ -404,119 +396,129 @@ elif mode == "👷 דיווח שטח":
         plan_name = st.selectbox("בחר תוכנית:", list(st.session_state.projects.keys()))
         proj = st.session_state.projects[plan_name]
         
-        try:
-            orig_rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
-            h, w = orig_rgb.shape[:2]
-            thick_walls = proj["thick_walls"]
+        # --- פיצ'ר חדש: בחירת סוג דיווח ---
+        st.markdown("### מה ביצעת היום?")
+        report_type = st.radio("סוג עבודה:", ["🧱 בניית קירות", "🔲 ריצוף/חיפוי"], horizontal=True)
+        
+        orig_rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
+        h, w = orig_rgb.shape[:2]
+        
+        # הגדרת רקע וצבעים בהתאם לסוג הדיווח
+        if report_type == "🧱 בניית קירות":
+            # הדגשת קירות
+            thick_walls = cv2.resize(proj["thick_walls"], (w, h), interpolation=cv2.INTER_NEAREST)
+            kernel = np.ones((10, 10), np.uint8)
+            highlight_mask = cv2.dilate((thick_walls > 0).astype(np.uint8) * 255, kernel, iterations=1)
+            base_color = [0, 120, 255] # כחול
+            draw_color = "#00FF00" # ירוק לסימון
+            stroke_w = 8
+            drawing_mode = "freedraw"
+            msg = "סמן קירות שבוצעו (פס ירוק)"
             
-            if thick_walls.shape[:2] != (h, w): 
-                thick_walls = cv2.resize(thick_walls, (w, h), interpolation=cv2.INTER_NEAREST)
+        else: # ריצוף
+            # הדגשת ריצוף
+            floor_mask = cv2.resize(proj["flooring_mask"], (w, h), interpolation=cv2.INTER_NEAREST)
+            highlight_mask = floor_mask
+            base_color = [200, 100, 255] # סגול
+            draw_color = "#FFFF00" # צהוב לסימון שטח
+            stroke_w = 20 # מברשת עבה לשטח
+            drawing_mode = "freedraw"
+            msg = "צבע את האזור שרוצף (בצהוב)"
+        
+        # יצירת תמונה לרקע
+        overlay = np.zeros_like(orig_rgb)
+        overlay[highlight_mask > 0] = base_color
+        combined = cv2.addWeighted(orig_rgb, 0.7, overlay, 0.3, 0).astype(np.uint8)
+        bg_image = Image.fromarray(combined)
+        
+        # התאמת גודל לקנבס
+        max_canvas_width = 800
+        if w > max_canvas_width:
+            factor = max_canvas_width / w
+            c_width = max_canvas_width
+            c_height = int(h * factor)
+        else:
+            c_width = w
+            c_height = h
+            factor = 1.0
             
-            kernel = np.ones((15, 15), np.uint8)
-            dilated = cv2.dilate((thick_walls > 0).astype(np.uint8) * 255, kernel, iterations=2)
+        bg_image_resized = bg_image.resize((c_width, c_height), Image.Resampling.LANCZOS)
+        
+        st.caption(msg)
+        canvas_key = f"rep_{plan_name}_{report_type}"
+        
+        canvas = st_canvas(
+            fill_color="rgba(255, 255, 0, 0.3)" if report_type == "🔲 ריצוף/חיפוי" else "rgba(0,0,0,0)",
+            stroke_width=stroke_w,
+            stroke_color=draw_color, 
+            background_image=bg_image_resized,
+            height=c_height,
+            width=c_width,
+            drawing_mode=drawing_mode,
+            key=canvas_key, 
+            update_streamlit=True
+        )
+        
+        if canvas.json_data and canvas.json_data["objects"]:
+            measured_value = 0
+            unit = ""
             
-            col_opacity, col_spacer = st.columns([2, 1])
-            with col_opacity: 
-                opacity = st.slider("עוצמת הדגשת קירות", 0.0, 1.0, 0.4)
-            
-            overlay = np.zeros_like(orig_rgb)
-            overlay[dilated > 0] = [0, 120, 255]
-            
-            combined = cv2.addWeighted(orig_rgb, 1-opacity, overlay, opacity, 0).astype(np.uint8)
-            bg_image = Image.fromarray(combined).convert("RGB")
-            
-            # --- הקטנת תמונה למניעת עומס ---
-            max_canvas_width = 800
-            if w > max_canvas_width:
-                factor = max_canvas_width / w
-                c_width = max_canvas_width
-                c_height = int(h * factor)
-            else:
-                c_width = w
-                c_height = h
-                factor = 1.0
-            
-            bg_image_resized = bg_image.resize((c_width, c_height), Image.Resampling.LANCZOS)
-            
-            st.markdown("**סמן את הקירות שבנית היום (בירוק):**")
-            st.caption(f"גודל קנבס: {c_width}x{c_height} פיקסלים")
-            
-            canvas_key = f"canvas_{plan_name}"
-            
-            canvas = st_canvas(
-                fill_color="rgba(0, 0, 0, 0)",
-                stroke_width=8,
-                stroke_color="#00FF00", 
-                background_image=bg_image_resized,
-                height=c_height,
-                width=c_width,
-                drawing_mode="freedraw",
-                point_display_radius=0,
-                key=canvas_key, 
-                update_streamlit=True
-            )
-            
-            if canvas.json_data is not None and canvas.json_data.get("objects"):
+            # --- חישוב לדיווח קירות (אורך) ---
+            if report_type == "🧱 בניית קירות":
                 try:
                     w_mask = np.zeros((c_height, c_width), dtype=np.uint8)
                     df_obj = pd.json_normalize(canvas.json_data["objects"])
-                    
                     for _, obj in df_obj.iterrows():
-                        if 'path' in obj:
-                            path = obj['path']
-                            if isinstance(path, list) and len(path) > 0:
-                                points = []
-                                for p in path:
-                                    if isinstance(p, list) and len(p) >= 3:
-                                        points.append([int(p[1]), int(p[2])])
-                                if len(points) > 1:
-                                    points = np.array(points, dtype=np.int32)
-                                    cv2.polylines(w_mask, [points], False, 255, 8)
-                        
-                        elif 'left' in obj and 'top' in obj and 'x1' in obj:
-                            l, t = int(obj['left']), int(obj['top'])
-                            p1 = (l + int(obj['x1']), t + int(obj['y1']))
-                            p2 = (l + int(obj['x2']), t + int(obj['y2']))
-                            cv2.line(w_mask, p1, p2, 255, 8)
+                        if 'path' in obj and isinstance(obj['path'], list):
+                            points = []
+                            for p in obj['path']:
+                                if len(p) >= 3: points.append([int(p[1]), int(p[2])])
+                            if len(points) > 1:
+                                cv2.polylines(w_mask, [np.array(points, dtype=np.int32)], False, 255, 8)
                     
-                    walls_res = cv2.resize(dilated, (c_width, c_height), interpolation=cv2.INTER_NEAREST)
+                    # חיתוך עם השלד המקורי
+                    walls_res = cv2.resize(proj["thick_walls"], (c_width, c_height), interpolation=cv2.INTER_NEAREST)
+                    # ניפוח קל כדי שהסימון יתפוס
+                    walls_res = cv2.dilate(walls_res, np.ones((5,5), np.uint8))
+                    
                     intersection = cv2.bitwise_and(w_mask, walls_res)
                     pixels = cv2.countNonZero(intersection)
                     
-                    if proj["scale"] > 0 and factor > 0:
-                        meters = (pixels / factor) / proj["scale"]
-                    else:
-                        meters = 0
+                    if proj["scale"] > 0:
+                        measured_value = (pixels / factor) / proj["scale"]
+                    unit = "מטר אורך"
                     
-                    if meters > 0:
-                        st.success(f"✅ נמדדו: **{meters:.2f} מטר**")
-                        note = st.text_input("הערה לדיווח (אופציונלי)")
-                        
-                        if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):
-                            rec = get_plan_by_filename(plan_name)
-                            if rec:
-                                pid = rec['id']
-                            else:
-                                pid = save_plan(
-                                    plan_name, 
-                                    proj["metadata"].get("plan_name", plan_name), 
-                                    proj["metadata"].get("scale", ""), 
-                                    proj["scale"], 
-                                    proj["raw_pixels"], 
-                                    json.dumps(proj["metadata"], ensure_ascii=False)
-                                )
-                            
-                            save_progress_report(pid, meters, note)
-                            st.balloons()
-                            st.success("הדיווח נשלח בהצלחה!")
-                    else:
-                        st.info("⏳ סמן על הקירות כדי לחשב את המדידה")
-                        
                 except Exception as e:
-                    st.error(f"שגיאה בעיבוד הציור: {str(e)}")
+                    st.error(f"שגיאה בחישוב: {e}")
+
+            # --- חישוב לדיווח ריצוף (שטח) ---
             else:
-                st.info("⏳ התחל לצייר על הקנבס")
+                if canvas.image_data is not None:
+                    # ספירת פיקסלים שהמשתמש צייר (ערוץ Alpha > 0)
+                    user_drawn = canvas.image_data[:, :, 3] > 0
+                    pixel_count = np.count_nonzero(user_drawn)
+                    
+                    # המרה למ"ר: פיקסלים חלקי (סקייל * פקטור)^2
+                    real_scale_px_per_meter = proj["scale"] * factor
+                    measured_value = pixel_count / (real_scale_px_per_meter ** 2)
+                    unit = "מ\"ר"
+
+            # הצגת תוצאה ושליחה
+            if measured_value > 0:
+                st.success(f"✅ כמות מחושבת: **{measured_value:.2f} {unit}**")
+                note = st.text_input("הערה לדיווח", value=f"דיווח {report_type}")
                 
-        except Exception as e:
-            st.error(f"❌ שגיאה בטעינת הקנבס: {str(e)}")
-            st.info("נסה לרענן את הדף או לבחור תוכנית אחרת")
+                if st.button("🚀 שלח דיווח ליומן"):
+                    # שמירת התוכנית ל-DB אם לא קיימת
+                    rec = get_plan_by_filename(plan_name)
+                    if rec: pid = rec['id']
+                    else:
+                        pid = save_plan(plan_name, proj["metadata"].get("plan_name", plan_name), "1:50", proj["scale"], proj["raw_pixels"], json.dumps(proj["metadata"], ensure_ascii=False))
+                    
+                    # שמירה (הערך נשמר בשדה meters_built, ההערה תפרט את הסוג)
+                    full_note = f"{note} ({measured_value:.2f} {unit})"
+                    save_progress_report(pid, measured_value, full_note)
+                    st.balloons()
+                    st.success("הדיווח נקלט בהצלחה!")
+            else:
+                st.info(f"נא לסמן על גבי השרטוט את ה{report_type} שבוצע.")

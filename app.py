@@ -168,26 +168,24 @@ if mode == "🏢 מנהל פרויקט":
                 p_name = st.text_input("שם התוכנית", key=name_key)
                 p_scale = st.text_input("קנה מידה", key=scale_key)
                 
-                # === לימוד מקרא משופר (עם גלילה) ===
+               # === לימוד מקרא (גרסה יציבה) ===
                 with st.expander("📖 לימוד מקרא (AI Vision)", expanded=False):
                     st.info("סמן את המקרא בשרטוט כדי שהמערכת תלמד אותו.")
                     
-                    # אפשרות לגלילה מלאה
-                    use_full_width = st.checkbox("🔍 הצג תמונה בגודל מלא (עם גלילה)", value=False, key=f"fw_{selected}")
-                    
-                    # טעינת התמונה
+                    # 1. סליידר לשליטה בגודל (עד 1500 פיקסלים - בטוח לשימוש)
+                    target_width = st.slider("🔍 זום (רוחב תצוגה)", 600, 1500, 800, step=50, key=f"zoom_{selected}")
+
+                    # 2. המרה ושינוי גודל (שיטה קלה לזיכרון)
                     img_for_legend = Image.fromarray(cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB))
                     
-                    if use_full_width:
-                        target_width = 2500 # רוחב ענק לגלילה
-                        st.caption("השתמש בפס הגלילה בתחתית השרטוט כדי להגיע למקרא")
-                    else:
-                        target_width = st.slider("זום תצוגה", 600, 2000, 800, step=100, key=f"z_{selected}")
-
+                    # חישוב גובה שומר יחס
                     w_percent = (target_width / float(img_for_legend.size[0]))
                     h_size = int((float(img_for_legend.size[1]) * float(w_percent)))
-                    img_resized = img_for_legend.resize((target_width, h_size), Image.Resampling.LANCZOS)
                     
+                    # שימוש ב-NEAREST במקום LANCZOS למניעת קריסות זיכרון
+                    img_resized = img_for_legend.resize((target_width, h_size), Image.Resampling.NEAREST)
+                    
+                    # 3. הקנבס
                     canvas_legend = st_canvas(
                         fill_color="rgba(255, 165, 0, 0.3)",
                         stroke_width=2,
@@ -196,15 +194,17 @@ if mode == "🏢 מנהל פרויקט":
                         height=h_size,
                         width=target_width,
                         drawing_mode="rect",
-                        key=f"legend_canv_{selected}_{use_full_width}",
+                        # המפתח כולל את הרוחב - זה מכריח רענון בטוח בשינוי זום
+                        key=f"legend_canv_{selected}_{target_width}",
                         display_toolbar=True
                     )
                     
                     if canvas_legend.json_data and canvas_legend.json_data["objects"]:
-                        if st.button("👁️ פענח את הסימון"):
+                        if st.button("👁️ פענח את הסימון", key=f"btn_leg_{selected}"):
                             obj = canvas_legend.json_data["objects"][-1]
                             left, top = int(obj["left"]), int(obj["top"])
                             width, height = int(obj["width"]), int(obj["height"])
+                            
                             img_arr = np.array(img_resized)
                             
                             if width > 0 and height > 0:
@@ -219,8 +219,8 @@ if mode == "🏢 מנהל פרויקט":
                                         analysis = safe_analyze_legend(byte_im)
                                         st.success("פענוח הושלם!")
                                         st.text_area("תוצאת AI:", value=analysis, height=100)
+                                        # שמירה במטא-דאטה
                                         proj["metadata"]["legend_analysis"] = analysis
-                                        st.text_input("הערתך (לשיפור ה-AI בעתיד):", placeholder="למשל: קיוקוו אלכסוני = בטון", key=f"note_{selected}")
                             else:
                                 st.warning("אנא סמן אזור תקין")
 

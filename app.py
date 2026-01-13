@@ -16,7 +16,7 @@ from database import (
     calculate_material_estimates, get_project_financial_status, reset_all_data
 )
 from datetime import datetime
-from reporter import generate_status_pdf  # הייבוא החדש לדוחות
+from reporter import generate_status_pdf
 
 # --- הגדרות ראשוניות ---
 Image.MAX_IMAGE_PIXELS = None
@@ -168,32 +168,26 @@ if mode == "🏢 מנהל פרויקט":
                 p_name = st.text_input("שם התוכנית", key=name_key)
                 p_scale = st.text_input("קנה מידה", key=scale_key)
                 
-           # === לימוד מקרא משופר ===
+                # === לימוד מקרא משופר (עם גלילה) ===
                 with st.expander("📖 לימוד מקרא (AI Vision)", expanded=False):
                     st.info("סמן את המקרא בשרטוט כדי שהמערכת תלמד אותו.")
                     
                     # אפשרות לגלילה מלאה
-                    use_full_width = st.checkbox("🔍 הצג תמונה בגודל מלא (עם גלילה)", value=False)
+                    use_full_width = st.checkbox("🔍 הצג תמונה בגודל מלא (עם גלילה)", value=False, key=f"fw_{selected}")
                     
                     # טעינת התמונה
                     img_for_legend = Image.fromarray(cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB))
                     
                     if use_full_width:
-                        # מצב מלא: רוחב מקסימלי כדי לאפשר גלילה ודיוק
-                        target_width = 2500 # רוחב ענק בכוונה
+                        target_width = 2500 # רוחב ענק לגלילה
                         st.caption("השתמש בפס הגלילה בתחתית השרטוט כדי להגיע למקרא")
                     else:
-                        # מצב רגיל: סליידר לנוחות
                         target_width = st.slider("זום תצוגה", 600, 2000, 800, step=100, key=f"z_{selected}")
 
-                    # חישוב גובה שומר יחס
                     w_percent = (target_width / float(img_for_legend.size[0]))
                     h_size = int((float(img_for_legend.size[1]) * float(w_percent)))
-                    
-                    # שינוי גודל איכותי
                     img_resized = img_for_legend.resize((target_width, h_size), Image.Resampling.LANCZOS)
                     
-                    # הקנבס
                     canvas_legend = st_canvas(
                         fill_color="rgba(255, 165, 0, 0.3)",
                         stroke_width=2,
@@ -202,27 +196,20 @@ if mode == "🏢 מנהל פרויקט":
                         height=h_size,
                         width=target_width,
                         drawing_mode="rect",
-                        key=f"legend_canv_{selected}_{use_full_width}", # מפתח ייחודי לרענון
+                        key=f"legend_canv_{selected}_{use_full_width}",
                         display_toolbar=True
                     )
                     
                     if canvas_legend.json_data and canvas_legend.json_data["objects"]:
                         if st.button("👁️ פענח את הסימון"):
                             obj = canvas_legend.json_data["objects"][-1]
-                            left = int(obj["left"])
-                            top = int(obj["top"])
-                            width = int(obj["width"])
-                            height = int(obj["height"])
-                            
-                            # חיתוך מתוך התמונה המוקטנת (מה שרואים בעיניים)
-                            # המרה למערך numpy
+                            left, top = int(obj["left"]), int(obj["top"])
+                            width, height = int(obj["width"]), int(obj["height"])
                             img_arr = np.array(img_resized)
                             
                             if width > 0 and height > 0:
                                 cropped = img_arr[top:top+height, left:left+width]
-                                
                                 if cropped.size > 0:
-                                    # המרה ל-Bytes לשליחה ל-AI
                                     pil_crop = Image.fromarray(cropped)
                                     buf = io.BytesIO()
                                     pil_crop.save(buf, format="PNG")
@@ -233,9 +220,7 @@ if mode == "🏢 מנהל פרויקט":
                                         st.success("פענוח הושלם!")
                                         st.text_area("תוצאת AI:", value=analysis, height=100)
                                         proj["metadata"]["legend_analysis"] = analysis
-                                        
-                                        # כאן נשמור בעתיד את התיקון שלך
-                                        st.text_input("הערתך (לשיפור ה-AI בעתיד):", placeholder="למשל: קיוקוו אלכסוני = קיר בטון 20")
+                                        st.text_input("הערתך (לשיפור ה-AI בעתיד):", placeholder="למשל: קיוקוו אלכסוני = בטון", key=f"note_{selected}")
                             else:
                                 st.warning("אנא סמן אזור תקין")
 
@@ -272,20 +257,16 @@ if mode == "🏢 מנהל פרויקט":
                     c3.markdown(f"<div class='mat-card'><div class='mat-val'>{mats['wall_area_sqm']:.0f}</div><div class='mat-lbl'>מ\"ר קיר</div></div>", unsafe_allow_html=True)
 
     with tab2:
-        # שליפה מה-DB (תמיד עובד, גם אחרי ריסטרט)
+        # שליפה מה-DB
         all_plans_db = get_all_plans()
         
         if not all_plans_db:
             st.info("אין נתונים במסד הנתונים.")
         else:
-            # יצירת רשימה לבחירה מתוך ה-DB
             plan_options = [f"{p['plan_name']} (ID: {p['id']})" for p in all_plans_db]
             selected_display = st.selectbox("בחר פרויקט לצפייה בנתונים:", plan_options)
             
-            # חילוץ ה-ID
             selected_id = int(selected_display.split("(ID: ")[1].split(")")[0])
-            
-            # שליפת הנתונים העדכניים לחישוב
             forecast = get_project_forecast(selected_id)
             fin = get_project_financial_status(selected_id)
             
@@ -303,19 +284,16 @@ if mode == "🏢 מנהל פרויקט":
                 cost_color = "#ef4444" if fin['budget_variance'] < 0 else "#10b981"
                 st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">💰</div><div class="kpi-label">עלות נוכחית</div><div class="kpi-value">{fin['current_cost']:,.0f} ₪</div><div class="kpi-sub" style="color: {cost_color}">תקציב: {fin['budget_limit']:,.0f} ₪</div></div>""", unsafe_allow_html=True)
             
-            # === ייצוא PDF (דורש תמונה) ===
+            # === ייצוא PDF ===
             st.markdown("---")
             col_pdf_btn, col_msg = st.columns([1, 2])
             
             with col_pdf_btn:
                 if st.button("📄 צור דוח PDF למנהל"):
-                    # בדיקה אם התמונה קיימת בזיכרון (המשתמש העלה אותה בסשן הנוכחי)
                     found_proj = None
-                    # מנסים למצוא את הפרויקט בזיכרון לפי השם ב-DB
                     selected_name_clean = selected_display.split(" (ID")[0]
                     
                     for pname, pdata in st.session_state.projects.items():
-                        # בדיקת התאמה בין השם בזיכרון לשם ב-DB
                         if pdata["metadata"].get("plan_name") == selected_name_clean or pname.replace(".pdf","") == selected_name_clean:
                             found_proj = pdata
                             break
@@ -339,8 +317,8 @@ if mode == "🏢 מנהל פרויקט":
                         st.warning("⚠️ הקובץ המקורי לא נמצא בזיכרון.")
                         st.info("כדי לייצר דוח גרפי, יש לגרור את קובץ ה-PDF המקורי שוב במסך 'העלאת תוכניות'. המערכת תזהה אותו ותחבר לנתונים.")
 
-        g_col, t_col = st.columns([2, 1])
-            
+            # === עמודות גרף וטבלה ===
+            g_col, t_col = st.columns([2, 1])
             with g_col:
                 st.markdown("##### קצב התקדמות")
                 df = load_stats_df()
@@ -348,14 +326,12 @@ if mode == "🏢 מנהל פרויקט":
                     st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
                 else:
                     st.info("אין נתונים להצגה בגרף עדיין")
-
             with t_col:
                 st.markdown("##### דיווחים אחרונים")
                 if not df.empty:
                     st.dataframe(df[["תאריך", "מטרים שבוצעו", "הערה"]].head(5), hide_index=True, use_container_width=True)
                 else:
                     st.caption("אין דיווחים אחרונים")
-          
 
 # --- דיווח שטח ---
 elif mode == "👷 דיווח שטח":

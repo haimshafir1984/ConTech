@@ -73,7 +73,7 @@ if 'default_cost_per_meter' not in st.session_state: st.session_state.default_co
 
 # --- Sidebar ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2942/2942823.png", width=50)
+    st.markdown("## 🏗️")
     st.markdown("### **ConTech Pro**")
     st.caption("מערכת ניהול ובקרה לקבלני שלד")
     st.markdown("---")
@@ -340,17 +340,15 @@ if mode == "🏢 מנהל פרויקט":
                         st.info("כדי לייצר דוח גרפי, יש לגרור את קובץ ה-PDF המקורי שוב במסך 'העלאת תוכניות'. המערכת תזהה אותו ותחבר לנתונים.")
 
             g_col, t_col = st.columns([2, 1])
-            with g_col:
-                st.markdown("##### קצב התקדמות")
-                df = load_stats_df()
-                # סינון הגרף רק לפרויקט הנוכחי
-                if not df.empty:
-                    # כאן נדרש סינון לפי שם התוכנית, נניח שהשמות ייחודיים
-                    # במערכת מתקדמת יותר נסנן לפי ID
-                    st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
-            with t_col:
-                st.markdown("##### דיווחים אחרונים")
-                if not df.empty: st.dataframe(df[["תאריך", "מטרים שבוצעו", "הערה"]].head(5), hide_index=True, use_container_width=True)
+        with g_col:
+            st.markdown("##### קצב התקדמות")
+            df = load_stats_df()
+            if not df.empty:
+                st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
+            else:
+                st.info("אין נתונים להצגה בגרף עדיין") # מונע את השגיאה בקונסול
+        with t_col:
+          
 
 # --- דיווח שטח ---
 elif mode == "👷 דיווח שטח":

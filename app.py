@@ -168,19 +168,30 @@ if mode == "🏢 מנהל פרויקט":
                 p_name = st.text_input("שם התוכנית", key=name_key)
                 p_scale = st.text_input("קנה מידה", key=scale_key)
                 
-                # === חדש: לימוד מקרא ===
+                # === תיקון: לימוד מקרא עם גודל דינמי ===
                 with st.expander("📖 לימוד מקרא (AI Vision)", expanded=False):
                     st.info("סמן את המקרא בשרטוט כדי שהמערכת תלמד אותו.")
-                    img_for_legend = Image.fromarray(cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB))
-                    img_for_legend.thumbnail((600, 600))
                     
+                    # 1. המרה לתמונה
+                    img_for_legend = Image.fromarray(cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB))
+                    
+                    # 2. חישוב גודל דינמי כדי למנוע חיתוך
+                    # נקבע רוחב קבוע לתצוגה, והגובה יחושב אוטומטית
+                    target_width = 700 
+                    w_percent = (target_width / float(img_for_legend.size[0]))
+                    h_size = int((float(img_for_legend.size[1]) * float(w_percent)))
+                    
+                    # שינוי גודל התמונה לפרופורציה הנכונה
+                    img_for_legend = img_for_legend.resize((target_width, h_size), Image.Resampling.LANCZOS)
+                    
+                    # 3. יצירת הקנבס בגודל המדויק של התמונה
                     canvas_legend = st_canvas(
                         fill_color="rgba(255, 165, 0, 0.3)",
                         stroke_width=2,
                         stroke_color="#FFA500",
                         background_image=img_for_legend,
-                        height=400,
-                        width=600,
+                        height=h_size,        # גובה דינמי!
+                        width=target_width,   # רוחב דינמי!
                         drawing_mode="rect",
                         key=f"legend_{selected}",
                         display_toolbar=True
@@ -189,21 +200,27 @@ if mode == "🏢 מנהל פרויקט":
                     if canvas_legend.json_data and canvas_legend.json_data["objects"]:
                         if st.button("👁️ פענח את הסימון"):
                             obj = canvas_legend.json_data["objects"][-1]
+                            # המרה חזרה לקנה מידה של התמונה המוצגת
                             left, top = int(obj["left"]), int(obj["top"])
                             width, height = int(obj["width"]), int(obj["height"])
-                            img_arr = np.array(img_for_legend)
-                            cropped = img_arr[top:top+height, left:left+width]
                             
-                            if cropped.size > 0:
-                                pil_crop = Image.fromarray(cropped)
-                                buf = io.BytesIO()
-                                pil_crop.save(buf, format="PNG")
-                                byte_im = buf.getvalue()
-                                with st.spinner("ה-AI מנתח את המקרא..."):
-                                    analysis = safe_analyze_legend(byte_im)
-                                    st.success("פענוח הושלם!")
-                                    st.text_area("תוצאת AI:", value=analysis, height=100)
-                                    proj["metadata"]["legend_analysis"] = analysis
+                            img_arr = np.array(img_for_legend)
+                            # הוספת בדיקת גבולות כדי למנוע קריסה
+                            if width > 0 and height > 0:
+                                cropped = img_arr[top:top+height, left:left+width]
+                                
+                                if cropped.size > 0:
+                                    pil_crop = Image.fromarray(cropped)
+                                    buf = io.BytesIO()
+                                    pil_crop.save(buf, format="PNG")
+                                    byte_im = buf.getvalue()
+                                    with st.spinner("ה-AI מנתח את המקרא..."):
+                                        analysis = safe_analyze_legend(byte_im)
+                                        st.success("פענוח הושלם!")
+                                        st.text_area("תוצאת AI:", value=analysis, height=100)
+                                        proj["metadata"]["legend_analysis"] = analysis
+                            else:
+                                st.warning("אנא סמן אזור תקין")
 
                 # --- המשך הגדרות ---
                 col_d1, col_d2 = st.columns(2)
@@ -261,28 +278,30 @@ if mode == "🏢 מנהל פרויקט":
                 cost_color = "#ef4444" if fin['budget_variance'] < 0 else "#10b981"
                 st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">💰</div><div class="kpi-label">עלות נוכחית</div><div class="kpi-value">{fin['current_cost']:,.0f} ₪</div><div class="kpi-sub" style="color: {cost_color}">תקציב: {fin['budget_limit']:,.0f} ₪</div></div>""", unsafe_allow_html=True)
             
-            # === חדש: ייצוא PDF ===
+            # === תיקון: ייצוא PDF ===
             st.markdown("---")
             if st.button("📄 צור דוח PDF למנהל"):
-                # מחפש את התמונה בזיכרון (כי ב-DB יש רק מטא-דאטה)
+                # מחפש את התמונה בזיכרון
                 found_proj = None
                 for pname, pdata in st.session_state.projects.items():
-                    # בדיקה אם השם תואם למה שנבחר (ניקוי ID מהתצוגה)
                     clean_name = selected_display.split(" (ID")[0]
                     if pdata["metadata"].get("plan_name") == clean_name or pname == clean_name:
                         found_proj = pdata
                         break
                 
                 if found_proj:
+                    # יצירת מילון הנתונים (זה מה שהיה חסר!)
                     stats = {
                         "built": forecast['cumulative_progress'],
                         "total": forecast['total_planned'],
                         "percent": pct
                     }
+                    
+                    # קריאה לפונקציה עם כל 3 הפרמטרים
                     pdf_bytes = generate_status_pdf(
                         found_proj["metadata"].get("plan_name", "Report"),
                         found_proj["original"], 
-                        stats
+                        stats  # <-- הנה התיקון
                     )
                     st.download_button(label="📥 הורד קובץ PDF", data=pdf_bytes, file_name=f"report_{selected_id}.pdf", mime="application/pdf")
                 else:

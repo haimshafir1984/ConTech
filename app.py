@@ -339,15 +339,22 @@ if mode == "🏢 מנהל פרויקט":
                         st.warning("⚠️ הקובץ המקורי לא נמצא בזיכרון.")
                         st.info("כדי לייצר דוח גרפי, יש לגרור את קובץ ה-PDF המקורי שוב במסך 'העלאת תוכניות'. המערכת תזהה אותו ותחבר לנתונים.")
 
-            g_col, t_col = st.columns([2, 1])
-        with g_col:
-            st.markdown("##### קצב התקדמות")
-            df = load_stats_df()
-            if not df.empty:
-                st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
-            else:
-                st.info("אין נתונים להצגה בגרף עדיין") # מונע את השגיאה בקונסול
-        with t_col:
+        g_col, t_col = st.columns([2, 1])
+            
+            with g_col:
+                st.markdown("##### קצב התקדמות")
+                df = load_stats_df()
+                if not df.empty:
+                    st.bar_chart(df, x="תאריך", y="מטרים שבוצעו", use_container_width=True)
+                else:
+                    st.info("אין נתונים להצגה בגרף עדיין")
+
+            with t_col:
+                st.markdown("##### דיווחים אחרונים")
+                if not df.empty:
+                    st.dataframe(df[["תאריך", "מטרים שבוצעו", "הערה"]].head(5), hide_index=True, use_container_width=True)
+                else:
+                    st.caption("אין דיווחים אחרונים")
           
 
 # --- דיווח שטח ---

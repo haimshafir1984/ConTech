@@ -7,6 +7,7 @@ from analyzer import FloorPlanAnalyzer
 import tempfile
 import os
 import json
+import io
 from streamlit_drawable_canvas import st_canvas
 from database import (
     init_database, save_plan, save_progress_report, 
@@ -15,18 +16,26 @@ from database import (
     calculate_material_estimates, get_project_financial_status, reset_all_data
 )
 from datetime import datetime
+from reporter import generate_status_pdf  # הייבוא החדש לדוחות
 
 # --- הגדרות ראשוניות ---
 Image.MAX_IMAGE_PIXELS = None
 init_database()
 
-# --- פונקציית עזר לטיפול בקובץ brain.py חסר ---
+# --- פונקציות עזר ---
 def safe_process_metadata(raw_text):
     try:
         from brain import process_plan_metadata
         return process_plan_metadata(raw_text)
     except (ImportError, Exception):
         return {}
+
+def safe_analyze_legend(image_bytes):
+    try:
+        from brain import analyze_legend_image
+        return analyze_legend_image(image_bytes)
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 def load_stats_df():
     reports = get_progress_reports()
@@ -40,6 +49,7 @@ def load_stats_df():
 
 st.set_page_config(page_title="ConTech Pro", layout="wide", page_icon="🏗️")
 
+# --- CSS ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700&display=swap');
@@ -56,10 +66,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- Session State ---
 if 'projects' not in st.session_state: st.session_state.projects = {}
 if 'wall_height' not in st.session_state: st.session_state.wall_height = 2.5
 if 'default_cost_per_meter' not in st.session_state: st.session_state.default_cost_per_meter = 0.0
 
+# --- Sidebar ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2942/2942823.png", width=50)
     st.markdown("### **ConTech Pro**")
@@ -77,6 +89,7 @@ with st.sidebar:
             st.success("המערכת אופסה")
             st.rerun()
 
+# --- לוגיקה ראשית ---
 if mode == "🏢 מנהל פרויקט":
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
@@ -110,6 +123,8 @@ if mode == "🏢 מנהל פרויקט":
                                     meta["plan_name"] = llm_metadata["plan_name"]
                                 if llm_metadata.get("scale"): 
                                     meta["scale"] = llm_metadata["scale"]
+                                if llm_metadata.get("plan_type"):
+                                    meta["plan_type"] = llm_metadata["plan_type"]
                             
                             st.session_state.projects[f.name] = {
                                 "skeleton": skel, "thick_walls": thick, "original": orig,
@@ -131,61 +146,79 @@ if mode == "🏢 מנהל פרויקט":
             if scale_key not in st.session_state: st.session_state[scale_key] = proj["metadata"].get("scale", "")
 
             col_edit, col_preview = st.columns([1, 1.5])
-            # ... בתוך החלק של עריכת תוכנית ...
             with col_edit:
                 st.markdown("### הגדרות תוכנית")
                 
-                # שליפת הנתונים הקיימים
+                # --- סיווג תוכנית ---
                 current_meta = proj.get("metadata", {})
-                
-                # --- החלק החדש: הצגת סוג התוכנית ---
                 detected_type = current_meta.get("plan_type", "construction")
-                
-                # רשימת אפשרויות בעברית
                 type_map = {
-                    "construction": "בנייה (ברירת מחדל)",
-                    "demolition": "הריסה 🔨",
-                    "ceiling": "תקרה (לא למדידה) 💡",
-                    "electricity": "חשמל ⚡",
-                    "plumbing": "אינסטלציה 💧",
-                    "other": "אחר"
+                    "construction": "בנייה (ברירת מחדל)", "demolition": "הריסה 🔨",
+                    "ceiling": "תקרה (לא למדידה) 💡", "electricity": "חשמל ⚡",
+                    "plumbing": "אינסטלציה 💧", "other": "אחר"
                 }
-                
-                # המרה למפתח שה-Selectbox יבין
                 index_val = list(type_map.keys()).index(detected_type) if detected_type in type_map else 0
+                selected_type_key = st.selectbox("סוג תוכנית", options=list(type_map.keys()), format_func=lambda x: type_map[x], index=index_val, key=f"type_{selected}")
                 
-                selected_type_key = st.selectbox(
-                    "סוג תוכנית (זוהה ע\"י AI)",
-                    options=list(type_map.keys()),
-                    format_func=lambda x: type_map[x],
-                    index=index_val,
-                    key=f"type_{selected}"
-                )
-                
-                # אזהרה חכמה
-                if selected_type_key == "ceiling":
-                    st.warning("⚠️ שים לב: זו תוכנית תקרה. ייתכן שקווים מסומנים אינם קירות בנויים!")
-                elif selected_type_key == "demolition":
-                    st.error("🛑 זו תוכנית הריסה. הקירות המסומנים מיועדים להריסה.")
-                
-                # עדכון המטא-דאטה בזמן אמת
+                if selected_type_key == "ceiling": st.warning("⚠️ שים לב: זו תוכנית תקרה.")
+                elif selected_type_key == "demolition": st.error("🛑 זו תוכנית הריסה.")
                 proj["metadata"]["plan_type"] = selected_type_key
-                # ----------------------------------------
 
+                # --- שדות עריכה ---
                 p_name = st.text_input("שם התוכנית", key=name_key)
-                # ... המשך הקוד הרגיל ...
                 p_scale = st.text_input("קנה מידה", key=scale_key)
+                
+                # === חדש: לימוד מקרא ===
+                with st.expander("📖 לימוד מקרא (AI Vision)", expanded=False):
+                    st.info("סמן את המקרא בשרטוט כדי שהמערכת תלמד אותו.")
+                    img_for_legend = Image.fromarray(cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB))
+                    img_for_legend.thumbnail((600, 600))
+                    
+                    canvas_legend = st_canvas(
+                        fill_color="rgba(255, 165, 0, 0.3)",
+                        stroke_width=2,
+                        stroke_color="#FFA500",
+                        background_image=img_for_legend,
+                        height=400,
+                        width=600,
+                        drawing_mode="rect",
+                        key=f"legend_{selected}",
+                        display_toolbar=True
+                    )
+                    
+                    if canvas_legend.json_data and canvas_legend.json_data["objects"]:
+                        if st.button("👁️ פענח את הסימון"):
+                            obj = canvas_legend.json_data["objects"][-1]
+                            left, top = int(obj["left"]), int(obj["top"])
+                            width, height = int(obj["width"]), int(obj["height"])
+                            img_arr = np.array(img_for_legend)
+                            cropped = img_arr[top:top+height, left:left+width]
+                            
+                            if cropped.size > 0:
+                                pil_crop = Image.fromarray(cropped)
+                                buf = io.BytesIO()
+                                pil_crop.save(buf, format="PNG")
+                                byte_im = buf.getvalue()
+                                with st.spinner("ה-AI מנתח את המקרא..."):
+                                    analysis = safe_analyze_legend(byte_im)
+                                    st.success("פענוח הושלם!")
+                                    st.text_area("תוצאת AI:", value=analysis, height=100)
+                                    proj["metadata"]["legend_analysis"] = analysis
+
+                # --- המשך הגדרות ---
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:
                     target_date_val = st.date_input("תאריך יעד", key=f"td_{selected}")
                     target_date_str = target_date_val.strftime("%Y-%m-%d") if target_date_val else None
                 with col_d2: budget_limit_val = st.number_input("תקציב (₪)", step=1000.0, key=f"bl_{selected}")
                 cost_per_meter_val = st.number_input("עלות למטר (₪)", value=st.session_state.default_cost_per_meter, key=f"cpm_{selected}")
+                
                 st.markdown("#### כיול")
                 scale_val = st.slider("פיקסלים למטר", 10.0, 1000.0, float(proj["scale"]), key=f"sl_{selected}")
                 proj["scale"] = scale_val
                 proj["total_length"] = proj["raw_pixels"] / scale_val
                 st.info(f"📏 אורך קירות: **{proj['total_length']:.2f} מטר**")
+                
                 if st.button("💾 שמור נתונים", type="primary", use_container_width=True):
                     proj["metadata"]["plan_name"] = p_name
                     proj["metadata"]["scale"] = p_scale
@@ -228,6 +261,33 @@ if mode == "🏢 מנהל פרויקט":
                 cost_color = "#ef4444" if fin['budget_variance'] < 0 else "#10b981"
                 st.markdown(f"""<div class="kpi-container"><div class="kpi-icon">💰</div><div class="kpi-label">עלות נוכחית</div><div class="kpi-value">{fin['current_cost']:,.0f} ₪</div><div class="kpi-sub" style="color: {cost_color}">תקציב: {fin['budget_limit']:,.0f} ₪</div></div>""", unsafe_allow_html=True)
             
+            # === חדש: ייצוא PDF ===
+            st.markdown("---")
+            if st.button("📄 צור דוח PDF למנהל"):
+                # מחפש את התמונה בזיכרון (כי ב-DB יש רק מטא-דאטה)
+                found_proj = None
+                for pname, pdata in st.session_state.projects.items():
+                    # בדיקה אם השם תואם למה שנבחר (ניקוי ID מהתצוגה)
+                    clean_name = selected_display.split(" (ID")[0]
+                    if pdata["metadata"].get("plan_name") == clean_name or pname == clean_name:
+                        found_proj = pdata
+                        break
+                
+                if found_proj:
+                    stats = {
+                        "built": forecast['cumulative_progress'],
+                        "total": forecast['total_planned'],
+                        "percent": pct
+                    }
+                    pdf_bytes = generate_status_pdf(
+                        found_proj["metadata"].get("plan_name", "Report"),
+                        found_proj["original"], 
+                        stats
+                    )
+                    st.download_button(label="📥 הורד קובץ PDF", data=pdf_bytes, file_name=f"report_{selected_id}.pdf", mime="application/pdf")
+                else:
+                    st.warning("לא ניתן ליצור דוח גרפי: התמונה המקורית לא בזיכרון (יש לטעון את הקובץ מחדש).")
+
             g_col, t_col = st.columns([2, 1])
             with g_col:
                 st.markdown("##### קצב התקדמות")
@@ -237,6 +297,7 @@ if mode == "🏢 מנהל פרויקט":
                 st.markdown("##### דיווחים אחרונים")
                 if not df.empty: st.dataframe(df[["תאריך", "מטרים שבוצעו", "הערה"]].head(5), hide_index=True, use_container_width=True)
 
+# --- דיווח שטח ---
 elif mode == "👷 דיווח שטח":
     st.title("דיווח ביצוע")
     if not st.session_state.projects: 
@@ -284,7 +345,6 @@ elif mode == "👷 דיווח שטח":
             
             canvas_key = f"canvas_{plan_name}"
             
-            # העברת אובייקט תמונה תקין (PIL Image)
             canvas = st_canvas(
                 fill_color="rgba(0, 0, 0, 0)",
                 stroke_width=8,

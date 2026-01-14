@@ -48,15 +48,15 @@ def load_stats_df():
 def create_colored_overlay(original, concrete_mask, blocks_mask, flooring_mask=None, noise_level=0):
     img_vis = cv2.cvtColor(original, cv2.COLOR_BGR2RGB).astype(float)
     
-    # עותקים למסכות
-    c_clean = concrete_mask.copy()
-    b_clean = blocks_mask.copy()
+    # יצירת עותקים כדי לא לדרוס את המקור
+    c_clean = concrete_mask.copy() if concrete_mask is not None else np.zeros(original.shape[:2], dtype=np.uint8)
+    b_clean = blocks_mask.copy() if blocks_mask is not None else np.zeros(original.shape[:2], dtype=np.uint8)
     
     # ניקוי רעשים חי (לפתרון בעיית הטקסט הכחול)
     if noise_level > 0:
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (noise_level, noise_level))
-        c_clean = cv2.morphologyEx(c_clean, cv2.MORPH_OPEN, kernel)
-        b_clean = cv2.morphologyEx(b_clean, cv2.MORPH_OPEN, kernel)
+        if c_clean.any(): c_clean = cv2.morphologyEx(c_clean, cv2.MORPH_OPEN, kernel)
+        if b_clean.any(): b_clean = cv2.morphologyEx(b_clean, cv2.MORPH_OPEN, kernel)
     
     overlay = img_vis.copy()
     overlay[c_clean > 0] = [30, 144, 255] # כחול
@@ -130,7 +130,8 @@ with st.sidebar:
             if reset_all_data():
                 st.session_state.projects = {}
                 st.rerun()
-                # ==========================================
+
+# ==========================================
 # VIEW 1: סדנת עבודה (מתוקן ומלא)
 # ==========================================
 if "סדנה" in selected_view:
@@ -161,8 +162,11 @@ if "סדנה" in selected_view:
                                     tmp.write(f.getvalue())
                                     path = tmp.name
                                 analyzer = FloorPlanAnalyzer()
+                                # קריאה לאנלייזר (הנחנו שהוא מחזיר את כל הפרמטרים)
                                 pix, skel, thick, orig, meta, conc, blok, floor = analyzer.process_file(path)
+                                
                                 if meta.get("raw_text"): meta.update(safe_process_metadata(meta["raw_text"]))
+                                
                                 st.session_state.projects[f.name] = {
                                     "skeleton": skel, "thick_walls": thick, "original": orig,
                                     "raw_pixels": pix, "scale": 200.0, "metadata": meta,
@@ -181,20 +185,21 @@ if "סדנה" in selected_view:
             st.markdown("**🛠️ הגדרות וכיול**")
             new_name = st.text_input("שם התוכנית", value=proj["metadata"].get("plan_name", ""))
             
-            # תיקון: סליידר לסקייל במקום מספר
+            # סליידר לסקייל
             new_scale = st.slider("קנה מידה (פיקסלים למטר)", 10.0, 500.0, float(proj["scale"]), step=1.0)
             proj["scale"] = new_scale
             
-            # תיקון: סליידר לניקוי רעשים (טקסט כחול)
+            # סליידר לניקוי רעשים
             st.markdown("**🧹 סינון רעשים** (הסרת טקסט)")
             noise_level = st.slider("רמת סינון", 0, 15, 0, help="אם טקסט נצבע כבטון, העלה את הערך הזה")
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # 3. לימוד מקרא (מתוקן עם Canvas)
+            # 3. לימוד מקרא
             with st.expander("📖 לימוד מקרא (AI)"):
                 st.info("סמן את המקרא בתמונה למטה:")
                 img_leg = Image.fromarray(cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB))
-                # הקטנה לתצוגה
+                
+                # הקטנה לתצוגה כדי שייכנס בפאנל
                 orig_w, orig_h = img_leg.size
                 disp_w = 300
                 factor = disp_w / orig_w
@@ -213,8 +218,12 @@ if "סדנה" in selected_view:
                 if st.button("👁️ פענח סימון"):
                     if canvas_leg.json_data and canvas_leg.json_data["objects"]:
                         obj = canvas_leg.json_data["objects"][-1]
-                        left, top = int(obj["left"]/factor), int(obj["top"]/factor)
-                        width, height = int(obj["width"]/factor), int(obj["height"]/factor)
+                        # המרה חזרה לגודל מקורי
+                        left = int(obj["left"]/factor)
+                        top = int(obj["top"]/factor)
+                        width = int(obj["width"]/factor)
+                        height = int(obj["height"]/factor)
+                        
                         crop = np.array(img_leg)[top:top+height, left:left+width]
                         if crop.size > 0:
                             buf = io.BytesIO()
@@ -254,7 +263,7 @@ if "סדנה" in selected_view:
             b_mask = proj["blocks_mask"] if s_b else np.zeros_like(proj["blocks_mask"])
             f_mask = proj["flooring_mask"] if s_f else None
             
-            # יצירת תמונה עם ניקוי רעשים חי (משתמש בסליידר מצד ימין)
+            # יצירת תמונה עם ניקוי רעשים חי
             final_img, clean_c, clean_b = create_colored_overlay(
                 proj["original"], c_mask, b_mask, f_mask, noise_level=noise_level
             )
@@ -262,8 +271,18 @@ if "סדנה" in selected_view:
             st.image(final_img, use_column_width=True)
             
             # חישוב נתונים (על בסיס המסכות הנקיות)
-            len_c = cv2.countNonZero(clean_c) / new_scale if np.count_nonzero(clean_c) > 0 else 0
-            len_b = cv2.countNonZero(clean_b) / new_scale if np.count_nonzero(clean_b) > 0 else 0
+            # שימוש ב-Skeletonize לחישוב מדויק יותר של אורך
+            # שים לב: זה חישוב כבד, אם התמונה איטית אפשר להשתמש ב-countNonZero ישירות כהערכה
+            try:
+                skel_c = cv2.ximgproc.thinning(clean_c) if clean_c.max() > 0 else np.zeros_like(clean_c)
+                skel_b = cv2.ximgproc.thinning(clean_b) if clean_b.max() > 0 else np.zeros_like(clean_b)
+                len_c = cv2.countNonZero(skel_c) / new_scale
+                len_b = cv2.countNonZero(skel_b) / new_scale
+            except:
+                # Fallback אם ximgproc לא מותקן
+                len_c = (cv2.countNonZero(clean_c) / 10) / new_scale 
+                len_b = (cv2.countNonZero(clean_b) / 10) / new_scale
+
             area_f = (proj["metadata"].get("pixels_flooring_area", 0)) / (new_scale**2)
             tot = (len_c * pc) + (len_b * pb) + (area_f * pf)
             
@@ -295,7 +314,6 @@ elif "דשבורד" in selected_view:
         
         st.line_chart(load_stats_df(), x="תאריך", y="כמות שבוצעה")
         if st.button("📄 הפק דוח PDF"):
-            # לוגיקה למציאת הפרויקט
             found = None
             for p in st.session_state.projects.values():
                 if p["metadata"].get("plan_name") == sel: found = p
@@ -307,7 +325,7 @@ elif "דשבורד" in selected_view:
     else: st.info("אין נתונים")
 
 # ==========================================
-# VIEW 3: דיווח שטח
+# VIEW 3: דיווח שטח (משוחזר עם לוגיקה)
 # ==========================================
 elif "שטח" in selected_view:
     st.title("דיווח שטח")
@@ -332,9 +350,43 @@ elif "שטח" in selected_view:
         
         if st.button("🚀 שלח דיווח", type="primary"):
              if canv.json_data and canv.json_data["objects"]:
-                 # חישוב דמה לדיווח
-                 val = 15.0 # ערך דמה לסימולציה, יוחלף בחישוב האמיתי
-                 pid = save_plan(sel_p, sel_p, "1:50", proj["scale"], proj["raw_pixels"], "{}")
-                 save_progress_report(pid, val, f"{rep_type}")
-                 st.success("דיווח נשלח!")
+                 val = 0
+                 unit = ""
+                 
+                 # --- לוגיקה אמיתית לחישוב ---
+                 if rep_type == "🧱 קירות":
+                     # יצירת מסכה ממה שהמשתמש צייר
+                     user_mask = np.zeros((int(h*f), int(w*f)), dtype=np.uint8)
+                     # (כאן אנו מניחים שימוש בספריה שרטוט פוליגונים, או פשוט ספירה גסה אם אין פוליגון מוגדר)
+                     # לטובת היציבות נשתמש בספירת פיקסלים של הציור שהוחזר
+                     if canv.image_data is not None:
+                         # התאמת גודל הקירות המקוריים לגודל הקנבס
+                         walls_resized = cv2.resize(proj["thick_walls"], (int(w*f), int(h*f)), interpolation=cv2.INTER_NEAREST)
+                         # ציור המשתמש
+                         user_draw = canv.image_data[:, :, 3] > 0
+                         # חיתוך: איפה ציירתי וגם יש קיר
+                         intersection = np.logical_and(user_draw, walls_resized > 0)
+                         # חישוב אורך לפי סקלטון של החיתוך
+                         inter_u8 = intersection.astype(np.uint8) * 255
+                         try:
+                            skel_inter = cv2.ximgproc.thinning(inter_u8)
+                            val = cv2.countNonZero(skel_inter) / (proj["scale"] * f)
+                         except:
+                            val = cv2.countNonZero(inter_u8) / (proj["scale"] * f * 10) # הערכה
+                         
+                         unit = "מטר"
+                 else:
+                     # ריצוף
+                     if canv.image_data is not None:
+                         px = np.count_nonzero(canv.image_data[:, :, 3] > 0)
+                         val = px / ((proj["scale"]*f)**2)
+                         unit = "מ\"ר"
+                 
+                 if val > 0:
+                     pid = save_plan(sel_p, sel_p, "1:50", proj["scale"], proj["raw_pixels"], "{}")
+                     save_progress_report(pid, val, f"{rep_type}")
+                     st.success(f"דיווח התקבל! ({val:.2f} {unit})")
+                     st.balloons()
+                 else:
+                     st.warning("לא זוהה סימון על גבי האלמנטים הרלוונטיים")
     else: st.error("אין תוכניות")

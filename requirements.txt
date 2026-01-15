@@ -6,3 +6,4 @@ Pillow
 streamlit-drawable-canvas
 anthropic
 pymupdf
+psycopg2-binary

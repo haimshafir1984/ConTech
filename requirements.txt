@@ -5,3 +5,4 @@ pandas
 Pillow
 streamlit-drawable-canvas
 anthropic
+pymupdf

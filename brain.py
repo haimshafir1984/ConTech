@@ -1,101 +1,129 @@
 import os
-import json
 import base64
-from groq import Groq
+import json
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
+import streamlit as st
+
+def get_anthropic_client():
+    """יוצר חיבור ל-Claude בצורה מאובטחת"""
+    if anthropic is None:
+        return None, "ספריית anthropic חסרה. הרץ: pip install anthropic"
+    
+    # מנסה למשוך מפתח מ-secrets (פיתוח) או משתני סביבה (שרת)
+    api_key = st.secrets.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    
+    if not api_key:
+        return None, "חסר מפתח ANTHROPIC_API_KEY בהגדרות"
+        
+    return anthropic.Anthropic(api_key=api_key), None
 
 def process_plan_metadata(raw_text):
     """
-    שולח את הטקסט ל-Groq AI ומחלץ:
-    1. שם התוכנית
-    2. קנה מידה
-    3. סוג התוכנית (סיווג קריטי למערכת)
+    שולח את הטקסט ל-Claude ומחלץ JSON מבנה
     """
-    api_key = os.environ.get("GROQ_API_KEY")
-    
-    if not api_key:
+    client, error = get_anthropic_client()
+    if error:
+        print(error)
         return {}
 
     try:
-        client = Groq(api_key=api_key)
-        
         prompt = f"""
-        Analyze the text from a construction blueprint and extract structured data.
+        Analyze the text extracted from a construction blueprint PDF.
         
         Input Text:
-        '''{raw_text[:2500]}'''
+        '''{raw_text[:3000]}'''
         
         Task:
-        1. Identify "plan_name" (e.g., "Ground Floor", "North Elevation").
-        2. Identify "scale" (e.g., "1:50").
+        1. Identify "plan_name" (e.g., "Ground Floor", "North Elevation", "תוכנית קומת קרקע").
+        2. Identify "scale" (e.g., "1:50", "1:100").
         3. Classify "plan_type" into ONE of these categories:
-           - "construction": Plan for building walls (Block/Concrete).
-           - "demolition": Plan for destroying walls (usually red/yellow).
+           - "construction": Plan for building walls (Block/Concrete/Masonry).
+           - "demolition": Plan for destroying walls (usually red/yellow colors).
            - "ceiling": Reflected ceiling plan (Do NOT count walls here).
            - "electricity": Electrical plan.
            - "plumbing": Plumbing/Sanitary plan.
            - "other": Anything else.
         
-        Return JSON ONLY with keys: "plan_name", "scale", "plan_type".
+        Return ONLY a JSON object. Do not add markdown formatting or explanation.
+        Example: {{"plan_name": "Living Room", "scale": "1:50", "plan_type": "construction"}}
         """
 
-        completion = client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="llama3-70b-8192",
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=1000,
             temperature=0,
-            response_format={"type": "json_object"}
+            messages=[{"role": "user", "content": prompt}]
         )
-
-        return json.loads(completion.choices[0].message.content)
+        
+        # ניקוי ופירסור JSON
+        response_text = message.content[0].text
+        # מחיקת תגיות אם יש
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0]
+        elif "{" in response_text: 
+            response_text = "{" + response_text.split("{", 1)[1].rsplit("}", 1)[0] + "}"
+            
+        return json.loads(response_text)
 
     except Exception as e:
-        print(f"Error calling Groq (Text): {e}")
+        print(f"Brain Error (Metadata): {e}")
         return {}
-
-# ... (חלק עליון של הקובץ ללא שינוי) ...
 
 def analyze_legend_image(image_bytes):
     """
-    מקבל בייטס של תמונה (חיתוך של המקרא), שולח ל-Llama Vision 
-    ומנסה לחלץ את שם החומר ואת הדפוס הויזואלי שלו.
+    שולח תמונה של מקרא ל-Claude Vision
     """
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key: return "חסר מפתח API"
+    client, error = get_anthropic_client()
+    if error: return error
 
     try:
         # המרה ל-Base64
-        base64_image = base64.b64encode(image_bytes).decode('utf-8')
-        
-        client = Groq(api_key=api_key)
-        
-        # פרומפט משופר שמתמקד בדפוס הויזואלי
-        prompt = """
-        You are an expert in reading construction blueprints. Look at this cropped image from a legend (key).
-        Your task is to identify:
-        1. What material or element is depicted (e.g., "Concrete Wall", "Block Wall", "Drywall").
-        2. What is the exact visual pattern defining it (e.g., "Diagonal hatching", "Solid black fill", "Double parallel lines", "Cross-hatch").
+        encoded_image = base64.b64encode(image_bytes).decode('utf-8')
 
-        Return ONLY a concise string in this format: "Material Name | Visual Pattern Description".
-        Example: "Concrete | Diagonal hatching lines"
-        If you cannot clearly identify it, return "Unknown | Unclear pattern".
-        """
+        prompt = """
+        אתה מומחה לקריאת תוכניות בנייה (אדריכלות/קונסטרוקציה).
+        מצורפת תמונה שנחתכה מתוך מקרא (Legend) של שרטוט.
         
-        chat_completion = client.chat.completions.create(
+        המשימה שלך:
+        זהה מה מסומן בתמונה. תאר את סוג הקו/הצבע ואת המשמעות שלו בעברית.
+        אם יש מספר חומרים, רשום אותם ברשימה.
+        
+        דוגמה לתשובה טובה:
+        "קו כחול עבה = קיר בטון חדש"
+        "קו כתום = קיר בלוקים"
+        "קו מקווקוו = הריסה"
+        
+        תחזיר תשובה קצרה ותמציתית בעברית בלבד.
+        """
+
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=500,
+            temperature=0,
             messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt},
                         {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}",
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": encoded_image,
                             },
                         },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
                     ],
                 }
             ],
-            model="llama-3.2-11b-vision-preview",
         )
-        return chat_completion.choices[0].message.content
+        return message.content[0].text
+
     except Exception as e:
         return f"שגיאה בפענוח הויזואלי: {str(e)}"

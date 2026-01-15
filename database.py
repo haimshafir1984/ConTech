@@ -7,6 +7,8 @@ from datetime import datetime
 
 # בדיקה האם אנחנו בענן (Postgres) או מקומי (SQLite)
 DB_URL = os.environ.get("DATABASE_URL")
+# שימוש בשם קובץ קבוע וברור יותר למסד הנתונים המקומי
+DB_FILE = os.environ.get("DB_FILE_PATH", "project_data.db")
 
 def get_connection():
     """יוצר חיבור למסד הנתונים המתאים (Postgres או SQLite)"""
@@ -19,7 +21,7 @@ def get_connection():
             return None
     else:
         # מצב מקומי - שימוש בקובץ
-        conn = sqlite3.connect('local_database.db', check_same_thread=False)
+        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
         conn.row_factory = sqlite3.Row  # מאפשר גישה לשדות לפי שם
         return conn
 
@@ -167,15 +169,22 @@ def reset_all_data():
     return True
 
 # --- פונקציות חישוב (Business Logic) ---
-# אלו לא נוגעות ב-DB ישירות אבל משתמשות בנתונים
 def get_project_forecast(plan_id):
     plan = get_plan_by_id(plan_id)
     if not plan: return {}
     
     reports = get_progress_reports(plan_id)
     total_built = sum([r['meters_built'] for r in reports]) if reports else 0
-    total_planned = plan['scale_value'] * plan['raw_pixels'] if plan['scale_value'] else 0 # זו טעות לוגית קטנה בקוד המקורי, נתקן: אורך = פיקסלים / סקייל
-    total_len_meters = plan['raw_pixels'] / plan['scale_value'] if plan['scale_value'] and plan['scale_value'] > 0 else 0
+    
+    # --- תיקון קריטי: חישוב אורך מתוכנן ---
+    # הנוסחה הנכונה: פיקסלים / (פיקסלים למטר) = מטרים
+    if plan['scale_value'] and plan['scale_value'] > 0:
+        total_len_meters = plan['raw_pixels'] / plan['scale_value']
+    else:
+        total_len_meters = 0
+    
+    # נשמור גם את הערך השגוי הישן כ"planned" למקרה שמישהו מסתמך עליו, אבל נשתמש בחדש
+    total_planned = total_len_meters 
     
     # חישוב ימים
     days_passed = 0
@@ -194,7 +203,7 @@ def get_project_forecast(plan_id):
     
     return {
         "cumulative_progress": total_built,
-        "total_planned": total_len_meters,
+        "total_planned": total_planned,
         "remaining_work": remaining,
         "average_velocity": velocity,
         "days_to_finish": int(days_to_finish)

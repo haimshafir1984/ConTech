@@ -8,15 +8,23 @@ except ImportError:
 import streamlit as st
 
 def get_anthropic_client():
-    """יוצר חיבור ל-Claude בצורה מאובטחת"""
+    """יוצר חיבור ל-Claude בצורה מאובטחת עם Fallback"""
     if anthropic is None:
         return None, "ספריית anthropic חסרה. הרץ: pip install anthropic"
     
-    # מנסה למשוך מפתח מ-secrets (פיתוח) או משתני סביבה (שרת)
-    api_key = st.secrets.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    # ניסיון ראשון: streamlit secrets
+    api_key = None
+    try:
+        api_key = st.secrets.get("ANTHROPIC_API_KEY")
+    except Exception:
+        pass
+    
+    # ניסיון שני: משתני סביבה (עבור Render)
+    if not api_key:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
     
     if not api_key:
-        return None, "חסר מפתח ANTHROPIC_API_KEY בהגדרות"
+        return None, "חסר מפתח ANTHROPIC_API_KEY. הוסף אותו ב-.streamlit/secrets.toml או במשתני סביבה בשרת"
         
     return anthropic.Anthropic(api_key=api_key), None
 

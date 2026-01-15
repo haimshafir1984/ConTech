@@ -6,6 +6,38 @@ import os
 import gc
 
 class FloorPlanAnalyzer:
+    
+    def _skeletonize(self, img: np.ndarray) -> np.ndarray:
+        """
+        יצירת skeleton ללא צורך ב-ximgproc
+        משתמש באלגוריתם מהיר של erosion iterative
+        """
+        # וידוא שהתמונה בינארית
+        if len(img.shape) == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        _, binary = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
+        
+        skeleton = np.zeros_like(binary, dtype=np.uint8)
+        element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+        
+        while True:
+            # Erosion
+            eroded = cv2.erode(binary, element)
+            # Opening (erosion followed by dilation)
+            temp = cv2.dilate(eroded, element)
+            # Subtract
+            temp = cv2.subtract(binary, temp)
+            # Union
+            skeleton = cv2.bitwise_or(skeleton, temp)
+            binary = eroded.copy()
+            
+            # Stop condition
+            if cv2.countNonZero(binary) == 0:
+                break
+        
+        return skeleton
+    
     def pdf_to_image(self, pdf_path: str, target_max_dim: int = 3000) -> np.ndarray:
         doc = fitz.open(pdf_path)
         page = doc[0]
@@ -113,7 +145,7 @@ class FloorPlanAnalyzer:
             cv2.addWeighted(overlay, 0.5, debug_img, 0.5, 0, debug_img)
 
         # חישובים ונתונים
-        skel = cv2.ximgproc.thinning(final_walls)
+        skel = self._skeletonize(final_walls)
         pix = cv2.countNonZero(skel)
         
         meta = {"plan_name": os.path.basename(pdf_path), "raw_text": ""}
@@ -124,8 +156,8 @@ class FloorPlanAnalyzer:
         except: pass
         
         meta.update({
-            "pixels_concrete": cv2.countNonZero(cv2.ximgproc.thinning(concrete)),
-            "pixels_blocks": cv2.countNonZero(cv2.ximgproc.thinning(blocks)),
+            "pixels_concrete": cv2.countNonZero(self._skeletonize(concrete)),
+            "pixels_blocks": cv2.countNonZero(self._skeletonize(blocks)),
             "pixels_flooring_area": cv2.countNonZero(flooring)
         })
         

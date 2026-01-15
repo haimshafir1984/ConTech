@@ -3,9 +3,12 @@ from PIL import Image
 import cv2
 import numpy as np
 import pandas as pd
-import json
+import tempfile
 import os
+import json
+import io
 from streamlit_drawable_canvas import st_canvas
+from datetime import datetime
 
 # ייבוא מהקבצים המסודרים שלך
 from styles import setup_page, apply_css
@@ -19,12 +22,13 @@ from database import (
     calculate_material_estimates, reset_all_data
 )
 
-# --- אתחול ---
+# --- אתחול המערכת ---
 setup_page()
 apply_css()
 Image.MAX_IMAGE_PIXELS = None
 init_database()
 
+# --- Session State ---
 if 'projects' not in st.session_state: st.session_state.projects = {}
 if 'wall_height' not in st.session_state: st.session_state.wall_height = 2.5
 if 'default_cost_per_meter' not in st.session_state: st.session_state.default_cost_per_meter = 0.0
@@ -61,12 +65,13 @@ if mode == "🏢 מנהל פרויקט":
                     if f.name not in st.session_state.projects:
                         with st.spinner(f"מעבד {f.name}..."):
                             try:
+                                # שימוש ב-tempfile ליצירת קובץ זמני
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                                     tmp.write(f.getvalue())
                                     path = tmp.name
                                 
                                 analyzer = FloorPlanAnalyzer()
-                                # כאן התיקון: קבלת 9 משתנים במקום 8
+                                # קבלת 9 משתנים (כולל תמונת הדיבאג)
                                 pix, skel, thick, orig, meta, conc, blok, floor, debug_img = analyzer.process_file(path, save_debug=show_debug)
                                 
                                 if not meta.get("plan_name"): meta["plan_name"] = f.name.replace(".pdf", "")
@@ -84,7 +89,7 @@ if mode == "🏢 מנהל פרויקט":
                                 if show_debug and debug_img is not None:
                                     st.image(debug_img, caption="🔴 אדום=טקסט שסונן | 🔵 כחול=קירות שזוהו", use_column_width=True)
                                 
-                                os.unlink(path)
+                                os.unlink(path) # מחיקת הקובץ הזמני
                                 st.success(f"✅ {f.name} נטען")
                             except Exception as e: st.error(f"שגיאה: {str(e)}")
 

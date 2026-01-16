@@ -1,5 +1,3 @@
-
-
 streamlit>=1.28.0,<1.30.0
 opencv-python-headless
 numpy
@@ -10,3 +8,6 @@ anthropic
 pymupdf
 psycopg2-binary
 reportlab
+
+# ML Libraries (for Phase 3)
+scikit-learn>=1.0.0

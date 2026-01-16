@@ -13,7 +13,7 @@ from datetime import datetime
 # ייבוא מהקבצים המסודרים שלך
 from styles import setup_page, apply_css
 from utils import safe_process_metadata, safe_analyze_legend, load_stats_df, create_colored_overlay
-from analyzer_v2 import FloorPlanAnalyzer  # ← גרסה חדשה!
+from analyzer import FloorPlanAnalyzer
 from reporter import generate_status_pdf
 from database import (
     init_database, save_plan, save_progress_report, 

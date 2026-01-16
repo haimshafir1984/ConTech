@@ -32,7 +32,24 @@ init_database()
 if 'projects' not in st.session_state: st.session_state.projects = {}
 if 'wall_height' not in st.session_state: st.session_state.wall_height = 2.5
 if 'default_cost_per_meter' not in st.session_state: st.session_state.default_cost_per_meter = 0.0
-if 'manual_corrections' not in st.session_state: st.session_state.manual_corrections = {}  # NEW!
+if 'manual_corrections' not in st.session_state: st.session_state.manual_corrections = {}
+
+# --- פונקציה לחישוב קירות מתוקנים ---
+def get_corrected_walls(selected_plan, proj):
+    """מחזיר את מסכת הקירות המתוקנת (אם יש תיקונים)"""
+    if selected_plan in st.session_state.manual_corrections:
+        corrections = st.session_state.manual_corrections[selected_plan]
+        corrected = proj["thick_walls"].copy()
+        
+        if 'added_walls' in corrections:
+            corrected = cv2.bitwise_or(corrected, corrections['added_walls'])
+        
+        if 'removed_walls' in corrections:
+            corrected = cv2.subtract(corrected, corrections['removed_walls'])
+        
+        return corrected
+    else:
+        return proj["thick_walls"]
 
 # --- תפריט צד ---
 with st.sidebar:
@@ -56,7 +73,7 @@ with st.sidebar:
 # ==========================================
 if mode == "🏢 מנהל פרויקט":
     st.title("ניהול פרויקטים")
-    tab1, tab2, tab3 = st.tabs(["📂 סדנת עבודה", "🎨 תיקונים ידניים", "📊 דשבורד"])  # ← טאב חדש!
+    tab1, tab2, tab3 = st.tabs(["📂 סדנת עבודה", "🎨 תיקונים ידניים", "📊 דשבורד"])
     
     # --- טאב 1: העלאה ועריכה ---
     with tab1:
@@ -89,7 +106,7 @@ if mode == "🏢 מנהל פרויקט":
                                     "raw_pixels": pix, "scale": 200.0, "metadata": meta,
                                     "concrete_mask": conc, "blocks_mask": blok, "flooring_mask": floor,
                                     "total_length": pix/200.0, "llm_suggestions": llm_data if meta.get("raw_text") else {},
-                                    "debug_layers": analyzer.debug_layers  # שמירת שכבות debug
+                                    "debug_layers": getattr(analyzer, 'debug_layers', {})
                                 }
                                 
                                 # תצוגת Debug משופרת
@@ -101,10 +118,10 @@ if mode == "🏢 מנהל פרויקט":
                                         with col1:
                                             st.image(debug_img, caption="תוצאה משולבת", use_column_width=True)
                                         with col2:
-                                            if 'text_combined' in analyzer.debug_layers:
+                                            if hasattr(analyzer, 'debug_layers') and 'text_combined' in analyzer.debug_layers:
                                                 st.image(analyzer.debug_layers['text_combined'], caption="🔴 טקסט שהוסר", use_column_width=True)
                                         with col3:
-                                            if 'walls' in analyzer.debug_layers:
+                                            if hasattr(analyzer, 'debug_layers') and 'walls' in analyzer.debug_layers:
                                                 st.image(analyzer.debug_layers['walls'], caption="🟢 קירות שזוהו", use_column_width=True)
                                     
                                     elif debug_mode == "מלא - עם confidence":
@@ -112,7 +129,6 @@ if mode == "🏢 מנהל פרויקט":
                                         with col1:
                                             st.image(debug_img, caption="תוצאה משולבת", use_column_width=True)
                                         with col2:
-                                            # מקרא
                                             st.markdown("""
                                             **מקרא צבעים:**
                                             - 🟠 כתום = טקסט ברור
@@ -123,7 +139,6 @@ if mode == "🏢 מנהל פרויקט":
                                             - 🔵 כחול-שחור = confidence נמוך
                                             """)
                                             
-                                            # סטטיסטיקות
                                             st.metric("Confidence ממוצע", f"{meta.get('confidence_avg', 0):.2f}")
                                             st.metric("פיקסלי טקסט שהוסרו", f"{meta.get('text_removed_pixels', 0):,}")
                                 
@@ -135,46 +150,111 @@ if mode == "🏢 מנהל פרויקט":
                                 with st.expander("פרטי שגיאה"):
                                     st.code(traceback.format_exc())
 
-        # הקוד הרגיל של עריכת תוכניות ממשיך כרגיל...
         if st.session_state.projects:
             st.markdown("---")
             selected = st.selectbox("בחר תוכנית לעריכה:", list(st.session_state.projects.keys()))
             proj = st.session_state.projects[selected]
             
-            # (שאר הקוד זהה לגרסה הקודמת...)
             name_key = f"name_{selected}"
             scale_key = f"scale_{selected}"
             if name_key not in st.session_state: st.session_state[name_key] = proj["metadata"].get("plan_name", "")
             if scale_key not in st.session_state: st.session_state[scale_key] = proj["metadata"].get("scale", "")
             
-            # תצוגה ועריכה פשוטה
             col_edit, col_preview = st.columns([1, 1.5], gap="large")
             
             with col_edit:
                 st.markdown("### הגדרות תוכנית")
+                
+                # אינדיקטור תיקונים
+                if selected in st.session_state.manual_corrections:
+                    st.success("✏️ תוכנית זו תוקנה ידנית")
+                
                 p_name = st.text_input("שם התוכנית", key=name_key)
+                p_scale_text = st.text_input("קנה מידה (לתיעוד)", key=scale_key, placeholder="1:50")
+                
+                st.markdown("#### כיול")
                 scale_val = st.slider("פיקסלים למטר", 10.0, 1000.0, float(proj["scale"]), key=f"scale_slider_{selected}")
                 proj["scale"] = scale_val
                 
-                total_len = proj["raw_pixels"] / scale_val
-                st.info(f"📏 סה\"כ קירות: {total_len:.1f} מ'")
+                # שימוש בגרסה המתוקנת
+                corrected_walls = get_corrected_walls(selected, proj)
+                corrected_pixels = np.count_nonzero(corrected_walls)
+                total_len = corrected_pixels / scale_val
                 
-                if st.button("💾 שמור", key=f"save_{selected}"):
+                # חישוב חומרים מהגרסה המתוקנת
+                kernel = np.ones((6,6), np.uint8)
+                conc_corrected = cv2.dilate(cv2.erode(corrected_walls, kernel, iterations=1), kernel, iterations=2)
+                block_corrected = cv2.subtract(corrected_walls, conc_corrected)
+                
+                conc_len = np.count_nonzero(conc_corrected) / scale_val
+                block_len = np.count_nonzero(block_corrected) / scale_val
+                floor_area = proj["metadata"].get("pixels_flooring_area", 0) / (scale_val ** 2)
+                
+                proj["total_length"] = total_len
+                
+                st.info(f"📏 קירות: {total_len:.1f}מ' | בטון: {conc_len:.1f}מ' | בלוקים: {block_len:.1f}מ' | ריצוף: {floor_area:.1f}מ\"ר")
+                
+                # מחשבון הצעת מחיר
+                with st.expander("💰 מחשבון הצעת מחיר", expanded=False):
+                    st.markdown("""<div style="background:#f0f2f6;padding:10px;border-radius:8px;margin-bottom:10px;">
+                    <strong>מחירון בסיס:</strong> בטון 1200₪/מ' | בלוקים 600₪/מ' | ריצוף 250₪/ר"מ
+                    </div>""", unsafe_allow_html=True)
+                    
+                    c_price = st.number_input("מחיר בטון (₪/מ')", value=1200.0, step=50.0, key=f"c_price_{selected}")
+                    b_price = st.number_input("מחיר בלוקים (₪/מ')", value=600.0, step=50.0, key=f"b_price_{selected}")
+                    f_price = st.number_input("מחיר ריצוף (₪/ר"מ)", value=250.0, step=50.0, key=f"f_price_{selected}")
+                    
+                    total_quote = (conc_len * c_price) + (block_len * b_price) + (floor_area * f_price)
+                    st.markdown(f"#### 💵 סה\"כ הצעת מחיר: {total_quote:,.0f} ₪")
+                    
+                    quote_df = pd.DataFrame({
+                        "פריט": ["קירות בטון", "קירות בלוקים", "ריצוף/חיפוי", "סה\"כ"],
+                        "יחידה": ["מ'", "מ'", "מ\"ר", "-"],
+                        "כמות": [f"{conc_len:.2f}", f"{block_len:.2f}", f"{floor_area:.2f}", "-"],
+                        "מחיר יחידה": [f"{c_price:.0f}₪", f"{b_price:.0f}₪", f"{f_price:.0f}₪", "-"],
+                        "סה\"כ": [f"{conc_len*c_price:,.0f}₪", f"{block_len*b_price:,.0f}₪", f"{floor_area*f_price:,.0f}₪", f"{total_quote:,.0f}₪"]
+                    })
+                    st.dataframe(quote_df, hide_index=True, use_container_width=True)
+                
+                st.markdown("---")
+                if st.button("💾 שמור תוכנית למערכת", type="primary", key=f"save_{selected}"):
                     proj["metadata"]["plan_name"] = p_name
+                    proj["metadata"]["scale"] = p_scale_text
                     meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
-                    save_plan(selected, p_name, "1:50", scale_val, proj["raw_pixels"], meta_json)
-                    st.toast("✅ נשמר!")
+                    materials = json.dumps({
+                        "concrete_length": conc_len,
+                        "blocks_length": block_len,
+                        "flooring_area": floor_area
+                    }, ensure_ascii=False)
+                    
+                    plan_id = save_plan(selected, p_name, p_scale_text, scale_val, corrected_pixels, 
+                                       meta_json, None, 0, 0, materials)
+                    st.toast("✅ נשמר למערכת!")
+                    st.success(f"התוכנית נשמרה בהצלחה (ID: {plan_id})")
             
             with col_preview:
                 st.markdown("### תצוגה מקדימה")
+                
+                if selected in st.session_state.manual_corrections:
+                    st.caption("✏️ גרסה מתוקנת ידנית")
+                
                 show_flooring = st.checkbox("הצג ריצוף", value=True, key=f"show_flooring_{selected}")
+                
+                # שימוש בגרסה המתוקנת
+                corrected_walls_display = get_corrected_walls(selected, proj)
+                
+                kernel_display = np.ones((6,6), np.uint8)
+                concrete_corrected = cv2.dilate(cv2.erode(corrected_walls_display, kernel_display, iterations=1), kernel_display, iterations=2)
+                blocks_corrected = cv2.subtract(corrected_walls_display, concrete_corrected)
+                
                 floor_mask = proj["flooring_mask"] if show_flooring else None
-                overlay = create_colored_overlay(proj["original"], proj["concrete_mask"], 
-                                                proj["blocks_mask"], floor_mask)
+                overlay = create_colored_overlay(proj["original"], concrete_corrected, 
+                                                blocks_corrected, floor_mask)
                 st.image(overlay, use_column_width=True)
+                st.caption("🔵 כחול=בטון | 🟠 כתום=בלוקים | 🟣 סגול=ריצוף")
     
     # ==========================================
-    # 🎨 טאב חדש: תיקונים ידניים (Approach C)
+    # 🎨 טאב 2: תיקונים ידניים
     # ==========================================
     with tab2:
         st.markdown("## 🎨 תיקונים ידניים")
@@ -190,7 +270,6 @@ if mode == "🏢 מנהל פרויקט":
                                       ["➕ הוסף קירות חסרים", "➖ הסר קירות מזויפים", "👁️ השוואה"], 
                                       horizontal=True)
             
-            # הכנת תמונת רקע
             rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
             h, w = rgb.shape[:2]
             scale_factor = 1000 / w if w > 1000 else 1.0
@@ -212,24 +291,22 @@ if mode == "🏢 מנהל פרויקט":
                 
                 if canvas_add.image_data is not None and np.any(canvas_add.image_data[:, :, 3] > 0):
                     if st.button("✅ אשר הוספה", key="confirm_add"):
-                        # שמירת התיקונים
                         if selected_plan not in st.session_state.manual_corrections:
                             st.session_state.manual_corrections[selected_plan] = {}
                         
-                        # המרה לגודל מקורי
                         added_mask = cv2.resize(canvas_add.image_data[:, :, 3], (w, h), interpolation=cv2.INTER_NEAREST)
                         added_mask = (added_mask > 0).astype(np.uint8) * 255
                         
                         st.session_state.manual_corrections[selected_plan]['added_walls'] = added_mask
                         st.success("✅ קירות נוספו! עבור לטאב 'השוואה' לראות את התוצאה")
+                        st.rerun()
             
             elif correction_mode == "➖ הסר קירות מזויפים":
                 st.info("🖌️ צייר באדום על קירות שהמערכת זיהתה בטעות")
                 
-                # תצוגה עם הקירות הקיימים
                 walls_overlay = proj["thick_walls"].copy()
                 walls_colored = cv2.cvtColor(walls_overlay, cv2.COLOR_GRAY2RGB)
-                walls_colored[walls_overlay > 0] = [0, 255, 255]  # ציאן
+                walls_colored[walls_overlay > 0] = [0, 255, 255]
                 
                 combined = cv2.addWeighted(rgb, 0.6, walls_colored, 0.4, 0)
                 combined_resized = cv2.resize(combined, (int(w*scale_factor), int(h*scale_factor)))
@@ -256,23 +333,14 @@ if mode == "🏢 מנהל פרויקט":
                         
                         st.session_state.manual_corrections[selected_plan]['removed_walls'] = removed_mask
                         st.success("✅ קירות הוסרו! עבור לטאב 'השוואה' לראות את התוצאה")
+                        st.rerun()
             
             elif correction_mode == "👁️ השוואה":
                 st.markdown("### לפני ואחרי")
                 
                 if selected_plan in st.session_state.manual_corrections:
-                    corrections = st.session_state.manual_corrections[selected_plan]
+                    corrected_walls = get_corrected_walls(selected_plan, proj)
                     
-                    # חישוב מסכת קירות מתוקנת
-                    corrected_walls = proj["thick_walls"].copy()
-                    
-                    if 'added_walls' in corrections:
-                        corrected_walls = cv2.bitwise_or(corrected_walls, corrections['added_walls'])
-                    
-                    if 'removed_walls' in corrections:
-                        corrected_walls = cv2.subtract(corrected_walls, corrections['removed_walls'])
-                    
-                    # תצוגה לפני/אחרי
                     col1, col2 = st.columns(2)
                     
                     with col1:
@@ -281,7 +349,6 @@ if mode == "🏢 מנהל פרויקט":
                         auto_overlay[proj["thick_walls"] > 0] = [0, 255, 0]
                         st.image(auto_overlay, use_column_width=True)
                         
-                        # סטטיסטיקות
                         auto_pixels = np.count_nonzero(proj["thick_walls"])
                         auto_length = auto_pixels / proj["scale"]
                         st.metric("אורך", f"{auto_length:.1f} מ'")
@@ -289,34 +356,38 @@ if mode == "🏢 מנהל פרויקט":
                     with col2:
                         st.markdown("#### ✅ אחרי תיקון")
                         corrected_overlay = rgb.copy()
-                        corrected_overlay[corrected_walls > 0] = [255, 165, 0]  # כתום
+                        corrected_overlay[corrected_walls > 0] = [255, 165, 0]
                         st.image(corrected_overlay, use_column_width=True)
                         
-                        # סטטיסטיקות
                         corrected_pixels = np.count_nonzero(corrected_walls)
                         corrected_length = corrected_pixels / proj["scale"]
                         st.metric("אורך", f"{corrected_length:.1f} מ'", 
                                  delta=f"{corrected_length - auto_length:+.1f} מ'")
                     
-                    # כפתור שמירה
                     st.markdown("---")
-                    if st.button("💾 שמור גרסה מתוקנת", type="primary"):
-                        # עדכון הפרויקט
-                        proj["thick_walls"] = corrected_walls
-                        proj["raw_pixels"] = corrected_pixels
-                        proj["total_length"] = corrected_length
-                        
-                        # שמירה למסד נתונים
-                        meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
-                        save_plan(selected_plan, proj["metadata"].get("plan_name"), "1:50", 
-                                 proj["scale"], corrected_pixels, meta_json)
-                        
-                        st.success("✅ הגרסה המתוקנת נשמרה!")
-                        st.balloons()
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        if st.button("💾 שמור גרסה מתוקנת", type="primary"):
+                            proj["thick_walls"] = corrected_walls
+                            proj["raw_pixels"] = corrected_pixels
+                            proj["total_length"] = corrected_length
+                            
+                            meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
+                            save_plan(selected_plan, proj["metadata"].get("plan_name"), "1:50", 
+                                     proj["scale"], corrected_pixels, meta_json)
+                            
+                            st.success("✅ הגרסה המתוקנת נשמרה!")
+                            st.balloons()
+                    
+                    with col_btn2:
+                        if st.button("🔄 אפס תיקונים", key="reset_corrections"):
+                            del st.session_state.manual_corrections[selected_plan]
+                            st.success("התיקונים אופסו")
+                            st.rerun()
                 else:
                     st.info("אין תיקונים ידניים עדיין. עבור לטאב 'הוסף קירות' או 'הסר קירות'")
     
-    # --- טאב 3: דשבורד (ללא שינוי) ---
+    # --- טאב 3: דשבורד ---
     with tab3:
         all_plans = get_all_plans()
         if not all_plans:
@@ -341,7 +412,7 @@ if mode == "🏢 מנהל פרויקט":
                 st.bar_chart(df_stats, x="תאריך", y="כמות שבוצעה", use_container_width=True)
 
 # ==========================================
-# 👷 מצב דיווח (ללא שינוי)
+# 👷 מצב דיווח
 # ==========================================
 elif mode == "👷 דיווח שטח":
     st.title("דיווח ביצוע")
@@ -353,6 +424,9 @@ elif mode == "👷 דיווח שטח":
         proj = st.session_state.projects[plan_name]
         
         report_type = st.radio("סוג עבודה:", ["🧱 בניית קירות", "🔲 ריצוף/חיפוי"], horizontal=True)
+        
+        # שימוש בגרסה המתוקנת
+        corrected_walls = get_corrected_walls(plan_name, proj)
         
         rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
         h, w = rgb.shape[:2]
@@ -380,7 +454,7 @@ elif mode == "👷 דיווח שטח":
             measured = 0
             if "קירות" in report_type:
                 user_draw = canvas.image_data[:, :, 3] > 0
-                walls_resized = cv2.resize(proj["thick_walls"], (int(w*scale_factor), int(h*scale_factor)))
+                walls_resized = cv2.resize(corrected_walls, (int(w*scale_factor), int(h*scale_factor)))
                 intersection = np.logical_and(user_draw, walls_resized > 0)
                 measured = np.count_nonzero(intersection) / scale_factor / proj["scale"]
             else:
@@ -388,9 +462,12 @@ elif mode == "👷 דיווח שטח":
                 measured = pixels / ((proj["scale"] * scale_factor) ** 2)
             
             if measured > 0:
-                st.success(f"✅ {measured:.2f} " + ('מ"ר' if 'ריצוף' in report_type else 'מטר'))
+                unit = 'מ"ר' if 'ריצוף' in report_type else 'מטר'
+                st.success(f"✅ {measured:.2f} {unit}")
+                
                 if st.button("🚀 שלח דיווח", type="primary"):
                     rec = get_plan_by_filename(plan_name)
                     pid = rec['id'] if rec else save_plan(plan_name, plan_name, "1:50", proj["scale"], proj["raw_pixels"], "{}")
                     save_progress_report(pid, measured, report_type)
                     st.balloons()
+                    st.success("הדיווח נשמר בהצלחה!")

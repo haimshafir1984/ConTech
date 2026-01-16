@@ -258,18 +258,25 @@ if mode == "🏢 מנהל פרויקט":
                 with st.expander("🎨 נתח מקרא (AI)", expanded=False):
                     st.caption("חתוך את אזור המקרא מהתוכנית וקבל ניתוח אוטומטי")
                     
+                    # המרה נכונה של התמונה
                     rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
                     h, w = rgb.shape[:2]
-                    scale_factor = 800 / w if w > 800 else 1.0
-                    img_for_legend = Image.fromarray(rgb).resize((int(w*scale_factor), int(h*scale_factor)))
+                    scale_factor = min(1.0, 1000 / max(w, h))  # שמירה על יחס גובה-רוחב
+                    
+                    new_w = int(w * scale_factor)
+                    new_h = int(h * scale_factor)
+                    
+                    # המרה ל-PIL ושינוי גודל
+                    pil_image = Image.fromarray(rgb.astype('uint8'), 'RGB')
+                    pil_image_resized = pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
                     
                     legend_canvas = st_canvas(
                         fill_color="rgba(255,0,0,0.1)",
-                        stroke_width=2,
+                        stroke_width=3,
                         stroke_color="#FF0000",
-                        background_image=img_for_legend,
-                        height=int(h*scale_factor),
-                        width=int(w*scale_factor),
+                        background_image=pil_image_resized,
+                        height=new_h,
+                        width=new_w,
                         drawing_mode="rect",
                         key=f"legend_canvas_{selected}"
                     )
@@ -279,14 +286,14 @@ if mode == "🏢 מנהל פרויקט":
                             with st.spinner("מנתח מקרא..."):
                                 try:
                                     # חילוץ הריבוע שצויר
-                                    rect = legend_canvas.json_data["objects"][0]
+                                    rect = legend_canvas.json_data["objects"][-1]  # הריבוע האחרון
                                     x = int(rect["left"] / scale_factor)
                                     y = int(rect["top"] / scale_factor)
-                                    width = int(rect["width"] / scale_factor)
-                                    height = int(rect["height"] / scale_factor)
+                                    rect_w = int(rect["width"] / scale_factor)
+                                    rect_h = int(rect["height"] / scale_factor)
                                     
-                                    # חיתוך האזור
-                                    cropped = proj["original"][y:y+height, x:x+width]
+                                    # חיתוך האזור מהתמונה המקורית
+                                    cropped = proj["original"][y:y+rect_h, x:x+rect_w]
                                     
                                     # המרה ל-bytes
                                     _, buffer = cv2.imencode('.png', cropped)
@@ -312,7 +319,7 @@ if mode == "🏢 מנהל פרויקט":
                                         
                                         if result.get("symbols"):
                                             st.markdown("**סמלים:**")
-                                            for symbol in result["symbols"][:5]:  # הצג 5 ראשונים
+                                            for symbol in result["symbols"][:5]:
                                                 st.markdown(f"- **{symbol.get('symbol', '')}**: {symbol.get('meaning', '')}")
                                         
                                         if result.get("notes"):
@@ -328,8 +335,11 @@ if mode == "🏢 מנהל פרויקט":
                                         
                                 except Exception as e:
                                     st.error(f"שגיאה בניתוח: {str(e)}")
+                                    import traceback
+                                    with st.expander("פרטי שגיאה"):
+                                        st.code(traceback.format_exc())
                     else:
-                        st.info("👆 צייר ריבוע סביב המקרא בתוכנית")
+                        st.info("👆 צייר ריבוע סביב המקרא בתוכנית ולחץ על הכפתור")
 
     
     # ==========================================

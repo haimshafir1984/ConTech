@@ -388,7 +388,7 @@ elif mode == "👷 דיווח שטח":
                 measured = pixels / ((proj["scale"] * scale_factor) ** 2)
             
             if measured > 0:
-                st.success(f"✅ {measured:.2f} {'מ\"ר' if 'ריצוף' in report_type else 'מטר'}")
+                st.success(f"✅ {measured:.2f} " + ('מ"ר' if 'ריצוף' in report_type else 'מטר'))
                 if st.button("🚀 שלח דיווח", type="primary"):
                     rec = get_plan_by_filename(plan_name)
                     pid = rec['id'] if rec else save_plan(plan_name, plan_name, "1:50", proj["scale"], proj["raw_pixels"], "{}")

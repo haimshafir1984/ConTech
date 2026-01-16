@@ -202,14 +202,14 @@ if mode == "🏢 מנהל פרויקט":
                     
                     c_price = st.number_input("מחיר בטון (₪/מ')", value=1200.0, step=50.0, key=f"c_price_{selected}")
                     b_price = st.number_input("מחיר בלוקים (₪/מ')", value=600.0, step=50.0, key=f"b_price_{selected}")
-                    f_price = st.number_input("מחיר ריצוף (₪/ר"מ)", value=250.0, step=50.0, key=f"f_price_{selected}")
+                    f_price = st.number_input('מחיר ריצוף (₪/מ"ר)', value=250.0, step=50.0, key=f"f_price_{selected}")
                     
                     total_quote = (conc_len * c_price) + (block_len * b_price) + (floor_area * f_price)
                     st.markdown(f"#### 💵 סה\"כ הצעת מחיר: {total_quote:,.0f} ₪")
                     
                     quote_df = pd.DataFrame({
                         "פריט": ["קירות בטון", "קירות בלוקים", "ריצוף/חיפוי", "סה\"כ"],
-                        "יחידה": ["מ'", "מ'", "מ\"ר", "-"],
+                        "יחידה": ["מ'", "מ'", 'מ"ר', "-"],
                         "כמות": [f"{conc_len:.2f}", f"{block_len:.2f}", f"{floor_area:.2f}", "-"],
                         "מחיר יחידה": [f"{c_price:.0f}₪", f"{b_price:.0f}₪", f"{f_price:.0f}₪", "-"],
                         "סה\"כ": [f"{conc_len*c_price:,.0f}₪", f"{block_len*b_price:,.0f}₪", f"{floor_area*f_price:,.0f}₪", f"{total_quote:,.0f}₪"]

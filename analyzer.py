@@ -49,37 +49,80 @@ class FloorPlanAnalyzer:
         return img_bgr
     
     def _detect_text_regions(self, gray: np.ndarray) -> np.ndarray:
-        # זיהוי טקסט אגרסיבי יותר
-        _, binary = cv2.threshold(gray, 190, 255, cv2.THRESH_BINARY_INV) # סף נמוך יותר = תופס יותר טקסט אפור
-        
-        # חיבור אותיות למילים בצורה גסה יותר
-        kernel_connect = cv2.getStructuringElement(cv2.MORPH_RECT, (12, 4)) 
-        binary_connected = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_connect)
-        
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary_connected, connectivity=8)
+        """זיהוי טקסט אגרסיבי - מסיר כל טקסט, מספרים, סמלים"""
+        h, w = gray.shape
         text_mask = np.zeros_like(gray)
+        
+        # שלב 1: זיהוי בסיסי עם threshold נמוך (תופס יותר טקסט)
+        _, binary = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
+        
+        # שלב 2: ניקוי רעשים קטנים
+        kernel_clean = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        binary_clean = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_clean)
+        
+        # שלב 3: חיבור תווים למילים (אופקי)
+        kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 3))
+        connected_h = cv2.dilate(binary_clean, kernel_h, iterations=1)
+        
+        # שלב 4: חיבור תווים (אנכי) - למספרי חדרים
+        kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 15))
+        connected_v = cv2.dilate(binary_clean, kernel_v, iterations=1)
+        
+        # איחוד שתי הכיוונים
+        connected = cv2.bitwise_or(connected_h, connected_v)
+        
+        # שלב 5: זיהוי רכיבים מחוברים
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(connected, connectivity=8)
         
         for i in range(1, num_labels):
             area = stats[i, cv2.CC_STAT_AREA]
-            w, h = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
-            aspect = w / h if h > 0 else 0
+            bw = stats[i, cv2.CC_STAT_WIDTH]
+            bh = stats[i, cv2.CC_STAT_HEIGHT]
+            x = stats[i, cv2.CC_STAT_LEFT]
+            y = stats[i, cv2.CC_STAT_TOP]
+            
+            # חישוב aspect ratio
+            aspect = max(bw, bh) / (min(bw, bh) + 1)
             
             is_text = False
             
-            # טקסט רגיל (מילים/משפטים)
-            if area < 3500 and (h < 60 or w < 60): 
+            # כלל 1: כל דבר קטן יחסית
+            if area < 8000:  # הרחבנו מ-5000
                 is_text = True
-                
-            # כותרות או מסגרות טקסט
-            if 3.0 < aspect < 20.0 and area < 5000:
+            
+            # כלל 2: צורות מרובעות קטנות (סמלים)
+            if 0.5 < aspect < 2.0 and area < 2000:
                 is_text = True
-
+            
+            # כלל 3: קווי טקסט ארוכים ודקים
+            if aspect > 3.0 and bh < 80:
+                is_text = True
+            
+            # כלל 4: טקסט אנכי (מספרי חדרים)
+            if aspect < 0.35 and bw < 80:
+                is_text = True
+            
+            # חריגה: אל תסנן קירות (דברים ארוכים מאוד)
+            if aspect > 15.0 and area > 1000:
+                is_text = False
+            
+            # חריגה: מסגרת ראשית
+            if bw > w * 0.9 or bh > h * 0.9:
+                is_text = False
+            
             if is_text:
-                x, y = stats[i, cv2.CC_STAT_LEFT], stats[i, cv2.CC_STAT_TOP]
-                # ניפוח אזור המחיקה כדי לוודא שאין שאריות
-                text_mask[max(0, y-5):min(gray.shape[0], y+h+5), 
-                          max(0, x-5):min(gray.shape[1], x+w+5)] = 255
-                          
+                # הוספה עם ריפוד מוגבר
+                padding = 8
+                y1 = max(0, y - padding)
+                y2 = min(h, y + bh + padding)
+                x1 = max(0, x - padding)
+                x2 = min(w, x + bw + padding)
+                text_mask[y1:y2, x1:x2] = 255
+        
+        # שלב 6: ניפוח סופי כדי לוודא כיסוי מלא
+        kernel_final = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+        text_mask = cv2.dilate(text_mask, kernel_final, iterations=2)
+        
         return text_mask
 
     def process_file(self, pdf_path: str, save_debug=False):

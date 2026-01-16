@@ -17,7 +17,7 @@ from analyzer import FloorPlanAnalyzer
 from reporter import generate_status_pdf
 from database import (
     init_database, save_plan, save_progress_report, 
-    get_progress_reports, get_plan_by_filename, get_all_plans, get_plan_by_id,
+    get_progress_reports, get_plan_by_filename, get_all_plans,
     get_project_forecast, get_project_financial_status, 
     calculate_material_estimates, reset_all_data
 )

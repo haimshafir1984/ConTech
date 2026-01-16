@@ -496,9 +496,77 @@ if mode == "🏢 מנהל פרויקט":
             k4.metric("💰 תקציב", f"{financial['current_cost']:,.0f} ₪")
             
             st.markdown("---")
-            df_stats = load_stats_df()
-            if not df_stats.empty:
-                st.bar_chart(df_stats, x="תאריך", y="כמות שבוצעה", use_container_width=True)
+            
+            # ========== ייצוא PDF ==========
+            col_chart, col_export = st.columns([3, 1])
+            
+            with col_chart:
+                df_stats = load_stats_df()
+                if not df_stats.empty:
+                    st.bar_chart(df_stats, x="תאריך", y="כמות שבוצעה", use_container_width=True)
+            
+            with col_export:
+                st.markdown("### 📄 ייצוא דוח")
+                
+                # מצא את התוכנית ב-session_state
+                plan_record = [p for p in all_plans if p['id'] == plan_id][0]
+                plan_filename = plan_record.get('filename', '')
+                
+                if plan_filename and plan_filename in st.session_state.projects:
+                    proj = st.session_state.projects[plan_filename]
+                    
+                    if st.button("📥 הורד PDF", type="primary", use_container_width=True):
+                        with st.spinner("מכין דוח..."):
+                            try:
+                                # הכנת תמונה עם סימון ביצוע
+                                rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
+                                
+                                # קבלת דיווחי התקדמות
+                                reports = get_progress_reports(plan_id)
+                                
+                                # יצירת overlay של מה שבוצע
+                                # (פשטות - נציג את הקירות שזוהו)
+                                corrected_walls = get_corrected_walls(plan_filename, proj)
+                                
+                                # צביעה: ירוק = בוצע, אדום = נותר
+                                overlay = rgb.copy()
+                                overlay[corrected_walls > 0] = [100, 255, 100]  # ירוק בהיר
+                                
+                                # שילוב עם מקור
+                                result_img = cv2.addWeighted(rgb, 0.5, overlay, 0.5, 0)
+                                
+                                # סטטיסטיקות
+                                stats = {
+                                    'built': forecast['cumulative_progress'],
+                                    'total': forecast['total_planned'],
+                                    'percent': (forecast['cumulative_progress']/forecast['total_planned']*100) if forecast['total_planned'] > 0 else 0,
+                                    'remaining': forecast['remaining_work'],
+                                    'cost': financial['current_cost'],
+                                    'budget': financial['budget_limit']
+                                }
+                                
+                                # יצירת PDF
+                                pdf_buffer = generate_status_pdf(
+                                    plan_record['plan_name'],
+                                    result_img,
+                                    stats
+                                )
+                                
+                                # כפתור הורדה
+                                st.download_button(
+                                    label="💾 שמור PDF",
+                                    data=pdf_buffer,
+                                    file_name=f"{plan_record['plan_name']}_status_{datetime.now().strftime('%Y%m%d')}.pdf",
+                                    mime="application/pdf"
+                                )
+                                
+                            except Exception as e:
+                                st.error(f"שגיאה ביצירת PDF: {str(e)}")
+                                import traceback
+                                with st.expander("פרטי שגיאה"):
+                                    st.code(traceback.format_exc())
+                else:
+                    st.info("📂 התוכנית לא נטענה ל-session. אנא טען אותה תחילה.")
 
 # ==========================================
 # 👷 מצב דיווח

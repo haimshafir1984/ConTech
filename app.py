@@ -197,19 +197,19 @@ if mode == "🏢 מנהל פרויקט":
                 # מחשבון הצעת מחיר
                 with st.expander("💰 מחשבון הצעת מחיר", expanded=False):
                     st.markdown("""<div style="background:#f0f2f6;padding:10px;border-radius:8px;margin-bottom:10px;">
-                    <strong>מחירון בסיס:</strong> בטון 1200₪/מ' | בלוקים 600₪/מ' | ריצוף 250₪/ר"מ
+                    <strong>מחירון בסיס:</strong> בטון 1200₪/מ' | בלוקים 600₪/מ' | ריצוף 250₪/מ\"ר
                     </div>""", unsafe_allow_html=True)
                     
                     c_price = st.number_input("מחיר בטון (₪/מ')", value=1200.0, step=50.0, key=f"c_price_{selected}")
                     b_price = st.number_input("מחיר בלוקים (₪/מ')", value=600.0, step=50.0, key=f"b_price_{selected}")
-                    f_price = st.number_input('מחיר ריצוף (₪/מ"ר)', value=250.0, step=50.0, key=f"f_price_{selected}")
+                    f_price = st.number_input("מחיר ריצוף (₪/מ\"ר)", value=250.0, step=50.0, key=f"f_price_{selected}")
                     
                     total_quote = (conc_len * c_price) + (block_len * b_price) + (floor_area * f_price)
                     st.markdown(f"#### 💵 סה\"כ הצעת מחיר: {total_quote:,.0f} ₪")
                     
                     quote_df = pd.DataFrame({
                         "פריט": ["קירות בטון", "קירות בלוקים", "ריצוף/חיפוי", "סה\"כ"],
-                        "יחידה": ["מ'", "מ'", 'מ"ר', "-"],
+                        "יחידה": ["מ'", "מ'", "מ\"ר", "-"],
                         "כמות": [f"{conc_len:.2f}", f"{block_len:.2f}", f"{floor_area:.2f}", "-"],
                         "מחיר יחידה": [f"{c_price:.0f}₪", f"{b_price:.0f}₪", f"{f_price:.0f}₪", "-"],
                         "סה\"כ": [f"{conc_len*c_price:,.0f}₪", f"{block_len*b_price:,.0f}₪", f"{floor_area*f_price:,.0f}₪", f"{total_quote:,.0f}₪"]
@@ -252,6 +252,85 @@ if mode == "🏢 מנהל פרויקט":
                                                 blocks_corrected, floor_mask)
                 st.image(overlay, use_column_width=True)
                 st.caption("🔵 כחול=בטון | 🟠 כתום=בלוקים | 🟣 סגול=ריצוף")
+                
+                # ========== תכונה חדשה: ניתוח מקרא ==========
+                st.markdown("---")
+                with st.expander("🎨 נתח מקרא (AI)", expanded=False):
+                    st.caption("חתוך את אזור המקרא מהתוכנית וקבל ניתוח אוטומטי")
+                    
+                    rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
+                    h, w = rgb.shape[:2]
+                    scale_factor = 800 / w if w > 800 else 1.0
+                    img_for_legend = Image.fromarray(rgb).resize((int(w*scale_factor), int(h*scale_factor)))
+                    
+                    legend_canvas = st_canvas(
+                        fill_color="rgba(255,0,0,0.1)",
+                        stroke_width=2,
+                        stroke_color="#FF0000",
+                        background_image=img_for_legend,
+                        height=int(h*scale_factor),
+                        width=int(w*scale_factor),
+                        drawing_mode="rect",
+                        key=f"legend_canvas_{selected}"
+                    )
+                    
+                    if legend_canvas.json_data and legend_canvas.json_data["objects"]:
+                        if st.button("🔍 נתח מקרא עם AI", key=f"analyze_legend_{selected}"):
+                            with st.spinner("מנתח מקרא..."):
+                                try:
+                                    # חילוץ הריבוע שצויר
+                                    rect = legend_canvas.json_data["objects"][0]
+                                    x = int(rect["left"] / scale_factor)
+                                    y = int(rect["top"] / scale_factor)
+                                    width = int(rect["width"] / scale_factor)
+                                    height = int(rect["height"] / scale_factor)
+                                    
+                                    # חיתוך האזור
+                                    cropped = proj["original"][y:y+height, x:x+width]
+                                    
+                                    # המרה ל-bytes
+                                    _, buffer = cv2.imencode('.png', cropped)
+                                    image_bytes = buffer.tobytes()
+                                    
+                                    # ניתוח עם Claude
+                                    result = safe_analyze_legend(image_bytes)
+                                    
+                                    if isinstance(result, dict) and "error" not in result:
+                                        # הצגת תוצאות
+                                        st.success("✅ ניתוח הושלם!")
+                                        
+                                        col_a, col_b = st.columns(2)
+                                        with col_a:
+                                            st.metric("סוג תוכנית", result.get("plan_type", "לא זוהה"))
+                                            st.metric("רמת ביטחון", f"{result.get('confidence', 0)}%")
+                                        
+                                        with col_b:
+                                            if result.get("materials_found"):
+                                                st.markdown("**חומרים שזוהו:**")
+                                                for material in result["materials_found"]:
+                                                    st.markdown(f"- {material}")
+                                        
+                                        if result.get("symbols"):
+                                            st.markdown("**סמלים:**")
+                                            for symbol in result["symbols"][:5]:  # הצג 5 ראשונים
+                                                st.markdown(f"- **{symbol.get('symbol', '')}**: {symbol.get('meaning', '')}")
+                                        
+                                        if result.get("notes"):
+                                            st.info(f"💡 {result['notes']}")
+                                        
+                                        # שמירה למטא-דאטה
+                                        proj["metadata"]["legend_analysis"] = result
+                                        
+                                    elif isinstance(result, dict) and "error" in result:
+                                        st.error(f"שגיאה: {result['error']}")
+                                    else:
+                                        st.warning(f"תשובה לא צפויה: {result}")
+                                        
+                                except Exception as e:
+                                    st.error(f"שגיאה בניתוח: {str(e)}")
+                    else:
+                        st.info("👆 צייר ריבוע סביב המקרא בתוכנית")
+
     
     # ==========================================
     # 🎨 טאב 2: תיקונים ידניים

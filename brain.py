@@ -50,22 +50,63 @@ def process_plan_metadata(raw_text):
         return {}
 
 def analyze_legend_image(image_bytes):
+    """
+    מנתח תמונה של מקרא תוכנית בניה ומזהה סוג תוכנית וחומרים
+    """
     client, error = get_anthropic_client()
-    if error: return error
+    if error: return {"error": error}
 
     try:
         encoded_image = base64.b64encode(image_bytes).decode('utf-8')
         message = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=400,
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=800,
             messages=[{
                 "role": "user",
                 "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": encoded_image}},
-                    {"type": "text", "text": "Identify the construction materials/lines in this legend image. Hebrew only."}
+                    {"type": "text", "text": """
+נתח את המקרא בתמונה זו של תוכנית בניה.
+
+זהה והחזר JSON בפורמט הבא:
+{
+    "plan_type": "קירות" או "תקרה" או "ריצוף" או "חשמל" או "מיזוג" או "אינסטלציה" או "הריסה" או "אחר",
+    "confidence": 0-100 (רמת ביטחון),
+    "materials_found": ["רשימה של חומרים שנמצאו, כמו: בטון, בלוקים, קרמיקה, גבס, וכו"],
+    "symbols": [
+        {"symbol": "סימן או קוד", "meaning": "המשמעות בעברית"},
+        ...
+    ],
+    "notes": "הערות נוספות חשובות"
+}
+
+דוגמאות לסוגי תוכניות:
+- "קירות" - תכנית קומה עם קירות, דלתות, חלונות
+- "תקרה" - תכנית תקרה עם גבס, תאורה
+- "ריצוף" - תכנית ריצוף/חיפוי
+- "חשמל" - תכנית חשמל עם נקודות חשמל
+- "מיזוג" - מיזוג אוויר
+- "הריסה" - תוכנית הריסה
+
+חשוב: החזר **רק** את ה-JSON, ללא טקסט נוסף.
+"""}
                 ]
             }]
         )
-        return message.content[0].text
+        
+        response_text = message.content[0].text.strip()
+        
+        # ניקוי התשובה אם יש markdown
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+        
+        # פרסור JSON
+        result = json.loads(response_text)
+        return result
+        
+    except json.JSONDecodeError as e:
+        return {"error": f"שגיאה בפענוח JSON: {str(e)}", "raw_response": response_text}
     except Exception as e:
-        return f"Error: {str(e)}"
+        return {"error": f"שגיאה: {str(e)}"}

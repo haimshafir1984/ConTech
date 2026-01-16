@@ -39,8 +39,8 @@ with st.sidebar:
     mode = st.radio("ניווט", ["🏢 מנהל פרויקט", "👷 דיווח שטח"], label_visibility="collapsed")
     st.markdown("---")
     with st.expander("⚙️ הגדרות גלובליות"):
-        st.session_state.wall_height = st.number_input("גובה קירות (מ')", value=st.session_state.wall_height, step=0.1)
-        st.session_state.default_cost_per_meter = st.number_input("עלות למטר (₪)", value=st.session_state.default_cost_per_meter, step=10.0)
+        st.session_state.wall_height = st.number_input("גובה קירות (מ')", value=st.session_state.wall_height, step=0.1, key="global_wall_height")
+        st.session_state.default_cost_per_meter = st.number_input("עלות למטר (₪)", value=st.session_state.default_cost_per_meter, step=10.0, key="global_cost_per_meter")
     
     if st.button("🗑️ איפוס נתונים"):
         if reset_all_data():
@@ -134,7 +134,7 @@ if mode == "🏢 מנהל פרויקט":
                 }
                 index_val = list(type_map.keys()).index(detected_type) if detected_type in type_map else 0
                 selected_type = st.selectbox("סוג תוכנית", options=list(type_map.keys()), 
-                                            format_func=lambda x: type_map[x], index=index_val)
+                                            format_func=lambda x: type_map[x], index=index_val, key=f"plan_type_{selected}")
                 
                 if selected_type == "ceiling": 
                     st.warning("⚠️ זו תוכנית תקרה - לא מתאימה למדידת קירות")
@@ -177,16 +177,16 @@ if mode == "🏢 מנהל פרויקט":
                 # הגדרות תקציב
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:
-                    target_date = st.date_input("תאריך יעד")
+                    target_date = st.date_input("תאריך יעד", key=f"target_date_{selected}")
                     target_date_str = target_date.strftime("%Y-%m-%d") if target_date else None
                 with col_d2:
-                    budget = st.number_input("תקציב (₪)", step=1000.0, min_value=0.0)
+                    budget = st.number_input("תקציב (₪)", step=1000.0, min_value=0.0, key=f"budget_{selected}")
                 
-                cost_per_m = st.number_input("עלות למטר (₪)", value=st.session_state.default_cost_per_meter, step=10.0)
+                cost_per_m = st.number_input("עלות למטר (₪)", value=st.session_state.default_cost_per_meter, step=10.0, key=f"cost_per_m_{selected}")
                 
                 # כיול סקייל
                 st.markdown("#### כיול")
-                scale_val = st.slider("פיקסלים למטר", 10.0, 1000.0, float(proj["scale"]))
+                scale_val = st.slider("פיקסלים למטר", 10.0, 1000.0, float(proj["scale"]), key=f"scale_slider_{selected}")
                 proj["scale"] = scale_val
                 
                 # חישוב כמויות
@@ -204,9 +204,9 @@ if mode == "🏢 מנהל פרויקט":
                     <strong>מחירון בסיס:</strong> בטון 1200₪/מ' | בלוקים 600₪/מ' | ריצוף 250₪/מ\"ר
                     </div>""", unsafe_allow_html=True)
                     
-                    c_price = st.number_input("מחיר בטון (₪/מ')", value=1200.0, step=50.0)
-                    b_price = st.number_input("מחיר בלוקים (₪/מ')", value=600.0, step=50.0)
-                    f_price = st.number_input("מחיר ריצוף (₪/מ\"ר)", value=250.0, step=50.0)
+                    c_price = st.number_input("מחיר בטון (₪/מ')", value=1200.0, step=50.0, key=f"c_price_{selected}")
+                    b_price = st.number_input("מחיר בלוקים (₪/מ')", value=600.0, step=50.0, key=f"b_price_{selected}")
+                    f_price = st.number_input("מחיר ריצוף (₪/מ\"ר)", value=250.0, step=50.0, key=f"f_price_{selected}")
                     
                     total_quote = (conc_len * c_price) + (block_len * b_price) + (floor_area * f_price)
                     st.markdown(f"#### 💵 סה\"כ הצעת מחיר: {total_quote:,.0f} ₪")
@@ -240,7 +240,7 @@ if mode == "🏢 מנהל פרויקט":
             
             with col_preview:
                 st.markdown("### תצוגה מקדימה")
-                show_flooring = st.checkbox("הצג ריצוף", value=True)
+                show_flooring = st.checkbox("הצג ריצוף", value=True, key=f"show_flooring_{selected}")
                 floor_mask = proj["flooring_mask"] if show_flooring else None
                 overlay = create_colored_overlay(proj["original"], proj["concrete_mask"], 
                                                 proj["blocks_mask"], floor_mask)

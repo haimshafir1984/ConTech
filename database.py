@@ -237,3 +237,139 @@ def calculate_material_estimates(total_length_meters, height_meters=2.5):
         "cement_cubic_meters": round(cement, 1),
         "wall_area_sqm": round(wall_area, 1)
     }
+# ==========================================
+# פונקציות לחשבונות חלקיים
+# ==========================================
+
+def get_progress_summary_by_date_range(plan_id, start_date, end_date):
+    """
+    מסכם את כל הדיווחים בטווח תאריכים ומקבץ לפי סוג עבודה
+    
+    Args:
+        plan_id: מזהה התוכנית
+        start_date: תאריך התחלה (YYYY-MM-DD)
+        end_date: תאריך סיום (YYYY-MM-DD)
+    
+    Returns:
+        רשימה של מילונים עם: work_type, total_quantity, unit
+    """
+    query = """
+        SELECT 
+            note as work_type,
+            SUM(meters_built) as total_quantity,
+            COUNT(*) as report_count
+        FROM progress_reports 
+        WHERE plan_id = ? 
+        AND date >= ? 
+        AND date <= ?
+        GROUP BY note
+        ORDER BY total_quantity DESC
+    """
+    
+    results = run_query(query, (plan_id, start_date, end_date))
+    
+    if not results:
+        return []
+    
+    # זיהוי יחידות על בסיס סוג העבודה
+    for item in results:
+        work_type = item.get('work_type', '').lower()
+        if 'ריצוף' in work_type or 'חיפוי' in work_type:
+            item['unit'] = 'מ"ר'
+        else:
+            item['unit'] = "מ'"
+    
+    return results
+
+def get_payment_invoice_data(plan_id, start_date, end_date, unit_prices=None):
+    """
+    מכין את כל הנתונים הדרושים לחשבון חלקי
+    
+    Args:
+        plan_id: מזהה התוכנית
+        start_date: תאריך התחלה
+        end_date: תאריך סיום
+        unit_prices: מילון של מחירים לפי סוג עבודה {work_type: price}
+    
+    Returns:
+        מילון עם כל הנתונים לחשבון
+    """
+    plan = get_plan_by_id(plan_id)
+    if not plan:
+        return None
+    
+    # קבלת סיכום הדיווחים
+    summary = get_progress_summary_by_date_range(plan_id, start_date, end_date)
+    
+    if not summary:
+        return {
+            'plan': plan,
+            'start_date': start_date,
+            'end_date': end_date,
+            'items': [],
+            'total_amount': 0,
+            'error': 'אין דיווחים בטווח התאריכים הזה'
+        }
+    
+    # אם לא סופקו מחירים, השתמש ברנדומליים
+    if not unit_prices:
+        unit_prices = {}
+    
+    # חישוב סכומים
+    items = []
+    total_amount = 0
+    
+    for item in summary:
+        work_type = item['work_type']
+        quantity = item['total_quantity']
+        unit = item['unit']
+        
+        # קבלת מחיר יחידה
+        if work_type in unit_prices:
+            price = unit_prices[work_type]
+        else:
+            # מחיר רנדומלי לפי סוג
+            if unit == 'מ"ר':
+                price = 250  # ריצוף/חיפוי
+            elif 'בטון' in work_type.lower():
+                price = 1200  # קירות בטון
+            elif 'בלוק' in work_type.lower():
+                price = 600  # קירות בלוקים
+            else:
+                price = 800  # ברירת מחדל
+        
+        subtotal = quantity * price
+        total_amount += subtotal
+        
+        items.append({
+            'work_type': work_type,
+            'quantity': quantity,
+            'unit': unit,
+            'unit_price': price,
+            'subtotal': subtotal,
+            'report_count': item['report_count']
+        })
+    
+    return {
+        'plan': plan,
+        'start_date': start_date,
+        'end_date': end_date,
+        'items': items,
+        'total_amount': total_amount,
+        'vat': total_amount * 0.17,  # מע"מ
+        'total_with_vat': total_amount * 1.17
+    }
+
+def get_all_work_types_for_plan(plan_id):
+    """
+    מחזיר רשימה של כל סוגי העבודות שדווחו בפרויקט
+    שימושי להגדרת מחירי יחידה
+    """
+    query = """
+        SELECT DISTINCT note as work_type
+        FROM progress_reports
+        WHERE plan_id = ?
+        ORDER BY work_type
+    """
+    results = run_query(query, (plan_id,))
+    return [r['work_type'] for r in results] if results else []

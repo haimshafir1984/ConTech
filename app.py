@@ -14,8 +14,7 @@ from datetime import datetime
 from styles import setup_page, apply_css
 from utils import safe_process_metadata, safe_analyze_legend, load_stats_df, create_colored_overlay
 from analyzer import FloorPlanAnalyzer
-from reporter import generate_status_pdf
-from reporter_payment import generate_payment_invoice_pdf
+from reporter import generate_status_pdf, generate_payment_invoice_pdf
 from database import (
     init_database, save_plan, save_progress_report, 
     get_progress_reports, get_plan_by_filename, get_all_plans,

@@ -33,15 +33,47 @@ class FloorPlanAnalyzer:
         
         return skeleton
     
-    def pdf_to_image(self, pdf_path: str, target_max_dim: int = 3000) -> np.ndarray:
-        """המרת PDF לתמונה"""
+    def pdf_to_image(self, pdf_path: str, target_max_dim: int = 4000) -> np.ndarray:
+        """
+        המרת PDF לתמונה במלוא הרזולוציה (ללא חיתוך)
+        
+        Args:
+            pdf_path: נתיב ל-PDF
+            target_max_dim: מקסימום פיקסלים (4000 = רזולוציה גבוהה)
+        
+        Returns:
+            תמונה BGR מלאה
+        """
         doc = fitz.open(pdf_path)
         page = doc[0]
-        scale = min(3.0, target_max_dim / max(page.rect.width, page.rect.height))
-        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-        img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR if pix.n==3 else cv2.COLOR_GRAY2BGR)
+        
+        # חישוב scale לרזולוציה גבוהה (עד 4000px)
+        # מוגבל ל-4.0 כדי לא להגזים
+        scale = min(4.0, target_max_dim / max(page.rect.width, page.rect.height))
+        
+        # יצירת pixmap ללא crop (clip=None)
+        pix = page.get_pixmap(
+            matrix=fitz.Matrix(scale, scale),
+            alpha=False,
+            clip=None  # ← קריטי! לא לחתוך כלום
+        )
+        
+        # המרה ל-numpy array
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+            pix.height, pix.width, pix.n
+        )
+        
+        # המרה ל-BGR (OpenCV format)
+        if pix.n == 3:  # RGB
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        elif pix.n == 1:  # Grayscale
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        else:  # RGBA או אחר
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+        
         doc.close()
+        del pix  # שחרור זיכרון
+        
         return img_bgr
     
     # ==========================================
@@ -374,3 +406,117 @@ class FloorPlanAnalyzer:
         gc.collect()
         
         return pix, skel, final_walls, image_proc, meta, concrete, blocks, flooring, debug_img
+
+    # ==========================================
+    # פונקציות לזיהוי מקרא אוטומטי
+    # ==========================================
+    
+    def auto_detect_legend(self, image: np.ndarray) -> Optional[tuple]:
+        """
+        מזהה אוטומטית את המקרא בתוכנית
+        
+        Args:
+            image: תמונת התוכנית (BGR)
+        
+        Returns:
+            (x, y, width, height) או None אם לא נמצא
+        """
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+        h, w = gray.shape
+        
+        # מקרא בדרך כלל בפינה (למעלה או למטה)
+        # נבדוק את 4 הפינות + 2 צדדים
+        regions = {
+            'top_left': (0, 0, w//3, h//4),
+            'top_right': (2*w//3, 0, w//3, h//4),
+            'bottom_left': (0, 3*h//4, w//3, h//4),
+            'bottom_right': (2*w//3, 3*h//4, w//3, h//4),
+            'left_middle': (0, h//3, w//4, h//3),
+            'right_middle': (3*w//4, h//3, w//4, h//3)
+        }
+        
+        best_region = None
+        best_score = 0
+        
+        for name, (x, y, rw, rh) in regions.items():
+            # וידוא שהאזור בגבולות
+            if x + rw > w or y + rh > h:
+                continue
+            
+            roi = gray[y:y+rh, x:x+rw]
+            
+            # חישוב ציון
+            score = self._score_legend_region(roi)
+            
+            if score > best_score:
+                best_score = score
+                best_region = (x, y, rw, rh)
+        
+        # סף מינימום - אם הציון מעל 0.4 → סביר שזה מקרא
+        if best_score > 0.4:
+            return best_region
+        
+        return None
+    
+    def _score_legend_region(self, roi: np.ndarray) -> float:
+        """
+        מחשב ציון ל-ROI - האם זה מקרא?
+        
+        Args:
+            roi: אזור לבדיקה (grayscale)
+        
+        Returns:
+            ציון 0.0-1.0 (גבוה יותר = סיכוי גבוה יותר למקרא)
+        """
+        score = 0.0
+        
+        if roi.size == 0:
+            return 0.0
+        
+        # 1. זיהוי מסגרת/קופסה (0.3 נקודות)
+        edges = cv2.Canny(roi, 50, 150)
+        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=50, 
+                               minLineLength=30, maxLineGap=10)
+        
+        if lines is not None and len(lines) > 8:
+            # יש הרבה קווים → כנראה מסגרת
+            score += 0.3
+        
+        # 2. צפיפות טקסט (0.4 נקודות)
+        _, binary = cv2.threshold(roi, 127, 255, cv2.THRESH_BINARY_INV)
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary)
+        
+        if num_labels > 1:
+            # ספירת רכיבים קטנים (טקסט/סמלים)
+            areas = stats[1:, cv2.CC_STAT_AREA]
+            small_components = np.sum((areas > 20) & (areas < 500))
+            
+            # מקרא בדרך כלל עם 20-100 רכיבים קטנים
+            if small_components > 20:
+                score += 0.4
+            elif small_components > 10:
+                score += 0.2
+        
+        # 3. בהירות ממוצעת (0.3 נקודות)
+        # מקרא בדרך כלל בהיר (קווים דקים, הרבה רקע לבן)
+        mean_brightness = np.mean(roi)
+        if mean_brightness > 200:  # מאוד בהיר
+            score += 0.3
+        elif mean_brightness > 180:  # בהיר
+            score += 0.2
+        
+        return min(1.0, score)  # מקסימום 1.0
+    
+    def extract_legend_region(self, image: np.ndarray, bbox: tuple) -> np.ndarray:
+        """
+        חותך את אזור המקרא מהתמונה
+        
+        Args:
+            image: תמונה מלאה
+            bbox: (x, y, width, height)
+        
+        Returns:
+            תמונת המקרא החתוכה
+        """
+        x, y, w, h = bbox
+        return image[y:y+h, x:x+w].copy()

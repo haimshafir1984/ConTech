@@ -258,12 +258,86 @@ if mode == "🏢 מנהל פרויקט":
                 # ========== תכונה חדשה: ניתוח מקרא ==========
                 st.markdown("---")
                 with st.expander("🎨 נתח מקרא (AI)", expanded=False):
-                    st.caption("חתוך את אזור המקרא מהתוכנית וקבל ניתוח אוטומטי")
+                    st.caption("המערכת תנסה למצוא את המקרא אוטומטית, או שאתה יכול לחתוך ידנית")
+                    
+                    # כפתור זיהוי אוטומטי
+                    col_auto, col_manual = st.columns([1, 1])
+                    
+                    with col_auto:
+                        if st.button("🔍 מצא מקרא אוטומטית", key=f"auto_legend_{selected}", use_container_width=True):
+                            with st.spinner("מחפש מקרא..."):
+                                try:
+                                    analyzer_temp = FloorPlanAnalyzer()
+                                    legend_bbox = analyzer_temp.auto_detect_legend(proj["original"])
+                                    
+                                    if legend_bbox:
+                                        x, y, w, h = legend_bbox
+                                        
+                                        # חיתוך והצגה
+                                        cropped = proj["original"][y:y+h, x:x+w]
+                                        cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+                                        
+                                        st.success("✅ נמצא מקרא!")
+                                        st.image(cropped_rgb, caption=f"מקרא שזוהה (גודל: {w}x{h}px)", width=400)
+                                        
+                                        # שמירה ב-session
+                                        if 'auto_legend' not in st.session_state:
+                                            st.session_state.auto_legend = {}
+                                        st.session_state.auto_legend[selected] = cropped
+                                        
+                                        # כפתור ניתוח
+                                        if st.button("📝 נתח מקרא זה", key=f"analyze_auto_{selected}"):
+                                            with st.spinner("מנתח עם Claude AI..."):
+                                                _, buffer = cv2.imencode('.png', cropped)
+                                                image_bytes = buffer.tobytes()
+                                                
+                                                result = safe_analyze_legend(image_bytes)
+                                                
+                                                if isinstance(result, dict) and "error" not in result:
+                                                    st.success("✅ ניתוח הושלם!")
+                                                    
+                                                    col_a, col_b = st.columns(2)
+                                                    with col_a:
+                                                        st.metric("סוג תוכנית", result.get("plan_type", "לא זוהה"))
+                                                        st.metric("רמת ביטחון", f"{result.get('confidence', 0)}%")
+                                                    
+                                                    with col_b:
+                                                        if result.get("materials_found"):
+                                                            st.markdown("**חומרים שזוהו:**")
+                                                            for material in result["materials_found"]:
+                                                                st.markdown(f"- {material}")
+                                                    
+                                                    if result.get("symbols"):
+                                                        st.markdown("**סמלים:**")
+                                                        for symbol in result["symbols"][:5]:
+                                                            st.markdown(f"- **{symbol.get('symbol', '')}**: {symbol.get('meaning', '')}")
+                                                    
+                                                    if result.get("notes"):
+                                                        st.info(f"💡 {result['notes']}")
+                                                    
+                                                    proj["metadata"]["legend_analysis"] = result
+                                                else:
+                                                    st.error(f"❌ {result.get('error', 'שגיאה לא ידועה')}")
+                                    else:
+                                        st.warning("⚠️ לא נמצא מקרא אוטומטית. נסה לחתוך ידנית למטה.")
+                                        st.caption("💡 טיפ: המקרא בדרך כלל בפינה או בצד של התוכנית")
+                                        
+                                except Exception as e:
+                                    st.error(f"❌ שגיאה: {str(e)}")
+                    
+                    with col_manual:
+                        st.markdown("**או:**")
+                        st.caption("צייר ריבוע סביב המקרא ידנית ↓")
+                    
+                    st.markdown("---")
+                    st.markdown("### חיתוך ידני")
                     
                     # המרה נכונה של התמונה
                     rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
                     h, w = rgb.shape[:2]
-                    scale_factor = min(1.0, 1000 / max(w, h))  # שמירה על יחס גובה-רוחב
+                    
+                    # רזולוציה גבוהה יותר לחיתוך מדויק
+                    scale_factor = min(1.0, 1200 / max(w, h))  # ← הגדלנו מ-1000 ל-1200
                     
                     new_w = int(w * scale_factor)
                     new_h = int(h * scale_factor)

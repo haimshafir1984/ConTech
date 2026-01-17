@@ -468,7 +468,7 @@ if mode == "🏢 מנהל פרויקט":
                                      proj["scale"], corrected_pixels, meta_json)
                             
                             st.success("✅ הגרסה המתוקנת נשמרה!")
-                            st.balloons()
+                            
                     
                     with col_btn2:
                         if st.button("🔄 אפס תיקונים", key="reset_corrections"):
@@ -792,5 +792,4 @@ elif mode == "👷 דיווח שטח":
                     rec = get_plan_by_filename(plan_name)
                     pid = rec['id'] if rec else save_plan(plan_name, plan_name, "1:50", proj["scale"], proj["raw_pixels"], "{}")
                     save_progress_report(pid, measured, report_type)
-                    st.balloons()
                     st.success("הדיווח נשמר בהצלחה!")

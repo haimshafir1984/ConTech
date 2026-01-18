@@ -33,7 +33,7 @@ class FloorPlanAnalyzer:
         
         return skeleton
     
-    def pdf_to_image(self, pdf_path: str, target_max_dim: int = 2000) -> np.ndarray:
+    def pdf_to_image(self, pdf_path: str, target_max_dim: int = 4000) -> np.ndarray:
         """
         המרת PDF לתמונה במלוא הרזולוציה (ללא חיתוך)
         
@@ -277,30 +277,29 @@ class FloorPlanAnalyzer:
             confidence = 0.0
             
             # מדדים חיוביים
-            if area > 150:  # גודל סביר
+            if area > 100:  # ← יותר רגיש! (היה 150)
                 confidence += 0.2
             
-            if density > 0.35:  # צפוף מספיק
+            if density > 0.3:  # ← יותר רגיש! (היה 0.35)
                 confidence += 0.3
             
-            if aspect > 3.0:  # ארוך ודק (קיר)
+            if aspect > 2.5:  # ← יותר רגיש! (היה 3.0)
                 confidence += 0.3
             
-            if area > 500 and aspect > 5.0:  # קיר ארוך וברור
+            if area > 400 and aspect > 4.0:  # ← יותר רגיש! (היה 500, 5.0)
                 confidence += 0.2
             
             # מדדים שליליים
-            if bw > w * 0.9 or bh > h * 0.9:  # מסגרת
-                confidence = 0.0
+            # הוסרה בדיקת המסגרת - הייתה מסננת קירות חיצוניים!
             
-            if area < 100:  # קטן מדי
+            if area < 80:  # ← יותר סלחן! (היה 100)
                 confidence *= 0.3
             
-            if density < 0.25:  # דליל מדי
+            if density < 0.2:  # ← יותר סלחן! (היה 0.25)
                 confidence *= 0.5
             
-            # שמירה רק אם confidence > 0.4
-            if confidence > 0.4:
+            # שמירה רק אם confidence > 0.3 (← יותר סלחן! היה 0.4)
+            if confidence > 0.3:
                 mask = (labels == i).astype(np.uint8) * 255
                 wall_mask = cv2.bitwise_or(wall_mask, mask)
                 confidence_map[labels == i] = confidence
@@ -687,8 +686,8 @@ class FloorPlanAnalyzer:
         edges = cv2.Canny(gray, 50, 150)
         
         # Hough Lines
-        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=80, 
-                               minLineLength=40, maxLineGap=10)
+        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=50, 
+                               minLineLength=30, maxLineGap=10)
         
         if lines is None or len(lines) < 10:
             return False

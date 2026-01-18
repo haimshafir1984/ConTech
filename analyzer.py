@@ -520,3 +520,257 @@ class FloorPlanAnalyzer:
         """
         x, y, w, h = bbox
         return image[y:y+h, x:x+w].copy()
+
+    # ==========================================
+    # PHASE 2: זיהוי סוג תוכנית אוטומטי
+    # ==========================================
+    
+    def detect_plan_type(self, image: np.ndarray, metadata: dict = None) -> dict:
+        """
+        מזהה אוטומטית את סוג התוכנית
+        
+        Args:
+            image: תמונת התוכנית (BGR)
+            metadata: מטא-דאטה (אם יש ניתוח מקרא)
+        
+        Returns:
+            {
+                'plan_type': 'קירות' / 'תקרה' / 'ריצוף' / 'חשמל' / 'אחר',
+                'confidence': 0-100,
+                'features': {...},
+                'reasoning': 'הסבר'
+            }
+        """
+        # שיטה 1: אם יש ניתוח מקרא - זו העדיפות הראשונה!
+        if metadata and 'legend_analysis' in metadata:
+            legend = metadata['legend_analysis']
+            if legend.get('plan_type') and legend.get('plan_type') != 'אחר':
+                return {
+                    'plan_type': legend['plan_type'],
+                    'confidence': legend.get('confidence', 90),
+                    'method': 'legend',
+                    'reasoning': f"זוהה מהמקרא: {legend.get('legend_title', '')}"
+                }
+        
+        # שיטה 2: ניתוח ויזואלי
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+        
+        # חישוב מאפיינים
+        features = {
+            'line_density': self._calculate_line_density(gray),
+            'text_ratio': self._calculate_text_ratio(gray),
+            'has_hatching': self._detect_hatching(gray),
+            'has_tiles': self._detect_tiles(gray),
+            'pattern_type': self._detect_pattern_type(gray),
+            'small_components_ratio': self._calculate_small_components_ratio(gray)
+        }
+        
+        # חוקי זיהוי מבוססי מאפיינים
+        scores = {
+            'ריצוף': 0,
+            'תקרה': 0,
+            'קירות': 0,
+            'חשמל': 0,
+            'אחר': 0
+        }
+        
+        # ניקוד לפי מאפיינים
+        
+        # ריצוף
+        if features['has_tiles']:
+            scores['ריצוף'] += 40
+        if features['pattern_type'] == 'grid':
+            scores['ריצוף'] += 30
+        if features['line_density'] > 0.4:  # הרבה קווים
+            scores['ריצוף'] += 20
+        
+        # תקרה
+        if features['has_hatching']:
+            scores['תקרה'] += 50
+        if features['pattern_type'] == 'diagonal':
+            scores['תקרה'] += 30
+        if 0.25 < features['line_density'] < 0.4:  # בינוני
+            scores['תקרה'] += 20
+        
+        # קירות
+        if features['line_density'] > 0.3 and features['text_ratio'] < 0.15:
+            scores['קירות'] += 40
+        if features['pattern_type'] == 'lines' and not features['has_hatching']:
+            scores['קירות'] += 30
+        if 0.1 < features['line_density'] < 0.35:
+            scores['קירות'] += 20
+        
+        # חשמל
+        if features['small_components_ratio'] > 0.3:  # הרבה סמלים קטנים
+            scores['חשמל'] += 40
+        if features['line_density'] < 0.2:  # מעט קווים
+            scores['חשמל'] += 30
+        if features['text_ratio'] > 0.2:  # הרבה טקסט/סמלים
+            scores['חשמל'] += 20
+        
+        # מציאת הסוג עם הניקוד הגבוה ביותר
+        plan_type = max(scores, key=scores.get)
+        confidence = min(100, scores[plan_type])
+        
+        # אם הביטחון נמוך מדי - "אחר"
+        if confidence < 40:
+            plan_type = 'אחר'
+            confidence = 50
+        
+        return {
+            'plan_type': plan_type,
+            'confidence': confidence,
+            'features': features,
+            'scores': scores,
+            'method': 'visual',
+            'reasoning': f"ניתוח ויזואלי: {plan_type} (ציון: {scores[plan_type]})"
+        }
+
+    def _calculate_line_density(self, gray: np.ndarray) -> float:
+        """
+        מחשב אחוז פיקסלים שחורים (קווים) בתמונה
+        
+        Returns:
+            0.0-1.0 (אחוז פיקסלים שחורים)
+        """
+        _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
+        black_pixels = np.count_nonzero(binary)
+        total_pixels = binary.size
+        
+        return black_pixels / total_pixels
+
+    def _calculate_text_ratio(self, gray: np.ndarray) -> float:
+        """
+        מחשב אחוז רכיבים קטנים (טקסט/סמלים) בתמונה
+        
+        Returns:
+            0.0-1.0 (אחוז רכיבים קטנים)
+        """
+        _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary)
+        
+        if num_labels <= 1:
+            return 0.0
+        
+        # ספירת רכיבים קטנים (area < 100px)
+        small_components = np.sum(stats[1:, cv2.CC_STAT_AREA] < 100)
+        
+        return small_components / max(1, num_labels - 1)
+
+    def _calculate_small_components_ratio(self, gray: np.ndarray) -> float:
+        """
+        מחשב אחוז רכיבים קטנים מאוד (סמלים)
+        
+        Returns:
+            0.0-1.0
+        """
+        _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary)
+        
+        if num_labels <= 1:
+            return 0.0
+        
+        # רכיבים קטנים מאוד (10 < area < 50)
+        tiny_components = np.sum((stats[1:, cv2.CC_STAT_AREA] > 10) & 
+                                 (stats[1:, cv2.CC_STAT_AREA] < 50))
+        
+        return tiny_components / max(1, num_labels - 1)
+
+    def _detect_hatching(self, gray: np.ndarray) -> bool:
+        """
+        מזהה קווים אלכסוניים (hatching) - אופייני לתקרות
+        
+        Returns:
+            True אם יש hatching
+        """
+        # Canny edge detection
+        edges = cv2.Canny(gray, 50, 150)
+        
+        # Hough Lines
+        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=80, 
+                               minLineLength=40, maxLineGap=10)
+        
+        if lines is None or len(lines) < 10:
+            return False
+        
+        # בדיקת זווית קווים
+        diagonal_count = 0
+        
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            
+            # חישוב זווית
+            angle = np.abs(np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi)
+            
+            # קווים אלכסוניים: 30-60 מעלות
+            if 30 < angle < 60 or 120 < angle < 150:
+                diagonal_count += 1
+        
+        # אם יותר מ-30% מהקווים אלכסוניים → hatching
+        return diagonal_count / len(lines) > 0.3
+
+    def _detect_tiles(self, gray: np.ndarray) -> bool:
+        """
+        מזהה אריחים (grid pattern) - אופייני לריצוף
+        
+        Returns:
+            True אם יש grid
+        """
+        # חיפוש קווים אופקיים ואנכיים חזקים
+        edges = cv2.Canny(gray, 50, 150)
+        
+        # קווים אופקיים
+        horizontal = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=100,
+                                    minLineLength=100, maxLineGap=20)
+        
+        # קווים אנכיים
+        vertical = cv2.HoughLinesP(edges, 1, np.pi/2, threshold=100,
+                                  minLineLength=100, maxLineGap=20)
+        
+        h_count = len(horizontal) if horizontal is not None else 0
+        v_count = len(vertical) if vertical is not None else 0
+        
+        # אם יש הרבה קווים אופקיים ואנכיים → grid
+        return h_count > 20 and v_count > 20
+
+    def _detect_pattern_type(self, gray: np.ndarray) -> str:
+        """
+        מזהה סוג pattern בתמונה
+        
+        Returns:
+            'grid' / 'diagonal' / 'lines' / 'mixed'
+        """
+        edges = cv2.Canny(gray, 50, 150)
+        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=80,
+                               minLineLength=40, maxLineGap=10)
+        
+        if lines is None or len(lines) < 5:
+            return 'none'
+        
+        # סיווג קווים לפי זווית
+        horizontal = 0  # 0±15°
+        vertical = 0    # 90±15°
+        diagonal = 0    # 30-60° או 120-150°
+        
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            angle = np.abs(np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi)
+            
+            if angle < 15 or angle > 165:
+                horizontal += 1
+            elif 75 < angle < 105:
+                vertical += 1
+            elif 30 < angle < 60 or 120 < angle < 150:
+                diagonal += 1
+        
+        total = len(lines)
+        
+        # החלטה
+        if horizontal / total > 0.3 and vertical / total > 0.3:
+            return 'grid'
+        elif diagonal / total > 0.4:
+            return 'diagonal'
+        elif (horizontal + vertical) / total > 0.7:
+            return 'lines'
+        else:
+            return 'mixed'

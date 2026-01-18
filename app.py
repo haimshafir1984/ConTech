@@ -336,7 +336,7 @@ if mode == "🏢 מנהל פרויקט":
                     h, w = rgb.shape[:2]
                     
                     # רזולוציה גבוהה יותר לחיתוך מדויק
-                    scale_factor = min(1.0, 1200 / max(w, h))  # ← הגדלנו מ-1000 ל-1200
+                    scale_factor = min(1.0, 800 / max(w, h))  # ← הגדלנו מ-1000 ל-1200
                     
                     new_w = int(w * scale_factor)
                     new_h = int(h * scale_factor)
@@ -353,7 +353,8 @@ if mode == "🏢 מנהל פרויקט":
                         height=new_h,
                         width=new_w,
                         drawing_mode="rect",
-                        key=f"legend_canvas_{selected}"
+                        key=f"legend_canvas_{selected}",
+                        update_streamlit=True
                     )
                     
                     if legend_canvas.json_data and legend_canvas.json_data["objects"]:
@@ -436,7 +437,7 @@ if mode == "🏢 מנהל פרויקט":
             
             rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
             h, w = rgb.shape[:2]
-            scale_factor = 1000 / w if w > 1000 else 1.0
+            scale_factor = 800 / w if w > 800 else 1.0
             img_display = Image.fromarray(rgb).resize((int(w*scale_factor), int(h*scale_factor)))
             
             if correction_mode == "➕ הוסף קירות חסרים":
@@ -450,7 +451,8 @@ if mode == "🏢 מנהל פרויקט":
                     height=int(h*scale_factor),
                     width=int(w*scale_factor),
                     drawing_mode="freedraw",
-                    key=f"canvas_add_{selected_plan}"
+                    key=f"canvas_add_{selected_plan}",
+                    update_streamlit=True
                 )
                 
                 if canvas_add.image_data is not None and np.any(canvas_add.image_data[:, :, 3] > 0):
@@ -484,7 +486,8 @@ if mode == "🏢 מנהל פרויקט":
                     height=int(h*scale_factor),
                     width=int(w*scale_factor),
                     drawing_mode="freedraw",
-                    key=f"canvas_remove_{selected_plan}"
+                    key=f"canvas_remove_{selected_plan}",
+                    update_streamlit=True
                 )
                 
                 if canvas_remove.image_data is not None and np.any(canvas_remove.image_data[:, :, 3] > 0):
@@ -843,7 +846,8 @@ elif mode == "👷 דיווח שטח":
             background_image=img_resized,
             height=int(h*scale_factor), width=int(w*scale_factor),
             drawing_mode="freedraw",
-            key=f"canvas_{plan_name}_{report_type}"
+            key=f"canvas_{plan_name}_{report_type}",
+            update_streamlit=True
         )
         
         if canvas.json_data and canvas.json_data["objects"] and canvas.image_data is not None:

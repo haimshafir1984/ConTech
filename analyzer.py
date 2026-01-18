@@ -774,3 +774,83 @@ class FloorPlanAnalyzer:
             return 'lines'
         else:
             return 'mixed'
+
+    # ==========================================
+    # PHASE 3: פרמטרים אדפטיביים לפי סוג תוכנית
+    # ==========================================
+    
+    def get_adaptive_parameters(self, plan_type: str) -> dict:
+        """
+        מחזיר פרמטרים מותאמים לסוג התוכנית
+        
+        Args:
+            plan_type: 'קירות' / 'תקרה' / 'ריצוף' / 'חשמל' / 'אחר'
+        
+        Returns:
+            dict עם פרמטרים לעיבוד
+        """
+        
+        if plan_type == 'קירות':
+            return {
+                'text_threshold': 200,
+                'min_wall_length': 50,
+                'max_text_area': 200,
+                'wall_thickness_kernel': (6, 6),
+                'text_dilation_kernel': (5, 5),
+                'confidence_threshold': 0.5,
+                'ignore_hatching': False,
+                'edge_sensitivity': 'medium',
+                'description': 'אופטימלי לזיהוי קירות, דלתות וחלונות'
+            }
+        
+        elif plan_type == 'תקרה':
+            return {
+                'text_threshold': 190,
+                'min_wall_length': 30,
+                'max_text_area': 300,
+                'wall_thickness_kernel': (4, 4),
+                'text_dilation_kernel': (7, 7),
+                'confidence_threshold': 0.4,
+                'ignore_hatching': True,
+                'edge_sensitivity': 'low',
+                'description': 'אופטימלי לתקרות עם hatching וסמלים'
+            }
+        
+        elif plan_type == 'ריצוף':
+            return {
+                'text_threshold': 180,
+                'min_wall_length': 20,
+                'max_text_area': 500,
+                'wall_thickness_kernel': (3, 3),
+                'text_dilation_kernel': (6, 6),
+                'confidence_threshold': 0.3,
+                'ignore_hatching': False,
+                'edge_sensitivity': 'high',
+                'description': 'אופטימלי לריצוף עם grid וכיתובים'
+            }
+        
+        elif plan_type == 'חשמל':
+            return {
+                'text_threshold': 210,
+                'min_wall_length': 60,
+                'max_text_area': 100,
+                'wall_thickness_kernel': (5, 5),
+                'text_dilation_kernel': (3, 3),
+                'confidence_threshold': 0.6,
+                'ignore_hatching': False,
+                'edge_sensitivity': 'low',
+                'description': 'אופטימלי לתוכניות חשמל עם סמלים'
+            }
+        
+        else:  # 'אחר' / ברירת מחדל
+            return {
+                'text_threshold': 200,
+                'min_wall_length': 50,
+                'max_text_area': 200,
+                'wall_thickness_kernel': (6, 6),
+                'text_dilation_kernel': (5, 5),
+                'confidence_threshold': 0.5,
+                'ignore_hatching': False,
+                'edge_sensitivity': 'medium',
+                'description': 'פרמטרים סטנדרטיים'
+            }

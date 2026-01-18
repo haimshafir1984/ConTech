@@ -152,13 +152,32 @@ def analyze_legend_image(image_bytes):
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
             
-            # פרסור JSON
-            result = json.loads(response_text)
+            # ניקוי נוסף - חילוץ רק ה-JSON
+            if "{" in response_text and "}" in response_text:
+                start = response_text.find("{")
+                end = response_text.rfind("}") + 1
+                response_text = response_text[start:end]
             
-            # הוספת מידע על איזה מודל השתמשנו
-            result["_model_used"] = model
-            
-            return result
+            # ניסיון ראשון לפרסור
+            try:
+                result = json.loads(response_text)
+                result["_model_used"] = model
+                return result
+            except json.JSONDecodeError as json_err:
+                # ניסיון לתקן שגיאות נפוצות
+                fixed_text = response_text
+                fixed_text = fixed_text.replace(",]", "]")  # פסיק מיותר לפני ]
+                fixed_text = fixed_text.replace(",}", "}")  # פסיק מיותר לפני }
+                
+                try:
+                    result = json.loads(fixed_text)
+                    result["_model_used"] = model
+                    result["_auto_fixed"] = True
+                    return result
+                except:
+                    # נכשל - נשמור את השגיאה ונמשיך למודל הבא
+                    last_error = f"JSON Error: {str(json_err)} | Response: {response_text[:200]}"
+                    continue
             
         except Exception as e:
             error_str = str(e)
@@ -167,13 +186,6 @@ def analyze_legend_image(image_bytes):
             # אם המודל לא נמצא (404), נסה את הבא
             if "not_found_error" in error_str or "404" in error_str:
                 continue
-            
-            # שגיאות אחרות (JSON, וכו') - עצור והחזר שגיאה
-            if "JSONDecodeError" in error_str:
-                return {
-                    "error": f"שגיאה בפענוח JSON מהמודל {model}: {error_str}",
-                    "raw_response": response_text if 'response_text' in locals() else "N/A"
-                }
             
             # שגיאה אחרת - נסה את המודל הבא
             continue

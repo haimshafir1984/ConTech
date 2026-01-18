@@ -38,7 +38,7 @@ def process_plan_metadata(raw_text):
         Return JSON with: plan_name, scale (e.g. 1:50), plan_type (construction/demolition/other).
         """
         message = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=500,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -59,7 +59,7 @@ def analyze_legend_image(image_bytes):
     try:
         encoded_image = base64.b64encode(image_bytes).decode('utf-8')
         message = client.messages.create(
-            model="claude-3-5-sonnet-20240620",  # מודל זמין
+            model="claude-3-5-sonnet-20241022",
             max_tokens=800,
             messages=[{
                 "role": "user",

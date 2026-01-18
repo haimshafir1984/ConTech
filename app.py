@@ -11,7 +11,7 @@ from streamlit_drawable_canvas import st_canvas
 from datetime import datetime
 
 # ייבוא מהקבצים המסודרים שלך
-from styles import setup_page, apply_css
+from styles import *
 from utils import safe_process_metadata, safe_analyze_legend, load_stats_df, create_colored_overlay
 from analyzer import FloorPlanAnalyzer
 from reporter import generate_status_pdf, generate_payment_invoice_pdf
@@ -25,8 +25,7 @@ from database import (
 )
 
 # --- אתחול המערכת ---
-setup_page()
-apply_css()
+apply_all_styles() 
 Image.MAX_IMAGE_PIXELS = None
 init_database()
 

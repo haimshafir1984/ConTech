@@ -976,38 +976,20 @@ if mode == "🏢 מנהל פרויקט":
                             try:
                                 # קבלת נתוני חשבון
                                 invoice_data = get_payment_invoice_data(
-                                    # ============================================
-                                # 🔍 DEBUG 3: מה הפונקציה מחזירה?
-                                # ============================================
-                                st.markdown("### 🔍 Debug - תוצאת הפונקציה")
-                                
-                                st.write("**📤 פרמטרים שנשלחו לפונקציה:**")
-                                st.code(f"""
-plan_id = {plan_id}
-start_str = '{start_str}'
-end_str = '{end_str}'
-unit_prices = {unit_prices}
-                                """)
-                                
-                                st.write("**📥 תוצאה שחזרה מהפונקציה:**")
-                                st.json(invoice_data)
-                                
-                                # נתח את התוצאה
-                                if invoice_data:
-                                    st.write("**🔍 ניתוח:**")
-                                    if invoice_data.get('error'):
-                                        st.error(f"❌ יש שגיאה: {invoice_data['error']}")
-                                    if not invoice_data.get('items'):
-                                        st.warning("⚠️ items ריק או לא קיים")
-                                    else:
-                                        st.success(f"✅ נמצאו {len(invoice_data['items'])} פריטים")
-                                
-                                st.markdown("---")
                                     plan_id,
                                     start_str,
                                     end_str,
                                     unit_prices
                                 )
+                                
+                                # ============================================
+                                # 🔍 DEBUG 3: תוצאת הפונקציה
+                                # ============================================
+                                st.markdown("### 🔍 Debug - תוצאת הפונקציה")
+                                st.write(f"**📤 פרמטרים:** plan_id={plan_id}, start={start_str}, end={end_str}")
+                                st.write("**📥 תוצאה:**")
+                                st.json(invoice_data)
+                                st.markdown("---")
                                 
                                 if invoice_data.get('error'):
                                     st.error(f"❌ {invoice_data['error']}")

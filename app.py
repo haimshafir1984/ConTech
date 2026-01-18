@@ -18,6 +18,7 @@ from reporter import generate_status_pdf, generate_payment_invoice_pdf
 from database import (
     init_database, save_plan, save_progress_report, 
     get_progress_reports, get_plan_by_filename, get_all_plans,
+    get_plan_by_id,  # <--- השורה שהוספה
     get_project_forecast, get_project_financial_status, 
     calculate_material_estimates, reset_all_data,
     get_payment_invoice_data, get_all_work_types_for_plan,
@@ -336,7 +337,7 @@ if mode == "🏢 מנהל פרויקט":
                     h, w = rgb.shape[:2]
                     
                     # רזולוציה גבוהה יותר לחיתוך מדויק
-                    scale_factor = min(1.0, 800 / max(w, h))  # ← הגדלנו מ-1000 ל-1200
+                    scale_factor = min(1.0, 1200 / max(w, h))  # ← הגדלנו מ-1000 ל-1200
                     
                     new_w = int(w * scale_factor)
                     new_h = int(h * scale_factor)
@@ -437,7 +438,7 @@ if mode == "🏢 מנהל פרויקט":
             
             rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
             h, w = rgb.shape[:2]
-            scale_factor = 800 / w if w > 800 else 1.0
+            scale_factor = 1000 / w if w > 1000 else 1.0
             img_display = Image.fromarray(rgb).resize((int(w*scale_factor), int(h*scale_factor)))
             
             if correction_mode == "➕ הוסף קירות חסרים":
@@ -556,8 +557,6 @@ if mode == "🏢 מנהל פרויקט":
     
     # --- טאב 3: דשבורד ---
     with tab3:
-        st.header("📊 דשבורד פרויקט")
-        
         all_plans = get_all_plans()
         if not all_plans:
             st.info("אין פרויקטים במערכת")
@@ -566,164 +565,19 @@ if mode == "🏢 מנהל פרויקט":
             selected_plan_dash = st.selectbox("בחר פרויקט:", plan_options)
             plan_id = int(selected_plan_dash.split("ID: ")[1].strip(")"))
             
-            # קבלת נתונים
             forecast = get_project_forecast(plan_id)
             financial = get_project_financial_status(plan_id)
-            plan_data = get_plan_by_id(plan_id)
             
-            # === KPIs משופרים ===
             k1, k2, k3, k4 = st.columns(4)
+            k1.metric("🏗️ ביצוע", f"{forecast['cumulative_progress']:.1f} מ'")
+            k2.metric("📊 התקדמות", f"{(forecast['cumulative_progress']/forecast['total_planned']*100):.1f}%" if forecast['total_planned'] > 0 else "0%")
+            k3.metric("⏱️ תחזית", f"{forecast['days_to_finish']} ימים")
+            k4.metric("💰 תקציב", f"{financial['current_cost']:,.0f} ₪")
             
-            total = forecast.get('total_planned', 0)
-            built = forecast.get('cumulative_progress', 0)
-            percent = (built / total * 100) if total > 0 else 0
-            
-            with k1:
-                st.metric(
-                    label="📏 סך הכל",
-                    value=f"{total:.1f} מ'",
-                    help="סך הכל מטרים בתוכנית"
-                )
-            
-            with k2:
-                st.metric(
-                    label="✅ בוצע",
-                    value=f"{built:.1f} מ'",
-                    delta=f"{percent:.1f}%",
-                    delta_color="normal"
-                )
-            
-            with k3:
-                remaining = total - built
-                st.metric(
-                    label="⏳ נותר",
-                    value=f"{remaining:.1f} מ'",
-                    delta=f"{forecast.get('days_to_finish', 0)} ימים",
-                    delta_color="inverse"
-                )
-            
-            with k4:
-                st.metric(
-                    label="💰 עלות נוכחית",
-                    value=f"{financial.get('current_cost', 0):,.0f} ₪",
-                    help=f"תקציב: {financial.get('budget_limit', 0):,.0f} ₪"
-                )
-            
-            # === Progress Bar ויזואלי ===
             st.markdown("---")
-            st.subheader("📊 התקדמות כללית")
-            
-            # צבע לפי התקדמות
-            if percent < 30:
-                color = "#EF4444"  # אדום
-            elif percent < 70:
-                color = "#F59E0B"  # כתום
-            else:
-                color = "#10B981"  # ירוק
-            
-            progress_html = f"""
-            <div style="margin: 1rem 0;">
-                <div style="width: 100%; background: #e0e0e0; border-radius: 10px; height: 35px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                    <div style="width: {percent}%; background: linear-gradient(90deg, {color}, {color}dd); 
-                                height: 100%; display: flex; align-items: center; justify-content: center; 
-                                color: white; font-weight: bold; font-size: 16px; transition: width 0.5s;">
-                        {percent:.1f}%
-                    </div>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.875rem; color: #666;">
-                    <span>התחלה</span>
-                    <span>{built:.1f} מ' מתוך {total:.1f} מ'</span>
-                    <span>סיום</span>
-                </div>
-            </div>
-            """
-            st.markdown(progress_html, unsafe_allow_html=True)
-            
-            # === גרף התקדמות ===
-            st.markdown("---")
-            st.subheader("📈 גרף התקדמות לאורך זמן")
-            
             df_stats = load_stats_df()
             if not df_stats.empty:
-                # סינון לפרויקט הנוכחי
-                df_current = df_stats[df_stats['שם תוכנית'] == plan_data['plan_name']]
-                if not df_current.empty:
-                    st.bar_chart(df_current, x="תאריך", y="כמות שבוצעה", use_container_width=True)
-                else:
-                    st.info("אין דיווחים לפרויקט זה")
-            else:
-                st.info("אין דיווחים במערכת")
-            
-            # === כפתורי פעולה ===
-            st.markdown("---")
-            st.subheader("🎯 פעולות ודוחות")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("📄 הדפס דוח PDF", use_container_width=True, type="primary"):
-                    with st.spinner("מכין דוח..."):
-                        # נסה למצוא את התמונה המקורית
-                        if selected_plan and selected_plan in st.session_state.projects:
-                            proj = st.session_state.projects[selected_plan]
-                            rgb = cv2.cvtColor(proj['original'], cv2.COLOR_BGR2RGB)
-                        else:
-                            # אם אין תמונה - צור תמונה ריקה
-                            rgb = np.ones((800, 1000, 3), dtype=np.uint8) * 255
-                            cv2.putText(rgb, "No Image Available", (300, 400), 
-                                      cv2.FONT_HERSHEY_SIMPLEX, 2, (128, 128, 128), 3)
-                        
-                        # נתונים לדוח
-                        stats = {
-                            'built': built,
-                            'total': total,
-                            'percent': percent,
-                            'remaining': remaining,
-                            'cost': financial.get('current_cost', 0),
-                            'budget': financial.get('budget_limit', 0)
-                        }
-                        
-                        # יצירת PDF
-                        pdf_buffer = generate_status_pdf(plan_data['plan_name'], rgb, stats)
-                        
-                        st.download_button(
-                            label="⬇️ הורד דוח PDF",
-                            data=pdf_buffer,
-                            file_name=f"status_report_{plan_data['plan_name']}_{datetime.now().strftime('%Y%m%d')}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True,
-                            type="secondary"
-                        )
-            
-            with col2:
-                if st.button("📊 יצא נתונים", use_container_width=True):
-                    st.info("💡 בקרוב: ייצוא ל-Excel")
-            
-            with col3:
-                if st.button("📧 שלח דוא\"ל", use_container_width=True):
-                    st.info("💡 בקרוב: שליחת דוח באימייל")
-            
-            # === טבלת דיווחים אחרונים ===
-            st.markdown("---")
-            st.subheader("📋 דיווחים אחרונים")
-            
-            reports = get_progress_reports(plan_id)
-            if reports:
-                # הצג 5 אחרונים
-                recent = reports[:5]
-                
-                for i, r in enumerate(recent, 1):
-                    with st.expander(f"📅 {r['date']} - {r['meters_built']:.1f} מ' - {r.get('note', 'אין הערה')}"):
-                        col_a, col_b = st.columns([2, 1])
-                        with col_a:
-                            st.write(f"**כמות:** {r['meters_built']:.1f} מטרים")
-                            if r.get('note'):
-                                st.write(f"**הערה:** {r['note']}")
-                        with col_b:
-                            st.write(f"**דיווח #{i}**")
-                            st.caption(f"ID: {r['id']}")
-            else:
-                st.info("אין דיווחים לפרויקט זה")
+                st.bar_chart(df_stats, x="תאריך", y="כמות שבוצעה", use_container_width=True)
     
     # ==========================================
     # 💰 טאב 4: חשבונות חלקיים

@@ -277,7 +277,7 @@ class FloorPlanAnalyzer:
             confidence = 0.0
             
             # מדדים חיוביים
-            if area > 100:  # ← יותר רגיש! (היה 150)
+            if area > 80:  # ← יותר רגיש! (היה 150)
                 confidence += 0.2
             
             if density > 0.3:  # ← יותר רגיש! (היה 0.35)
@@ -299,7 +299,7 @@ class FloorPlanAnalyzer:
                 confidence *= 0.5
             
             # שמירה רק אם confidence > 0.3 (← יותר סלחן! היה 0.4)
-            if confidence > 0.3:
+            if confidence > 0.25:
                 mask = (labels == i).astype(np.uint8) * 255
                 wall_mask = cv2.bitwise_or(wall_mask, mask)
                 confidence_map[labels == i] = confidence

@@ -33,7 +33,7 @@ class FloorPlanAnalyzer:
         
         return skeleton
     
-    def pdf_to_image(self, pdf_path: str, target_max_dim: int = 4000) -> np.ndarray:
+    def pdf_to_image(self, pdf_path: str, target_max_dim: int = 2000) -> np.ndarray:
         """
         המרת PDF לתמונה במלוא הרזולוציה (ללא חיתוך)
         

@@ -2,11 +2,7 @@
 enableCORS = false
 enableXsrfProtection = false
 maxUploadSize = 50
-port = 8501
 
 [browser]
 gatherUsageStats = false
 serverAddress = "0.0.0.0"
-
-[runner]
-magicEnabled = true

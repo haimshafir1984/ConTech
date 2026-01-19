@@ -260,8 +260,8 @@ def get_progress_summary_by_date_range(plan_id, start_date, end_date):
             COUNT(*) as report_count
         FROM progress_reports 
         WHERE plan_id = ? 
-        AND date >= ? 
-        AND date <= ?
+        AND DATE(date) >= DATE(?)  -- רק תאריך!
+        AND DATE(date) <= DATE(?)  -- רק תאריך!
         GROUP BY note
         ORDER BY total_quantity DESC
     """
@@ -320,7 +320,7 @@ def get_payment_invoice_data(plan_id, start_date, end_date, unit_prices=None):
     total_amount = 0
     
     for item in summary:
-        work_type = item['work_type']
+        work_type = item['work_type'] or "בניית קירות"
         quantity = item['total_quantity']
         unit = item['unit']
         

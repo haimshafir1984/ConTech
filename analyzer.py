@@ -249,7 +249,7 @@ class FloorPlanAnalyzer:
         h, w = gray.shape
         
         # זיהוי בסיסי
-        _, binary = cv2.threshold(gray, 210, 255, cv2.THRESH_BINARY_INV)  # ← 230→210
+        _, binary = cv2.threshold(gray, 230, 255, cv2.THRESH_BINARY_INV)
         binary_no_text = cv2.subtract(binary, text_mask_combined)
         
         # ניקוי
@@ -277,7 +277,7 @@ class FloorPlanAnalyzer:
             confidence = 0.0
             
             # מדדים חיוביים
-            if area > 50:  # ← 100→50 (יותר רגיש!)
+            if area > 100:  # ← יותר רגיש! (היה 150)
                 confidence += 0.2
             
             if density > 0.3:  # ← יותר רגיש! (היה 0.35)
@@ -292,14 +292,14 @@ class FloorPlanAnalyzer:
             # מדדים שליליים
             # הוסרה בדיקת המסגרת - הייתה מסננת קירות חיצוניים!
             
-            if area < 40:  # ← 80→40 (יותר סלחן!)
+            if area < 80:  # ← יותר סלחן! (היה 100)
                 confidence *= 0.3
             
             if density < 0.2:  # ← יותר סלחן! (היה 0.25)
                 confidence *= 0.5
             
-            # שמירה רק אם confidence > 0.2 (← 0.3→0.2 יותר סלחן!)
-            if confidence > 0.2:
+            # שמירה רק אם confidence > 0.3 (← יותר סלחן! היה 0.4)
+            if confidence > 0.3:
                 mask = (labels == i).astype(np.uint8) * 255
                 wall_mask = cv2.bitwise_or(wall_mask, mask)
                 confidence_map[labels == i] = confidence
@@ -308,6 +308,95 @@ class FloorPlanAnalyzer:
         final_walls = cv2.morphologyEx(wall_mask, cv2.MORPH_CLOSE, np.ones((4,4), np.uint8))
         
         return final_walls, confidence_map
+    
+    def _detect_walls_hough(self, gray: np.ndarray, text_mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        זיהוי קירות באמצעות Hough Lines Transform
+        מזהה קווים ישרים - עובד מצוין עם קירות מקוטעים!
+        """
+        h, w = gray.shape
+        
+        # הסרת טקסט
+        clean = cv2.subtract(gray, text_mask)
+        
+        # הגברת ניגודיות
+        clean = cv2.convertScaleAbs(clean, alpha=1.3, beta=10)
+        
+        # Sharpen
+        kernel_sharp = np.array([[-1,-1,-1], [-1, 9,-1], [-1,-1,-1]])
+        clean = cv2.filter2D(clean, -1, kernel_sharp)
+        
+        # זיהוי קצוות (Multi-scale)
+        edges1 = cv2.Canny(clean, 30, 100)
+        edges2 = cv2.Canny(clean, 50, 150)
+        edges = cv2.bitwise_or(edges1, edges2)
+        
+        # הסרת טקסט מקצוות
+        edges = cv2.subtract(edges, text_mask)
+        
+        # Hough Lines Transform
+        lines = cv2.HoughLinesP(
+            edges,
+            rho=1,
+            theta=np.pi/180,
+            threshold=40,
+            minLineLength=25,
+            maxLineGap=20
+        )
+        
+        # מסכת קירות + confidence
+        walls_mask = np.zeros_like(gray)
+        confidence_map = np.zeros_like(gray, dtype=np.float32)
+        
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                
+                # חישוב מאפיינים
+                length = np.sqrt((x2-x1)**2 + (y2-y1)**2)
+                angle = np.arctan2(y2-y1, x2-x1) * 180 / np.pi
+                
+                # Confidence
+                confidence = 0.0
+                
+                # אורך
+                if length > 50:
+                    confidence += 0.3
+                elif length > 30:
+                    confidence += 0.2
+                else:
+                    confidence += 0.1
+                
+                # כיוון
+                is_horizontal = abs(angle) < 5 or abs(abs(angle) - 180) < 5
+                is_vertical = abs(abs(angle) - 90) < 5
+                
+                if is_horizontal or is_vertical:
+                    confidence += 0.5
+                elif abs(angle) < 15 or abs(abs(angle) - 90) < 15:
+                    confidence += 0.3
+                
+                # מיקום (קירות חיצוניים)
+                margin = 30
+                is_edge = (x1 < margin or x2 < margin or 
+                          x1 > w-margin or x2 > w-margin or
+                          y1 < margin or y2 < margin or
+                          y1 > h-margin or y2 > h-margin)
+                
+                if is_edge:
+                    confidence *= 0.7
+                
+                # ציור אם confidence > 0.4
+                if confidence > 0.4:
+                    thickness = 3 if confidence > 0.7 else 2
+                    cv2.line(walls_mask, (x1,y1), (x2,y2), 255, thickness)
+                    cv2.line(confidence_map, (x1,y1), (x2,y2), confidence, thickness)
+        
+        # החלקה
+        kernel = np.ones((4,4), np.uint8)
+        walls_mask = cv2.morphologyEx(walls_mask, cv2.MORPH_CLOSE, kernel)
+        
+        return walls_mask, confidence_map
     
     # ==========================================
     # MAIN PROCESSING
@@ -349,8 +438,9 @@ class FloorPlanAnalyzer:
         
         self.debug_layers['text_combined'] = text_mask_combined.copy()
         
-        # === SMART WALL DETECTION ===
-        final_walls, confidence_map = self._smart_wall_detection(gray, text_mask_combined)
+        # === HOUGH LINES WALL DETECTION ===
+        # החלפה: _smart_wall_detection → _detect_walls_hough
+        final_walls, confidence_map = self._detect_walls_hough(gray, text_mask_combined)
         self.debug_layers['walls'] = final_walls.copy()
         self.debug_layers['confidence'] = confidence_map.copy()
         

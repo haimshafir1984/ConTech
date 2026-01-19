@@ -123,10 +123,20 @@ if mode == "🏢 מנהל פרויקט":
                                             st.image(debug_img, caption="תוצאה משולבת", use_column_width=True)
                                         with col2:
                                             if hasattr(analyzer, 'debug_layers') and 'text_combined' in analyzer.debug_layers:
-                                                st.image(analyzer.debug_layers['text_combined'], caption="🔴 טקסט שהוסר", use_column_width=True)
+                                                layer = analyzer.debug_layers['text_combined']
+                                                # Ensure it's a numpy array
+                                                if isinstance(layer, list):
+                                                    import numpy as np
+                                                    layer = np.array(layer)
+                                                st.image(layer, caption="🔴 טקסט שהוסר", use_column_width=True)
                                         with col3:
                                             if hasattr(analyzer, 'debug_layers') and 'walls' in analyzer.debug_layers:
-                                                st.image(analyzer.debug_layers['walls'], caption="🟢 קירות שזוהו", use_column_width=True)
+                                                layer = analyzer.debug_layers['walls']
+                                                # Ensure it's a numpy array
+                                                if isinstance(layer, list):
+                                                    import numpy as np
+                                                    layer = np.array(layer)
+                                                st.image(layer, caption="🟢 קירות שזוהו", use_column_width=True)
                                     
                                     elif debug_mode == "מלא - עם confidence":
                                         col1, col2 = st.columns(2)
@@ -149,10 +159,11 @@ if mode == "🏢 מנהל פרויקט":
                                 os.unlink(path)
                                 st.success(f"✅ {f.name} נותח בהצלחה!")
                             except Exception as e: 
-                                st.error(f"שגיאה: {str(e)}")
+                                st.error(f"❌ שגיאה בעיבוד {f.name}: {str(e)}")
                                 import traceback
-                                with st.expander("פרטי שגיאה"):
-                                    st.code(traceback.format_exc())
+                                # Show error details without nested expander
+                                st.markdown("**פרטי שגיאה:**")
+                                st.code(traceback.format_exc(), language="python")
 
         if st.session_state.projects:
             st.markdown("---")
@@ -428,10 +439,10 @@ if mode == "🏢 מנהל פרויקט":
                                         st.warning(f"תשובה לא צפויה: {result}")
                                         
                                 except Exception as e:
-                                    st.error(f"שגיאה בניתוח: {str(e)}")
+                                    st.error(f"❌ שגיאה בניתוח: {str(e)}")
                                     import traceback
-                                    with st.expander("פרטי שגיאה"):
-                                        st.code(traceback.format_exc())
+                                    st.markdown("**פרטי שגיאה:**")
+                                    st.code(traceback.format_exc(), language="python")
                     else:
                         st.info("👆 צייר ריבוע סביב המקרא בתוכנית ולחץ על הכפתור")
 

@@ -249,7 +249,22 @@ if mode == "🏢 מנהל פרויקט":
                 concrete_corrected = cv2.dilate(cv2.erode(corrected_walls_display, kernel_display, iterations=1), kernel_display, iterations=2)
                 blocks_corrected = cv2.subtract(corrected_walls_display, concrete_corrected)
                 
+                # ========== DEBUG ==========
+                st.write("### 🔍 Debug - גדלי מסכות")
+                st.write(f"**Concrete pixels:** {np.count_nonzero(concrete_corrected)}")
+                st.write(f"**Blocks pixels:** {np.count_nonzero(blocks_corrected)}")
+                st.write(f"**Total wall pixels:** {np.count_nonzero(corrected_walls_display)}")
+                
+                # הצג מסכות
+                debug_col1, debug_col2 = st.columns(2)
+                with debug_col1:
+                    st.image(concrete_corrected, caption="Concrete", width=400)
+                with debug_col2:
+                    st.image(blocks_corrected, caption="Blocks", width=400)
+                # ===========================
+                
                 floor_mask = proj["flooring_mask"] if show_flooring else None
+                
                 overlay = create_colored_overlay(proj["original"], concrete_corrected, 
                                                 blocks_corrected, floor_mask)
                 st.image(overlay, use_column_width=True)

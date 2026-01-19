@@ -376,15 +376,31 @@ class FloorPlanAnalyzer:
                 elif abs(angle) < 15 or abs(abs(angle) - 90) < 15:
                     confidence += 0.3
                 
-                # מיקום (קירות חיצוניים)
-                margin = 30
+                # מיקום (קירות חיצוניים + טקסט בצדדים)
+                margin = 80  # ← 30→80 (מרווח גדול יותר!)
                 is_edge = (x1 < margin or x2 < margin or 
                           x1 > w-margin or x2 > w-margin or
                           y1 < margin or y2 < margin or
                           y1 > h-margin or y2 > h-margin)
                 
                 if is_edge:
-                    confidence *= 0.7
+                    confidence *= 0.3  # ← 0.7→0.3 (יותר קפדני!)
+                
+                # בדיקת צפיפות - סינון אזורי טקסט
+                # באזורי טקסט יש הרבה קווים קטנים קרובים
+                roi_size = 50
+                x_center, y_center = (x1+x2)//2, (y1+y2)//2
+                x_start = max(0, x_center - roi_size)
+                x_end = min(w, x_center + roi_size)
+                y_start = max(0, y_center - roi_size)
+                y_end = min(h, y_center + roi_size)
+                
+                roi = edges[y_start:y_end, x_start:x_end]
+                if roi.size > 0:
+                    density = np.count_nonzero(roi) / roi.size
+                    # אם צפיפות גבוהה (>0.15) = כנראה טקסט
+                    if density > 0.15:
+                        confidence *= 0.4
                 
                 # ציור אם confidence > 0.4
                 if confidence > 0.4:
@@ -479,10 +495,45 @@ class FloorPlanAnalyzer:
         meta = {"plan_name": os.path.basename(pdf_path), "raw_text": ""}
         try:
             doc = fitz.open(pdf_path)
-            meta["raw_text"] = doc[0].get_text()[:3000]
+            page = doc[0]
+            
+            # Extract full text (up to 20000 chars, not 3000)
+            full_text = page.get_text()
+            meta["raw_text_full"] = full_text[:20000] if len(full_text) > 20000 else full_text
+            meta["raw_text"] = full_text[:3000]  # Keep for backward compatibility
+            
+            # Extract text blocks with bounding boxes
+            try:
+                blocks = page.get_text("blocks")
+                # Sort blocks by y position (top to bottom) then x (left to right)
+                sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))
+                
+                # Build structured block list
+                meta["raw_blocks"] = [
+                    {
+                        "bbox": [float(b[0]), float(b[1]), float(b[2]), float(b[3])],
+                        "text": b[4].strip(),
+                        "block_type": int(b[5]) if len(b) > 5 else 0,
+                        "block_no": int(b[6]) if len(b) > 6 else 0
+                    }
+                    for b in sorted_blocks if len(b) >= 5 and b[4].strip()
+                ]
+                
+                # Build normalized text from sorted blocks
+                normalized_text = "\n".join([b["text"] for b in meta["raw_blocks"]])
+                meta["normalized_text"] = normalized_text[:20000] if len(normalized_text) > 20000 else normalized_text
+                
+            except Exception as block_err:
+                # Fallback if block extraction fails
+                meta["raw_blocks"] = []
+                meta["normalized_text"] = meta["raw_text_full"]
+            
             doc.close()
-        except:
-            pass
+        except Exception as e:
+            # Fallback to empty if PDF reading fails
+            meta["raw_text_full"] = ""
+            meta["raw_blocks"] = []
+            meta["normalized_text"] = ""
         
         meta.update({
             "pixels_concrete": cv2.countNonZero(self._skeletonize(concrete)),

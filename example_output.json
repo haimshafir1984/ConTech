@@ -1,0 +1,241 @@
+{
+  "example_input": {
+    "text": "תכנית קומה ב' - בית ספר\nקנ\"מ 1:50\nתאריך: 15/03/2024\nגליון 3/12\n\nחדר מורים ר\"מ 25.5\nכיתה א' ר\"מ 60\nמסדרון ר\"מ 12.3\n\nפ.ת +2.80\nפ.ב ±0.00\nH=2.70\n\nהערות: תקרה אקוסטית בכיתות"
+  },
+  "example_output": {
+    "document": {
+      "plan_title": {
+        "value": "תכנית קומה ב' - בית ספר",
+        "confidence": 90,
+        "evidence": ["תכנית קומה ב' - בית ספר"]
+      },
+      "plan_type": {
+        "value": "floor_plan",
+        "confidence": 85,
+        "evidence": ["תכנית קומה", "פ.ת", "פ.ב", "חדרים"]
+      },
+      "floor_or_level": {
+        "value": "קומה ב'",
+        "confidence": 95,
+        "evidence": ["תכנית קומה ב'"]
+      },
+      "project_name": {
+        "value": "בית ספר",
+        "confidence": 80,
+        "evidence": ["בית ספר"]
+      },
+      "issue_or_revision": {
+        "value": null,
+        "confidence": 0,
+        "evidence": []
+      },
+      "date": {
+        "value": "15/03/2024",
+        "confidence": 95,
+        "evidence": ["תאריך: 15/03/2024"]
+      },
+      "scale": {
+        "value": "1:50",
+        "confidence": 98,
+        "evidence": ["קנ\"מ 1:50"]
+      },
+      "sheet_numbers": {
+        "value": {
+          "current": 3,
+          "total": 12
+        },
+        "confidence": 95,
+        "evidence": ["גליון 3/12"]
+      }
+    },
+    "rooms": [
+      {
+        "name": {
+          "value": "חדר מורים",
+          "confidence": 90,
+          "evidence": ["חדר מורים ר\"מ 25.5"]
+        },
+        "area_m2": {
+          "value": 25.5,
+          "confidence": 95,
+          "evidence": ["חדר מורים ר\"מ 25.5"]
+        },
+        "ceiling_height_m": {
+          "value": 2.7,
+          "confidence": 75,
+          "evidence": ["H=2.70", "פ.ת +2.80 - פ.ב ±0.00 = 2.80"]
+        },
+        "ceiling_notes": {
+          "value": "תקרה אקוסטית",
+          "confidence": 85,
+          "evidence": ["הערות: תקרה אקוסטית בכיתות"]
+        },
+        "flooring_notes": {
+          "value": null,
+          "confidence": 0,
+          "evidence": []
+        },
+        "other_notes": {
+          "value": null,
+          "confidence": 0,
+          "evidence": []
+        }
+      },
+      {
+        "name": {
+          "value": "כיתה א'",
+          "confidence": 90,
+          "evidence": ["כיתה א' ר\"מ 60"]
+        },
+        "area_m2": {
+          "value": 60.0,
+          "confidence": 95,
+          "evidence": ["כיתה א' ר\"מ 60"]
+        },
+        "ceiling_height_m": {
+          "value": 2.7,
+          "confidence": 75,
+          "evidence": ["H=2.70"]
+        },
+        "ceiling_notes": {
+          "value": "תקרה אקוסטית",
+          "confidence": 85,
+          "evidence": ["הערות: תקרה אקוסטית בכיתות"]
+        },
+        "flooring_notes": {
+          "value": null,
+          "confidence": 0,
+          "evidence": []
+        },
+        "other_notes": {
+          "value": null,
+          "confidence": 0,
+          "evidence": []
+        }
+      },
+      {
+        "name": {
+          "value": "מסדרון",
+          "confidence": 90,
+          "evidence": ["מסדרון ר\"מ 12.3"]
+        },
+        "area_m2": {
+          "value": 12.3,
+          "confidence": 95,
+          "evidence": ["מסדרון ר\"מ 12.3"]
+        },
+        "ceiling_height_m": {
+          "value": 2.7,
+          "confidence": 70,
+          "evidence": ["H=2.70 (assumed for all rooms)"]
+        },
+        "ceiling_notes": {
+          "value": null,
+          "confidence": 0,
+          "evidence": []
+        },
+        "flooring_notes": {
+          "value": null,
+          "confidence": 0,
+          "evidence": []
+        },
+        "other_notes": {
+          "value": null,
+          "confidence": 0,
+          "evidence": []
+        }
+      }
+    ],
+    "heights_and_levels": {
+      "ceiling_levels_m": [
+        {
+          "value": 2.80,
+          "confidence": 95,
+          "evidence": ["פ.ת +2.80"]
+        }
+      ],
+      "other_levels": [
+        {
+          "value": 0.0,
+          "confidence": 95,
+          "evidence": ["פ.ב ±0.00"]
+        }
+      ]
+    },
+    "execution_notes": {
+      "general_notes": [
+        {
+          "value": "תקרה אקוסטית בכיתות",
+          "confidence": 90,
+          "evidence": ["הערות: תקרה אקוסטית בכיתות"]
+        }
+      ],
+      "standards": [],
+      "contractor_requirements": []
+    },
+    "quantities_hint": {
+      "has_enough_data_for_wall_lengths": {
+        "value": false,
+        "confidence": 90,
+        "reason": "No wall dimensions or perimeters specified in text"
+      },
+      "has_enough_data_for_per_room_perimeters": {
+        "value": false,
+        "confidence": 90,
+        "reason": "Only room areas provided, no perimeter measurements"
+      },
+      "has_explicit_room_areas": {
+        "value": true,
+        "confidence": 95,
+        "reason": "All rooms have explicit area measurements in m²"
+      }
+    },
+    "limitations": [
+      {
+        "value": "No wall thickness specified",
+        "confidence": 80,
+        "evidence": []
+      },
+      {
+        "value": "No door/window specifications found",
+        "confidence": 85,
+        "evidence": []
+      }
+    ],
+    "_model_used": "claude-3-5-sonnet-20241022",
+    "_extraction_method": "enhanced_v1"
+  },
+  "extraction_pipeline": {
+    "step_1_deterministic": {
+      "description": "Regex-based extraction finds candidates",
+      "results": {
+        "rooms_found": 3,
+        "scale_found": true,
+        "levels_found": 2,
+        "heights_found": 1
+      }
+    },
+    "step_2_llm_validation": {
+      "description": "LLM validates and enriches candidates with strict rules",
+      "rules": [
+        "No fabrication - evidence required for every field",
+        "Prefer deterministic candidates",
+        "Low confidence when uncertain",
+        "JSON only output"
+      ]
+    },
+    "step_3_json_validation": {
+      "description": "Automatic JSON repair if needed",
+      "status": "valid_json"
+    }
+  },
+  "improvements_over_old_system": [
+    "Full text extraction (20000 chars vs 3000)",
+    "Structured block extraction with bbox",
+    "Deterministic pre-parsing reduces LLM hallucinations",
+    "Evidence tracking for every field",
+    "Confidence scoring",
+    "Auto-fix for malformed JSON",
+    "Better handling of Hebrew architectural terms"
+  ]
+}

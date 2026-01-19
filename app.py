@@ -99,15 +99,17 @@ if mode == "🏢 מנהל פרויקט":
                                 if not meta.get("plan_name"): 
                                     meta["plan_name"] = f.name.replace(".pdf", "").replace("-", " ").strip()
                                 
-                                if meta.get("raw_text"):
-                                    llm_data = safe_process_metadata(meta["raw_text"])
+                                # Enhanced metadata extraction with full text
+                                if meta.get("raw_text_full") or meta.get("raw_text"):
+                                    llm_data = safe_process_metadata(meta=meta)
                                     meta.update({k: v for k, v in llm_data.items() if v})
 
                                 st.session_state.projects[f.name] = {
                                     "skeleton": skel, "thick_walls": thick, "original": orig,
                                     "raw_pixels": pix, "scale": 200.0, "metadata": meta,
                                     "concrete_mask": conc, "blocks_mask": blok, "flooring_mask": floor,
-                                    "total_length": pix/200.0, "llm_suggestions": llm_data if meta.get("raw_text") else {},
+                                    "total_length": pix/200.0, 
+                                    "llm_suggestions": llm_data if (meta.get("raw_text_full") or meta.get("raw_text")) else {},
                                     "debug_layers": getattr(analyzer, 'debug_layers', {})
                                 }
                                 

@@ -3,12 +3,47 @@ import numpy as np
 import pandas as pd
 from database import get_progress_reports
 
-def safe_process_metadata(raw_text):
+def safe_process_metadata(raw_text=None, meta=None):
+    """
+    Enhanced wrapper for metadata processing with full text support.
+    
+    Args:
+        raw_text: Legacy - short text for backward compatibility
+        meta: Full metadata dict from analyzer with raw_text_full, normalized_text, raw_blocks
+    """
     try:
-        from brain import process_plan_metadata
-        return process_plan_metadata(raw_text)
-    except (ImportError, Exception):
-        return {}
+        from brain import safe_process_metadata as brain_process
+        from extractor import ArchitecturalTextExtractor
+        
+        # If meta dict provided, use enhanced extraction
+        if meta and isinstance(meta, dict):
+            raw_text_full = meta.get("raw_text_full")
+            normalized_text = meta.get("normalized_text")
+            raw_blocks = meta.get("raw_blocks")
+            
+            # Extract candidates if we have good text
+            candidates = None
+            text_to_extract = normalized_text or raw_text_full or meta.get("raw_text")
+            if text_to_extract and len(text_to_extract) > 50:
+                try:
+                    extractor = ArchitecturalTextExtractor()
+                    candidates = extractor.extract_candidates(text_to_extract)
+                except:
+                    candidates = None
+            
+            return brain_process(
+                raw_text=meta.get("raw_text"),
+                raw_text_full=raw_text_full,
+                normalized_text=normalized_text,
+                raw_blocks=raw_blocks,
+                candidates=candidates
+            )
+        else:
+            # Legacy mode - just use raw_text
+            return brain_process(raw_text=raw_text)
+            
+    except (ImportError, Exception) as e:
+        return {"error": str(e), "status": "extraction_failed"}
 
 def safe_analyze_legend(image_bytes):
     try:

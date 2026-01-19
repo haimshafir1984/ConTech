@@ -249,7 +249,7 @@ class FloorPlanAnalyzer:
         h, w = gray.shape
         
         # זיהוי בסיסי
-        _, binary = cv2.threshold(gray, 220, 255, cv2.THRESH_BINARY_INV)
+        _, binary = cv2.threshold(gray, 210, 255, cv2.THRESH_BINARY_INV)  # ← 230→210
         binary_no_text = cv2.subtract(binary, text_mask_combined)
         
         # ניקוי
@@ -277,7 +277,7 @@ class FloorPlanAnalyzer:
             confidence = 0.0
             
             # מדדים חיוביים
-            if area > 50:  # ← יותר רגיש! (היה 150)
+            if area > 50:  # ← 100→50 (יותר רגיש!)
                 confidence += 0.2
             
             if density > 0.3:  # ← יותר רגיש! (היה 0.35)
@@ -292,14 +292,14 @@ class FloorPlanAnalyzer:
             # מדדים שליליים
             # הוסרה בדיקת המסגרת - הייתה מסננת קירות חיצוניים!
             
-            if area < 80:  # ← יותר סלחן! (היה 100)
-                confidence *= 0.2
+            if area < 40:  # ← 80→40 (יותר סלחן!)
+                confidence *= 0.3
             
             if density < 0.2:  # ← יותר סלחן! (היה 0.25)
                 confidence *= 0.5
             
-            # שמירה רק אם confidence > 0.3 (← יותר סלחן! היה 0.4)
-            if confidence > 0.3:
+            # שמירה רק אם confidence > 0.2 (← 0.3→0.2 יותר סלחן!)
+            if confidence > 0.2:
                 mask = (labels == i).astype(np.uint8) * 255
                 wall_mask = cv2.bitwise_or(wall_mask, mask)
                 confidence_map[labels == i] = confidence

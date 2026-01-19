@@ -376,15 +376,31 @@ class FloorPlanAnalyzer:
                 elif abs(angle) < 15 or abs(abs(angle) - 90) < 15:
                     confidence += 0.3
                 
-                # מיקום (קירות חיצוניים)
-                margin = 30
+                # מיקום (קירות חיצוניים + טקסט בצדדים)
+                margin = 80  # ← 30→80 (מרווח גדול יותר!)
                 is_edge = (x1 < margin or x2 < margin or 
                           x1 > w-margin or x2 > w-margin or
                           y1 < margin or y2 < margin or
                           y1 > h-margin or y2 > h-margin)
                 
                 if is_edge:
-                    confidence *= 0.7
+                    confidence *= 0.3  # ← 0.7→0.3 (יותר קפדני!)
+                
+                # בדיקת צפיפות - סינון אזורי טקסט
+                # באזורי טקסט יש הרבה קווים קטנים קרובים
+                roi_size = 50
+                x_center, y_center = (x1+x2)//2, (y1+y2)//2
+                x_start = max(0, x_center - roi_size)
+                x_end = min(w, x_center + roi_size)
+                y_start = max(0, y_center - roi_size)
+                y_end = min(h, y_center + roi_size)
+                
+                roi = edges[y_start:y_end, x_start:x_end]
+                if roi.size > 0:
+                    density = np.count_nonzero(roi) / roi.size
+                    # אם צפיפות גבוהה (>0.15) = כנראה טקסט
+                    if density > 0.15:
+                        confidence *= 0.4
                 
                 # ציור אם confidence > 0.4
                 if confidence > 0.4:

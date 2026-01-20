@@ -73,6 +73,8 @@ def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=Non
         "claude-3-sonnet-20240229"
     ]
     
+    errors_by_model = {}  # Track what went wrong with each model
+    
     for model in models:
         try:
             message = client.messages.create(
@@ -99,21 +101,27 @@ def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=Non
                 fixed_result = _auto_fix_json(client, model, clean_json, json_err)
                 if fixed_result:
                     return fixed_result
-                # Continue to next model
+                # Track JSON error and continue
+                errors_by_model[model] = f"JSON parse error: {str(json_err)[:100]}"
                 continue
                 
         except Exception as e:
+            # Track the actual error
+            error_msg = str(e)
+            errors_by_model[model] = error_msg[:200]  # First 200 chars
+            
             # Model not available - try next
-            if "not_found_error" in str(e) or "404" in str(e):
+            if "not_found_error" in error_msg or "404" in error_msg:
                 continue
             # Other error - try next model
             continue
     
-    # All models failed
+    # All models failed - return detailed error info
     return {
         "error": "All models failed to extract metadata",
         "status": "extraction_failed",
-        "tried_models": models
+        "tried_models": models,
+        "errors_by_model": errors_by_model  # NEW: Show what went wrong
     }
 
 

@@ -224,6 +224,13 @@ if mode == "🏢 מנהל פרויקט":
                     # Show error if extraction failed
                     if isinstance(llm_data, dict) and llm_data.get("status") in ("no_api_client", "empty_text", "extraction_failed"):
                         st.error(f"❌ LLM extraction failed: {llm_data.get('error', 'Unknown error')}")
+                        
+                        # Show specific errors per model
+                        if llm_data.get("errors_by_model"):
+                            st.markdown("**🔍 שגיאות לפי מודל:**")
+                            for model, error in llm_data["errors_by_model"].items():
+                                st.code(f"{model}: {error}", language="text")
+                        
                         if llm_data.get("debug_trace"):
                             with st.expander("🐛 Debug Trace (Full Stack)"):
                                 st.code(llm_data["debug_trace"], language="python")

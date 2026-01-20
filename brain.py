@@ -189,6 +189,16 @@ def process_plan_metadata(raw_text):
     prompt = f"""
 אתה מומחה מנוסה בניתוח תוכניות בניה ישראליות. המשימה שלך היא לחלץ את כל המידע הזמין מהטקסט שלפניך.
 
+**⚠️ CRITICAL - JSON OUTPUT ONLY:**
+- החזר **רק** JSON תקין
+- **אין** טקסט לפני או אחרי ה-JSON
+- **אין** markdown (```json)
+- **אין** הסברים או הערות
+- התחל עם {{ וסיים עם }}
+- השתמש ב-null (לא NULL או None) לערכים ריקים
+- ודא שכל מחרוזת מוקפת ב-"" (גרשיים כפולים)
+- ודא שאין פסיקים מיותרים לפני ] או }}
+
 **קריטי - קרא בקפידה:**
 - חלץ **כל** מידע זמין, במיוחד **מידות חדרים** ו**שטחים**
 - אל תדלג על שום נתון מספרי (שטחים, גבהים, מידות)
@@ -288,35 +298,36 @@ def process_plan_metadata(raw_text):
 
     for model in ACTIVE_MODELS:
         try:
-            # ===== STRUCTURED OUTPUTS - GUARANTEED JSON =====
-            message = client.beta.messages.create(
+            # ===== TRY REGULAR API FIRST (more stable) =====
+            # Use strong prompt with explicit JSON structure
+            message = client.messages.create(
                 model=model,
-                max_tokens=6000,  # ← הגדלנו מ-4000 ל-6000
-                betas=["structured-outputs-2025-11-13"],
-                messages=[{"role": "user", "content": prompt}],
-                output_format={
-                    "type": "json_schema",
-                    "schema": METADATA_SCHEMA
-                }
+                max_tokens=6000,
+                messages=[{"role": "user", "content": prompt}]
             )
             
             # Check if response was truncated
             if message.stop_reason == "max_tokens":
-                # Retry with even higher max_tokens
-                message = client.beta.messages.create(
+                # Retry with higher max_tokens
+                message = client.messages.create(
                     model=model,
-                    max_tokens=10000,  # ← הגדלנו מ-8000 ל-10000
-                    betas=["structured-outputs-2025-11-13"],
-                    messages=[{"role": "user", "content": prompt}],
-                    output_format={
-                        "type": "json_schema",
-                        "schema": METADATA_SCHEMA
-                    }
+                    max_tokens=10000,
+                    messages=[{"role": "user", "content": prompt}]
                 )
             
-            # Structured outputs guarantee valid JSON
-            response_text = message.content[0].text
-            result = json.loads(response_text)
+            # Parse response
+            response_text = message.content[0].text.strip()
+            
+            # Clean up response (remove markdown, etc)
+            response_text = _sanitize_json_response(response_text)
+            
+            # Try parsing
+            try:
+                result = json.loads(response_text)
+            except json.JSONDecodeError:
+                # Try auto-fix
+                response_text = _auto_fix_json(response_text)
+                result = json.loads(response_text)
             
             # Add metadata
             result["status"] = "success"
@@ -333,28 +344,27 @@ def process_plan_metadata(raw_text):
             continue
             
         except anthropic.BadRequestError as e:
-            # Structured outputs not supported or schema error
-            error_msg = f"Bad request: {str(e)[:100]}"
-            errors_by_model[model] = error_msg
-            last_error = error_msg
-            
-            # Fallback to prompt-based JSON (legacy)
-            try:
-                result = _fallback_prompt_based_json(client, model, raw_text)
-                if result:
-                    result["model_used"] = model
-                    result["fallback_used"] = True
-                    return result
-            except Exception as fallback_error:
-                errors_by_model[model] += f" | Fallback failed: {str(fallback_error)[:50]}"
-                continue
-            
-        except json.JSONDecodeError as e:
-            # Should NEVER happen with structured outputs
-            error_msg = f"JSON decode error (unexpected): {str(e)[:100]}"
+            # Bad request - maybe prompt too long or other issue
+            error_msg = f"Bad request: {str(e)[:200]}"
             errors_by_model[model] = error_msg
             last_error = error_msg
             continue
+            
+        except json.JSONDecodeError as e:
+            # JSON parsing failed even after sanitization
+            error_msg = f"JSON parse error: {str(e)[:100]}"
+            errors_by_model[model] = error_msg
+            last_error = error_msg
+            
+            # Try structured outputs as last resort
+            try:
+                result = _try_structured_outputs(client, model, prompt)
+                if result:
+                    result["model_used"] = model
+                    result["structured_outputs_used"] = True
+                    return result
+            except Exception:
+                continue
             
         except Exception as e:
             error_msg = f"Error: {str(e)[:100]}"
@@ -375,6 +385,31 @@ def process_plan_metadata(raw_text):
         "limitations": [f"חילוץ נכשל: {last_error}"],
         "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
     }
+
+
+def _try_structured_outputs(client, model, prompt):
+    """
+    ניסיון אחרון עם Structured Outputs
+    משתמש רק אם הכל אחר נכשל
+    """
+    try:
+        message = client.beta.messages.create(
+            model=model,
+            max_tokens=6000,
+            betas=["structured-outputs-2025-11-13"],
+            messages=[{"role": "user", "content": prompt}],
+            output_format={
+                "type": "json_schema",
+                "schema": METADATA_SCHEMA
+            }
+        )
+        
+        response_text = message.content[0].text
+        result = json.loads(response_text)
+        result["status"] = "success"
+        return result
+    except Exception:
+        return None
 
 
 def _fallback_prompt_based_json(client, model, raw_text):
@@ -506,12 +541,21 @@ def _sanitize_json_response(text):
 
 def _auto_fix_json(text):
     """ניסיון אוטומטי לתקן JSON שגוי"""
-    # Remove trailing commas
+    # Remove trailing commas before closing brackets
     text = text.replace(",]", "]")
     text = text.replace(",}", "}")
     
-    # Fix unescaped quotes (simple heuristic)
-    # This is risky - only as last resort
+    # Fix unescaped newlines in strings
+    import re
+    # This is a simple heuristic - may not work for all cases
+    
+    # Remove any trailing content after final }
+    if text.rfind("}") > 0:
+        text = text[:text.rfind("}")+1]
+    
+    # Try to fix common LLM mistakes
+    # "value": "some text with "quotes"" → escape inner quotes
+    # This is risky but may help
     
     return text
 

@@ -100,6 +100,7 @@ if mode == "🏢 מנהל פרויקט":
                                     meta["plan_name"] = f.name.replace(".pdf", "").replace("-", " ").strip()
                                 
                                 # Enhanced metadata extraction with full text
+                                llm_data = {}  # Initialize to prevent undefined variable
                                 if meta.get("raw_text_full") or meta.get("raw_text"):
                                     llm_data = safe_process_metadata(
                                         raw_text=meta.get("raw_text"),
@@ -107,14 +108,16 @@ if mode == "🏢 מנהל פרויקט":
                                         normalized_text=meta.get("normalized_text"),
                                         raw_blocks=meta.get("raw_blocks")
                                     )
-                                    meta.update({k: v for k, v in llm_data.items() if v})
+                                    # Only update meta with safe fields, not all llm_data keys
+                                    if isinstance(llm_data, dict) and not llm_data.get("status"):
+                                        meta.update({k: v for k, v in llm_data.items() if v and k not in ["_model_used", "_extraction_method"]})
 
                                 st.session_state.projects[f.name] = {
                                     "skeleton": skel, "thick_walls": thick, "original": orig,
                                     "raw_pixels": pix, "scale": 200.0, "metadata": meta,
                                     "concrete_mask": conc, "blocks_mask": blok, "flooring_mask": floor,
                                     "total_length": pix/200.0, 
-                                    "llm_suggestions": llm_data if (meta.get("raw_text_full") or meta.get("raw_text")) else {},
+                                    "llm_suggestions": llm_data,
                                     "debug_img": debug_img  # Store only the final debug image, not individual layers
                                 }
                                 
@@ -157,7 +160,18 @@ if mode == "🏢 מנהל פרויקט":
                                 os.unlink(path)
                                 st.success(f"✅ {f.name} נותח בהצלחה!")
                                 
-                                # Display extracted metadata
+                                # ALWAYS display raw JSON from LLM (even on errors)
+                                st.markdown("### 🧾 LLM JSON (Raw)")
+                                st.json(llm_data)
+                                
+                                # Show error if extraction failed
+                                if isinstance(llm_data, dict) and llm_data.get("status") in ("no_api_client", "empty_text", "extraction_failed"):
+                                    st.error(f"❌ LLM extraction failed: {llm_data.get('error', 'Unknown error')}")
+                                    if llm_data.get("debug_trace"):
+                                        with st.expander("🐛 Debug Trace"):
+                                            st.code(llm_data["debug_trace"], language="python")
+                                
+                                # Display extracted metadata (only if successful)
                                 if llm_data and llm_data.get("document"):
                                     st.markdown("### 📋 מטא-דאטה שחולץ")
                                     

@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import pandas as pd
+import traceback
 from database import get_progress_reports
 
 def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=None, raw_blocks=None, candidates=None):
@@ -37,7 +38,11 @@ def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=Non
         )
             
     except (ImportError, Exception) as e:
-        return {"error": str(e), "status": "extraction_failed"}
+        return {
+            "error": str(e), 
+            "status": "extraction_failed",
+            "debug_trace": traceback.format_exc()
+        }
 
 def safe_analyze_legend(image_bytes):
     try:

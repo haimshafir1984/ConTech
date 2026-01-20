@@ -110,7 +110,7 @@ if mode == "🏢 מנהל פרויקט":
                                     "concrete_mask": conc, "blocks_mask": blok, "flooring_mask": floor,
                                     "total_length": pix/200.0, 
                                     "llm_suggestions": llm_data if (meta.get("raw_text_full") or meta.get("raw_text")) else {},
-                                    "debug_layers": getattr(analyzer, 'debug_layers', {})
+                                    "debug_img": debug_img  # Store only the final debug image, not individual layers
                                 }
                                 
                                 # תצוגת Debug משופרת
@@ -118,24 +118,17 @@ if mode == "🏢 מנהל פרויקט":
                                     st.markdown("### 🔍 ניתוח Multi-Pass")
                                     
                                     if debug_mode == "מפורט - שכבות":
+                                        # Debug layers only available during upload, not from session_state
                                         col1, col2, col3 = st.columns(3)
                                         with col1:
                                             st.image(debug_img, caption="תוצאה משולבת", use_column_width=True)
                                         with col2:
                                             if hasattr(analyzer, 'debug_layers') and 'text_combined' in analyzer.debug_layers:
                                                 layer = analyzer.debug_layers['text_combined']
-                                                # Ensure it's a numpy array
-                                                if isinstance(layer, list):
-                                                    import numpy as np
-                                                    layer = np.array(layer)
                                                 st.image(layer, caption="🔴 טקסט שהוסר", use_column_width=True)
                                         with col3:
                                             if hasattr(analyzer, 'debug_layers') and 'walls' in analyzer.debug_layers:
                                                 layer = analyzer.debug_layers['walls']
-                                                # Ensure it's a numpy array
-                                                if isinstance(layer, list):
-                                                    import numpy as np
-                                                    layer = np.array(layer)
                                                 st.image(layer, caption="🟢 קירות שזוהו", use_column_width=True)
                                     
                                     elif debug_mode == "מלא - עם confidence":

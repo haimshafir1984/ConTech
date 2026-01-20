@@ -15,10 +15,6 @@ class FloorPlanAnalyzer:
     
     def _skeletonize(self, img: np.ndarray) -> np.ndarray:
         """יצירת skeleton ללא צורך ב-ximgproc"""
-        # Ensure input is numpy array
-        if isinstance(img, list):
-            img = np.array(img)
-        
         if len(img.shape) == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         

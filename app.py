@@ -255,6 +255,16 @@ if mode == "🏢 מנהל פרויקט":
             st.markdown("---")
             selected = st.selectbox("בחר תוכנית לעריכה:", list(st.session_state.projects.keys()))
             proj = st.session_state.projects[selected]
+            
+            # 🔍 DEBUG
+            st.write("### 🐛 Debug Info")
+            st.write("llm_data exists:", "llm_data" in proj)
+            if "llm_data" in proj:
+                st.write("llm_data content:", proj["llm_data"])
+            else:
+                st.warning("⚠️ אין llm_data בפרויקט זה!")
+            st.markdown("---")
+            
             # 🆕 תצוגת מטא-דאטה
             if proj.get("llm_data") and not proj["llm_data"].get("error"):
                 display_llm_extraction(proj["llm_data"])

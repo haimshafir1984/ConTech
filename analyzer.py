@@ -14,13 +14,13 @@ class FloorPlanAnalyzer:
         self.debug_layers = {}  # לשמירת שכבות ביניים
     
     def _skeletonize(self, img: np.ndarray) -> np.ndarray:
-    """יצירת skeleton ללא צורך ב-ximgproc"""
-    # Ensure input is numpy array
-    if isinstance(img, list):
-        img = np.array(img)
-    
-    if len(img.shape) == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        """יצירת skeleton ללא צורך ב-ximgproc"""
+        # Ensure input is numpy array
+        if isinstance(img, list):
+            img = np.array(img)
+        
+        if len(img.shape) == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
         _, binary = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
         skeleton = np.zeros_like(binary, dtype=np.uint8)

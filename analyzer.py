@@ -469,6 +469,10 @@ class FloorPlanAnalyzer:
         concrete = cv2.dilate(cv2.erode(final_walls, kernel, iterations=1), kernel, iterations=2)
         blocks = cv2.subtract(final_walls, concrete)
         
+        # DEBUG: Verify types before using
+        print(f"DEBUG: concrete type = {type(concrete)}, shape = {concrete.shape if isinstance(concrete, np.ndarray) else 'N/A'}")
+        print(f"DEBUG: blocks type = {type(blocks)}, shape = {blocks.shape if isinstance(blocks, np.ndarray) else 'N/A'}")
+        
         # === ריצוף ===
         edges = cv2.Canny(gray, 50, 150)
         flooring = cv2.subtract(cv2.subtract(edges, cv2.dilate(final_walls, np.ones((9,9)))), text_mask_combined)

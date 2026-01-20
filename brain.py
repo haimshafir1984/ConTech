@@ -67,11 +67,12 @@ def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=Non
     
     # Try multiple models
     models = [
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-sonnet-20240620",
-        "claude-3-opus-20240229",
-        "claude-3-sonnet-20240229"
-    ]
+    "claude-sonnet-4-5-20250929",  # ברירת מחדל מומלצת
+    "claude-sonnet-4-20250514",    # fallback
+    "claude-haiku-4-5-20251001",   # fallback מהיר/זול
+    "claude-opus-4-5-20251101",    # fallback חזק/יקר
+     ]
+
     
     errors_by_model = {}  # Track what went wrong with each model
     

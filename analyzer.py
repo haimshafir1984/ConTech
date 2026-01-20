@@ -4,6 +4,112 @@ import fitz
 from typing import Tuple, Dict, Optional
 import os
 import gc
+import re
+
+# ==========================================
+# פונקציות עזר גלובליות לחישוב מדויק
+# ==========================================
+
+def parse_scale(text: str) -> Optional[int]:
+    """
+    מנתח טקסט ומחלץ קנה מידה (1:50 -> 50)
+    
+    Examples:
+        "1:50" -> 50
+        "קנ\"מ 1 : 100" -> 100
+    """
+    if not text:
+        return None
+    
+    patterns = [
+        r'1\s*:\s*(\d+)',           # 1:50
+        r'קנ["\']מ\s*1\s*:\s*(\d+)',  # קנ"מ 1:50
+        r'SCALE\s*1\s*:\s*(\d+)',   # SCALE 1:50
+        r'(?:^|\s)1/(\d+)(?:\s|$)', # 1/50
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                denominator = int(match.group(1))
+                if 10 <= denominator <= 500:
+                    return denominator
+            except (ValueError, IndexError):
+                continue
+    
+    return None
+
+
+def detect_paper_size_mm(doc_page) -> Dict:
+    """
+    מזהה גודל נייר ISO (A0-A4) על בסיס גודל עמוד PDF
+    
+    Returns:
+        {'detected_size': 'A1', 'width_mm': 594.0, 'height_mm': 841.0, 
+         'error_mm': 2.5, 'confidence': 0.95}
+    """
+    ISO_SIZES = {
+        'A0': (841, 1189),
+        'A1': (594, 841),
+        'A2': (420, 594),
+        'A3': (297, 420),
+        'A4': (210, 297),
+    }
+    
+    # המרה מ-points ל-mm
+    rect = doc_page.rect
+    width_mm = rect.width * 25.4 / 72
+    height_mm = rect.height * 25.4 / 72
+    
+    # מיון (טיפול ב-landscape)
+    dims_sorted = tuple(sorted([width_mm, height_mm]))
+    
+    # חיפוש התאמה קרובה
+    best_match = None
+    best_error = float('inf')
+    
+    for size_name, (w, h) in ISO_SIZES.items():
+        iso_sorted = tuple(sorted([w, h]))
+        error = np.sqrt(
+            (dims_sorted[0] - iso_sorted[0])**2 + 
+            (dims_sorted[1] - iso_sorted[1])**2
+        )
+        if error < best_error:
+            best_error = error
+            best_match = size_name
+    
+    confidence = max(0, 1 - (best_error / 50))
+    
+    return {
+        'detected_size': best_match if best_error < 30 else 'unknown',
+        'width_mm': width_mm,
+        'height_mm': height_mm,
+        'error_mm': best_error,
+        'confidence': confidence
+    }
+
+
+def compute_skeleton_length_px(skeleton: np.ndarray) -> float:
+    """
+    מחשב אורך skeleton בפיקסלים עם תיקון אלכסונים
+    """
+    if skeleton is None or skeleton.size == 0:
+        return 0.0
+    
+    if len(skeleton.shape) == 3:
+        skeleton = cv2.cvtColor(skeleton, cv2.COLOR_BGR2GRAY)
+    
+    skeleton_binary = (skeleton > 127).astype(np.uint8)
+    white_pixels = np.count_nonzero(skeleton_binary)
+    
+    if white_pixels == 0:
+        return 0.0
+    
+    # תיקון אלכסוני: הוסף ~41% * 30% = 12% בממוצע
+    diagonal_correction = 1.12
+    
+    return float(white_pixels * diagonal_correction)
 
 class FloorPlanAnalyzer:
     """
@@ -554,6 +660,63 @@ class FloorPlanAnalyzer:
         })
         
         gc.collect()
+        # === חישובי מדידה מדויקים (Stage 1 + 2) ===
+        try:
+            doc = fitz.open(pdf_path)
+            page = doc[0]
+            
+            # Stage 1: זיהוי גודל נייר
+            paper_info = detect_paper_size_mm(page)
+            meta['paper_size_detected'] = paper_info['detected_size']
+            meta['paper_mm'] = {
+                'width': paper_info['width_mm'],
+                'height': paper_info['height_mm']
+            }
+            meta['paper_detection_error_mm'] = paper_info['error_mm']
+            meta['paper_detection_confidence'] = paper_info['confidence']
+            
+            # חילוץ קנה מידה מטקסט
+            scale_denom = parse_scale(meta.get('raw_text', ''))
+            meta['scale_denominator'] = scale_denom
+            
+            # חישוב mm_per_pixel
+            if image_proc is not None:
+                h, w = image_proc.shape[:2]
+                mm_per_pixel_x = paper_info['width_mm'] / w
+                mm_per_pixel_y = paper_info['height_mm'] / h
+                mm_per_pixel = (mm_per_pixel_x + mm_per_pixel_y) / 2
+                
+                meta['mm_per_pixel'] = mm_per_pixel
+                meta['image_size_px'] = {'width': w, 'height': h}
+                
+                # חישוב meters_per_pixel
+                if scale_denom:
+                    meters_per_pixel = (mm_per_pixel * scale_denom) / 1000
+                    meta['meters_per_pixel'] = meters_per_pixel
+                    meta['measurement_confidence'] = paper_info['confidence']
+                else:
+                    meta['meters_per_pixel'] = None
+                    meta['measurement_confidence'] = 0.0
+            
+            # Stage 2: מדידת אורך skeleton
+            skeleton_length_px = compute_skeleton_length_px(skel)
+            meta['wall_length_total_px'] = skeleton_length_px
+            
+            if meta.get('meters_per_pixel'):
+                wall_length_m = skeleton_length_px * meta['meters_per_pixel']
+                meta['wall_length_total_m'] = wall_length_m
+                meta['wall_length_method'] = 'skeleton_based'
+            else:
+                meta['wall_length_total_m'] = None
+                meta['wall_length_method'] = 'insufficient_data'
+            
+            doc.close()
+            
+        except Exception as e:
+            # אם נכשל - לא לשבור את כל התהליך
+            meta['measurement_error'] = str(e)
+            meta['meters_per_pixel'] = None
+            meta['wall_length_total_m'] = None
         
         return pix, skel, final_walls, image_proc, meta, concrete, blocks_mask, flooring, debug_img
 

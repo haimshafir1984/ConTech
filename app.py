@@ -14,7 +14,7 @@ from datetime import datetime
 # ייבוא מהקבצים המסודרים שלך
 from styles import *
 from utils import safe_process_metadata, safe_analyze_legend, load_stats_df, create_colored_overlay, format_llm_metadata, get_simple_metadata_values
-from analyzer import FloorPlanAnalyzer
+from analyzer import FloorPlanAnalyzer, compute_skeleton_length_px
 from reporter import generate_status_pdf, generate_payment_invoice_pdf
 from database import (
     init_database, save_plan, save_progress_report, 
@@ -346,6 +346,129 @@ if mode == "🏢 מנהל פרויקט":
                 proj["total_length"] = total_len
                 
                 st.info(f"📏 קירות: {total_len:.1f}מ' | בטון: {conc_len:.1f}מ' | בלוקים: {block_len:.1f}מ' | ריצוף: {floor_area:.1f}מ\"ר")
+                # === 📐 מדידות מתקדמות ===
+                with st.expander("📐 מדידות מתקדמות (Stage 1+2)", expanded=False):
+                    meta = proj.get("metadata", {})
+                    
+                    # תצוגת גודל נייר
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        paper_size = meta.get('paper_size_detected', 'unknown')
+                        st.metric("גודל נייר", paper_size)
+                    with col_b:
+                        conf = meta.get('paper_detection_confidence', 0) * 100
+                        st.metric("ביטחון זיהוי", f"{conf:.0f}%")
+                    with col_c:
+                        scale_denom = meta.get('scale_denominator')
+                        st.metric("קנה מידה", f"1:{scale_denom}" if scale_denom else "לא זוהה")
+                    
+                    # תצוגת יחס המרה
+                    if meta.get('meters_per_pixel'):
+                        st.success(f"✅ יחס המרה: **{meta['meters_per_pixel']*1000:.3f} מ\"מ/פיקסל** → **{meta['meters_per_pixel']:.6f} מ'/פיקסל**")
+                        
+                        # אורך חישובי
+                        if meta.get('wall_length_total_m'):
+                            st.info(f"📏 אורך קירות (מבוסס skeleton): **{meta['wall_length_total_m']:.2f} מטר**")
+                    else:
+                        st.warning("⚠️ לא ניתן לחשב יחס המרה - חסר קנה מידה או גודל נייר")
+                    
+                    # הצגת פרטים טכניים
+                    if st.checkbox("הצג פרטים טכניים", key=f"show_tech_{selected}"):
+                        st.json({
+                            "paper_mm": meta.get('paper_mm'),
+                            "image_size_px": meta.get('image_size_px'),
+                            "mm_per_pixel": meta.get('mm_per_pixel'),
+                            "skeleton_length_px": meta.get('wall_length_total_px'),
+                            "method": meta.get('wall_length_method')
+                        })
+                    
+                    # === Stage 3: כיול ידני ===
+                    st.markdown("---")
+                    st.markdown("### 🎯 Stage 3: כיול ידני (Override)")
+                    st.caption("צייר קו על מימד ידוע בתוכנית והזן את האורך האמיתי")
+                    
+                    # בדיקה אם יש כבר כיול
+                    calibration_key = f"calibration_{selected}"
+                    if calibration_key in st.session_state:
+                        cal = st.session_state[calibration_key]
+                        st.success(f"✅ כיול פעיל: **{cal['true_m']:.2f} מ'** = {cal['pixel_len']:.1f} פיקסלים")
+                        st.metric("יחס מכויל", f"{cal['meters_per_pixel']:.6f} מ'/פיקסל")
+                        
+                        if st.button("🔄 אפס כיול", key=f"reset_cal_{selected}"):
+                            del st.session_state[calibration_key]
+                            st.rerun()
+                    else:
+                        # קנבס לציור קו
+                        st.markdown("**1️⃣ צייר קו על מימד ידוע:**")
+                        
+                        rgb_cal = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
+                        h_cal, w_cal = rgb_cal.shape[:2]
+                        scale_cal = min(1.0, 800 / max(w_cal, h_cal))
+                        
+                        img_cal = Image.fromarray(rgb_cal).resize(
+                            (int(w_cal*scale_cal), int(h_cal*scale_cal))
+                        )
+                        
+                        canvas_cal = st_canvas(
+                            fill_color="rgba(0,0,0,0)",
+                            stroke_width=3,
+                            stroke_color="#FF0000",
+                            background_image=img_cal,
+                            height=int(h_cal*scale_cal),
+                            width=int(w_cal*scale_cal),
+                            drawing_mode="line",
+                            key=f"calibration_canvas_{selected}",
+                            update_streamlit=True
+                        )
+                        
+                        if canvas_cal.json_data and canvas_cal.json_data["objects"]:
+                            # יש קו מצויר
+                            line = canvas_cal.json_data["objects"][-1]
+                            
+                            x1 = line["x1"] / scale_cal
+                            y1 = line["y1"] / scale_cal
+                            x2 = line["x2"] / scale_cal
+                            y2 = line["y2"] / scale_cal
+                            
+                            pixel_distance = np.sqrt((x2-x1)**2 + (y2-y1)**2)
+                            
+                            st.info(f"📏 אורך הקו: **{pixel_distance:.1f} פיקסלים**")
+                            
+                            # קלט אורך אמיתי
+                            st.markdown("**2️⃣ הזן אורך אמיתי (מטרים):**")
+                            true_meters = st.number_input(
+                                "אורך במטרים:",
+                                min_value=0.1,
+                                max_value=100.0,
+                                value=1.0,
+                                step=0.1,
+                                key=f"true_m_{selected}"
+                            )
+                            
+                            if st.button("✅ החל כיול", type="primary", key=f"apply_cal_{selected}"):
+                                # שמירת כיול
+                                meters_per_px_cal = true_meters / pixel_distance
+                                
+                                st.session_state[calibration_key] = {
+                                    'method': 'manual',
+                                    'true_m': true_meters,
+                                    'pixel_len': pixel_distance,
+                                    'meters_per_pixel': meters_per_px_cal
+                                }
+                                
+                                # עדכון metadata
+                                proj["metadata"]["calibration"] = st.session_state[calibration_key]
+                                
+                                # חישוב מחדש עם כיול
+                                corrected_walls_cal = get_corrected_walls(selected, proj)
+                                skeleton_cal = cv2.ximgproc.thinning(corrected_walls_cal) if hasattr(cv2, 'ximgproc') else corrected_walls_cal
+                                skeleton_len_cal = compute_skeleton_length_px(skeleton_cal)
+                                wall_len_cal = skeleton_len_cal * meters_per_px_cal
+                                
+                                proj["metadata"]["wall_length_calibrated_m"] = wall_len_cal
+                                
+                                st.success(f"✅ כיול הוחל! אורך חדש: **{wall_len_cal:.2f} מטר**")
+                                st.rerun()
                 
                 # מחשבון הצעת מחיר
                 with st.expander("💰 מחשבון הצעת מחיר", expanded=False):

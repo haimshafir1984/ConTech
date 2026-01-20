@@ -241,7 +241,7 @@ if mode == "🏢 מנהל פרויקט":
                                 
                                 # 🆕 תצוגת מטא-דאטה יפה
                                 if llm_data and not llm_data.get("error"):
-                                    
+                                    pass
                                 
                                 os.unlink(path)
                                 st.success(f"✅ {f.name} נותח בהצלחה!")

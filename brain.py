@@ -1,7 +1,6 @@
 import os
 import base64
 import json
-import re
 try:
     import anthropic
 except ImportError:
@@ -9,342 +8,638 @@ except ImportError:
 import streamlit as st
 
 def get_anthropic_client():
-    """יוצר חיבור ל-Claude בצורה מאובטחת"""
+    """יוצר חיבור ל-Claude בצורה מאובטחת עם עדיפות למשתני סביבה"""
     if anthropic is None:
-        return None, "no_anthropic_library"
+        return None, "ספריית anthropic חסרה."
     
+    # 1. ניסיון למשוך ממשתני סביבה (Render) - הכי חשוב
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     
+    # 2. אם אין, ניסיון למשוך מ-secrets (מקומי)
     if not api_key:
         try:
             api_key = st.secrets.get("ANTHROPIC_API_KEY")
         except Exception:
-            pass
+            pass # התעלמות אם הקובץ לא קיים
     
     if not api_key:
-        return None, "no_api_key"
+        return None, "חסר מפתח API"
         
     return anthropic.Anthropic(api_key=api_key), None
 
 
-def _sanitize_json(text: str) -> str:
-    """מנקה JSON שבור"""
-    lines = text.split('\n')
-    fixed_lines = []
-    in_string = False
-    current_line = ""
-    
-    for line in lines:
-        quote_count = line.count('"') - line.count('\\"')
-        
-        if in_string:
-            current_line += " " + line.strip()
-            if quote_count % 2 == 1:
-                in_string = False
-                fixed_lines.append(current_line)
-                current_line = ""
-        else:
-            if quote_count % 2 == 1:
-                in_string = True
-                current_line = line
-            else:
-                fixed_lines.append(line)
-    
-    text = '\n'.join(fixed_lines)
-    
-    # הסרת אינדקסים במערכים
-    text = re.sub(r'(?m)^\s*\d+\s*:\s*', '', text)
-    
-    # החלפת NULL ב-null
-    text = re.sub(r'\bNULL\b', 'null', text)
-    
-    # הוספת פסיקים חסרים
-    text = re.sub(r'"(\s*\n\s*)"', r'",\1"', text)
-    text = re.sub(r'"(\s*\n\s*)(true|false|null|\d+)', r'",\1\2', text)
-    text = re.sub(r'(true|false|null|\d+)(\s*\n\s*)"', r'\1,\2"', text)
-    text = re.sub(r'](\s*\n\s*)(["{0-9tfn])', r'],\1\2', text)
-    text = re.sub(r'}(\s*\n\s*)(["{0-9tfn])', r'},\1\2', text)
-    
-    # הסרת פסיקים מיותרים
-    text = re.sub(r',(\s*[}\]])', r'\1', text)
-    
-    return text
+# ==========================================
+# JSON SCHEMA DEFINITIONS
+# ==========================================
 
-
-def safe_process_metadata(raw_text):
-    """
-    מעבד מטא-דאטה מטקסט PDF ומחזיר סכמה מלאה
-    
-    Returns:
-        dict עם: document, rooms, heights_and_levels, execution_notes, limitations, quantities_hint
-    """
-    if not raw_text or len(raw_text.strip()) < 10:
-        return {
-            "status": "empty_text",
-            "error": "אין מספיק טקסט לניתוח",
-            "document": {},
-            "rooms": [],
-            "heights_and_levels": {},
-            "execution_notes": {},
-            "limitations": ["הטקסט שחולץ מה-PDF ריק או קצר מדי"],
-            "quantities_hint": {}
+# Schema for each field with confidence
+FIELD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "value": {
+            "oneOf": [
+                {"type": "string"},
+                {"type": "number"},
+                {"type": "null"}
+            ]
+        },
+        "confidence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+        },
+        "evidence": {
+            "type": "array",
+            "items": {"type": "string"}
         }
-    
+    },
+    "required": ["value", "confidence", "evidence"],
+    "additionalProperties": False
+}
+
+# Full metadata schema
+METADATA_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "document": {
+            "type": "object",
+            "properties": {
+                "plan_title": FIELD_SCHEMA,
+                "plan_type": FIELD_SCHEMA,
+                "scale": FIELD_SCHEMA,
+                "date": FIELD_SCHEMA,
+                "floor_or_level": FIELD_SCHEMA,
+                "project_name": FIELD_SCHEMA,
+                "project_address": FIELD_SCHEMA,
+                "architect_name": FIELD_SCHEMA,
+                "drawing_number": FIELD_SCHEMA
+            },
+            "required": ["plan_title", "plan_type", "scale", "date", "floor_or_level", 
+                        "project_name", "project_address", "architect_name", "drawing_number"],
+            "additionalProperties": False
+        },
+        "rooms": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": FIELD_SCHEMA,
+                    "area_m2": FIELD_SCHEMA,
+                    "ceiling_height_m": FIELD_SCHEMA,
+                    "ceiling_notes": FIELD_SCHEMA,
+                    "flooring_notes": FIELD_SCHEMA,
+                    "other_notes": FIELD_SCHEMA
+                },
+                "required": ["name", "area_m2", "ceiling_height_m", "ceiling_notes", 
+                            "flooring_notes", "other_notes"],
+                "additionalProperties": False
+            }
+        },
+        "heights_and_levels": {
+            "type": "object",
+            "properties": {
+                "default_ceiling_height_m": FIELD_SCHEMA,
+                "default_floor_height_m": FIELD_SCHEMA,
+                "construction_level_m": FIELD_SCHEMA
+            },
+            "required": ["default_ceiling_height_m", "default_floor_height_m", "construction_level_m"],
+            "additionalProperties": False
+        },
+        "execution_notes": {
+            "type": "object",
+            "properties": {
+                "general_notes": FIELD_SCHEMA,
+                "structural_notes": FIELD_SCHEMA,
+                "hvac_notes": FIELD_SCHEMA,
+                "electrical_notes": FIELD_SCHEMA,
+                "plumbing_notes": FIELD_SCHEMA
+            },
+            "required": ["general_notes", "structural_notes", "hvac_notes", 
+                        "electrical_notes", "plumbing_notes"],
+            "additionalProperties": False
+        },
+        "limitations": {
+            "type": "array",
+            "items": {"type": "string"}
+        },
+        "quantities_hint": {
+            "type": "object",
+            "properties": {
+                "wall_types_mentioned": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "material_hints": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                }
+            },
+            "required": ["wall_types_mentioned", "material_hints"],
+            "additionalProperties": False
+        }
+    },
+    "required": ["document", "rooms", "heights_and_levels", "execution_notes", 
+                "limitations", "quantities_hint"],
+    "additionalProperties": False
+}
+
+
+# ==========================================
+# ACTIVE MODELS ONLY (No retired 3.x models)
+# ==========================================
+
+ACTIVE_MODELS = [
+    "claude-sonnet-4-20250514",      # Sonnet 4.5 (latest)
+    "claude-opus-4-20250514",        # Opus 4.5 (latest)
+    "claude-sonnet-4-20250328",      # Sonnet 4 (stable)
+    "claude-haiku-4-20250416"        # Haiku 4.5 (fastest)
+]
+
+
+def process_plan_metadata(raw_text):
+    """
+    מעבד מטא-דאטה של תוכנית עם Structured Outputs
+    מבטיח JSON תקין תמיד
+    """
     client, error = get_anthropic_client()
     if error:
         return {
-            "status": error,
-            "error": "חסר מפתח API של Anthropic" if error == "no_api_key" else "ספריית anthropic לא מותקנת",
+            "status": "no_api_key",
+            "error": error,
             "document": {},
             "rooms": [],
             "heights_and_levels": {},
             "execution_notes": {},
-            "limitations": ["לא ניתן להפעיל AI ללא API key"],
-            "quantities_hint": {}
+            "limitations": [error],
+            "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
         }
 
-    # מודלים מעודכנים (ינואר 2025)
-    models = [
-        "claude-sonnet-4-20250514",
-        "claude-opus-4-20250514", 
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-sonnet-20240620",
-        "claude-3-opus-20240229",
-        "claude-3-sonnet-20240229",
-        "claude-3-haiku-20240307"
-    ]
+    if not raw_text or not raw_text.strip():
+        return {
+            "status": "empty_text",
+            "error": "לא נמצא טקסט בקובץ",
+            "document": {},
+            "rooms": [],
+            "heights_and_levels": {},
+            "execution_notes": {},
+            "limitations": ["לא נמצא טקסט בקובץ PDF"],
+            "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
+        }
 
     prompt = f"""
-אתה מומחה בניתוח תוכניות בניה ישראליות. נתח את הטקסט הבא מ-PDF.
+אתה מומחה לניתוח תוכניות בניה ישראליות. נתח את הטקסט הבא שחולץ מתוכנית PDF.
 
-CRITICAL JSON REQUIREMENTS:
-1. Return ONLY valid JSON - no markdown, no explanations
-2. Use null (lowercase) for missing values, NEVER NULL
-3. Do NOT add indices like "0:" or "1:" in arrays
-4. Use double quotes for all keys and strings
-5. No trailing commas before ] or }}
+**חשוב מאוד:**
+- החזר JSON בפורמט המדויק המבוקש
+- אם אין מידע - השתמש ב-null כ-value
+- confidence: 0-100 (גבוה = בטוח, נמוך = לא בטוח)
+- evidence: רשימת ציטוטים/עדויות מהטקסט
 
-Input text (first 15000 chars):
-{raw_text[:15000]}
+**טקסט מהתוכנית:**
+```
+{raw_text[:2500]}
+```
 
-Required JSON structure (MUST return exactly this schema):
-{{
-  "document": {{
-    "plan_title": {{"value": "string or null", "confidence": 0-100, "evidence": ["source1"]}},
-    "plan_type": {{"value": "תכנית קירות|תכנית תקרה|תכנית ריצוף|תכנית חשמל|other", "confidence": 0-100, "evidence": []}},
-    "floor_or_level": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
-    "project_name": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
-    "date": {{"value": "DD/MM/YYYY or null", "confidence": 0-100, "evidence": []}},
-    "scale": {{"value": "1:50 format or null", "confidence": 0-100, "evidence": []}},
-    "sheet_numbers": {{"value": [] or null, "confidence": 0-100, "evidence": []}}
-  }},
-  "rooms": [
-    {{
-      "name": {{"value": "string", "confidence": 0-100, "evidence": []}},
-      "area_m2": {{"value": 60 or null, "confidence": 0-100, "evidence": []}},
-      "ceiling_height_m": {{"value": 2.8 or null, "confidence": 0-100, "evidence": []}},
-      "ceiling_notes": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
-      "flooring_notes": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
-      "other_notes": {{"value": "string or null", "confidence": 0-100, "evidence": []}}
-    }}
-  ],
-  "heights_and_levels": {{
-    "floor_to_ceiling": {{"value": null, "confidence": 0, "evidence": []}},
-    "reference_level": {{"value": null, "confidence": 0, "evidence": []}}
-  }},
-  "execution_notes": {{
-    "materials_mentioned": [],
-    "special_instructions": []
-  }},
-  "limitations": [
-    "list of things that couldn't be extracted or were unclear"
-  ],
-  "quantities_hint": {{
-    "walls_mentioned": false,
-    "areas_mentioned": false
-  }}
-}}
+**שדות חובה:**
+- document: plan_title, plan_type, scale, date, floor_or_level, project_name, project_address, architect_name, drawing_number
+- rooms: מערך של חדרים (name, area_m2, ceiling_height_m, ceiling_notes, flooring_notes, other_notes)
+- heights_and_levels: default_ceiling_height_m, default_floor_height_m, construction_level_m
+- execution_notes: general_notes, structural_notes, hvac_notes, electrical_notes, plumbing_notes
+- limitations: מערך של מחרוזות (מה חסר / לא ברור)
+- quantities_hint: wall_types_mentioned (מערך), material_hints (מערך)
 
-IMPORTANT:
-- If you find patterns like "חדר X מ\\"ר 60", extract as a room with area_m2
-- Always return the FULL schema even if most fields are null
-- Put extraction difficulties in "limitations" array
-- Return ONLY the JSON, nothing else
+**דוגמה למבנה שדה:**
+{{"value": "קומה א'", "confidence": 95, "evidence": ["נמצא: 'קומה ראשונה'"]}}
+אם אין מידע: {{"value": null, "confidence": 0, "evidence": []}}
 
-JSON:"""
+**סוגי תוכניות נפוצים:**
+- "קירות" / "Walls"
+- "תקרה" / "Ceiling"
+- "ריצוף" / "Flooring"
+- "חשמל" / "Electrical"
+- "אינסטלציה" / "Plumbing"
+- "אדריכלות" / "Architecture"
+
+**חפש מידע על:**
+1. כותרות (שם פרויקט, תוכנית, קומה)
+2. קנה מידה (1:50, 1:100 וכו')
+3. תאריכים
+4. חדרים + שטחים
+5. גבהים
+6. הערות ביצוע
+"""
 
     errors_by_model = {}
-    
-    for model in models:
+    last_error = None
+
+    for model in ACTIVE_MODELS:
         try:
-            message = client.messages.create(
+            # ===== STRUCTURED OUTPUTS - GUARANTEED JSON =====
+            message = client.beta.messages.create(
                 model=model,
-                max_tokens=2000,
-                messages=[{"role": "user", "content": prompt}]
+                max_tokens=4000,
+                betas=["structured-outputs-2025-11-13"],
+                messages=[{"role": "user", "content": prompt}],
+                output_format={
+                    "type": "json_schema",
+                    "schema": METADATA_SCHEMA
+                }
             )
             
-            response_text = message.content[0].text.strip()
-            
-            # ניקוי markdown
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-            
-            # חילוץ JSON
-            if "{" in response_text and "}" in response_text:
-                start = response_text.find("{")
-                end = response_text.rfind("}") + 1
-                response_text = response_text[start:end]
-            
-            # ניקוי
-            cleaned = _sanitize_json(response_text)
-            
-            # פרסור
-            try:
-                result = json.loads(cleaned)
-                
-                # ולידציה שיש את השדות החובה
-                if "document" not in result:
-                    result = {
-                        "document": result if isinstance(result, dict) and "plan_title" in result else {},
-                        "rooms": [],
-                        "heights_and_levels": {},
-                        "execution_notes": {},
-                        "limitations": ["Schema mismatch - wrapped legacy format"],
-                        "quantities_hint": {}
+            # Check if response was truncated
+            if message.stop_reason == "max_tokens":
+                # Retry with higher max_tokens
+                message = client.beta.messages.create(
+                    model=model,
+                    max_tokens=8000,
+                    betas=["structured-outputs-2025-11-13"],
+                    messages=[{"role": "user", "content": prompt}],
+                    output_format={
+                        "type": "json_schema",
+                        "schema": METADATA_SCHEMA
                     }
-                
-                # הוספת מידע על המודל
-                result["_model_used"] = model
-                result["status"] = "success"
-                
-                return result
-                
-            except json.JSONDecodeError as json_err:
-                errors_by_model[model] = f"JSON parse error: {str(json_err)[:100]}"
-                continue
-                
-        except Exception as e:
-            error_str = str(e)
+                )
             
-            if "not_found_error" in error_str or "404" in error_str:
-                errors_by_model[model] = "404 - Model not available"
+            # Structured outputs guarantee valid JSON
+            response_text = message.content[0].text
+            result = json.loads(response_text)
+            
+            # Add metadata
+            result["status"] = "success"
+            result["model_used"] = model
+            result["stop_reason"] = message.stop_reason
+            
+            return result
+            
+        except anthropic.NotFoundError as e:
+            # Model not available (404)
+            error_msg = f"Model not found: {model}"
+            errors_by_model[model] = error_msg
+            last_error = error_msg
+            continue
+            
+        except anthropic.BadRequestError as e:
+            # Structured outputs not supported or schema error
+            error_msg = f"Bad request: {str(e)[:100]}"
+            errors_by_model[model] = error_msg
+            last_error = error_msg
+            
+            # Fallback to prompt-based JSON (legacy)
+            try:
+                result = _fallback_prompt_based_json(client, model, raw_text)
+                if result:
+                    result["model_used"] = model
+                    result["fallback_used"] = True
+                    return result
+            except Exception as fallback_error:
+                errors_by_model[model] += f" | Fallback failed: {str(fallback_error)[:50]}"
                 continue
-            elif "overloaded" in error_str.lower():
-                errors_by_model[model] = "Model overloaded"
-                continue
-            else:
-                errors_by_model[model] = error_str[:100]
-                continue
+            
+        except json.JSONDecodeError as e:
+            # Should NEVER happen with structured outputs
+            error_msg = f"JSON decode error (unexpected): {str(e)[:100]}"
+            errors_by_model[model] = error_msg
+            last_error = error_msg
+            continue
+            
+        except Exception as e:
+            error_msg = f"Error: {str(e)[:100]}"
+            errors_by_model[model] = error_msg
+            last_error = error_msg
+            continue
     
-    # כל המודלים נכשלו
+    # All models failed
     return {
         "status": "extraction_failed",
-        "error": "כל המודלים נכשלו לחלץ מידע",
+        "error": f"כל המודלים נכשלו. שגיאה אחרונה: {last_error}",
         "errors_by_model": errors_by_model,
-        "tried_models": models,
+        "tried_models": ACTIVE_MODELS,
         "document": {},
         "rooms": [],
         "heights_and_levels": {},
         "execution_notes": {},
-        "limitations": [
-            "כל המודלים שננסו נכשלו",
-            "ייתכן שהטקסט לא מכיל מטא-דאטה ברורה",
-            "או שיש בעיה ב-API"
-        ],
-        "quantities_hint": {}
+        "limitations": [f"חילוץ נכשל: {last_error}"],
+        "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
     }
 
 
+def _fallback_prompt_based_json(client, model, raw_text):
+    """
+    Fallback למצב legacy (ללא structured outputs)
+    משתמש רק אם structured outputs לא זמין
+    """
+    prompt_legacy = f"""
+Analyze this construction plan text and return ONLY valid JSON.
+
+**CRITICAL: Response must be ONLY JSON. No markdown, no explanation, no preamble.**
+
+Input text:
+```
+{raw_text[:2000]}
+```
+
+Return JSON with this EXACT structure:
+{{
+  "document": {{
+    "plan_title": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
+    "plan_type": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
+    "scale": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
+    "date": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
+    "floor_or_level": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
+    "project_name": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
+    "project_address": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
+    "architect_name": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
+    "drawing_number": {{"value": "string or null", "confidence": 0-100, "evidence": []}}
+  }},
+  "rooms": [],
+  "heights_and_levels": {{
+    "default_ceiling_height_m": {{"value": null, "confidence": 0, "evidence": []}},
+    "default_floor_height_m": {{"value": null, "confidence": 0, "evidence": []}},
+    "construction_level_m": {{"value": null, "confidence": 0, "evidence": []}}
+  }},
+  "execution_notes": {{
+    "general_notes": {{"value": null, "confidence": 0, "evidence": []}},
+    "structural_notes": {{"value": null, "confidence": 0, "evidence": []}},
+    "hvac_notes": {{"value": null, "confidence": 0, "evidence": []}},
+    "electrical_notes": {{"value": null, "confidence": 0, "evidence": []}},
+    "plumbing_notes": {{"value": null, "confidence": 0, "evidence": []}}
+  }},
+  "limitations": [],
+  "quantities_hint": {{
+    "wall_types_mentioned": [],
+    "material_hints": []
+  }}
+}}
+"""
+
+    try:
+        message = client.messages.create(
+            model=model,
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt_legacy}]
+        )
+        
+        response_text = message.content[0].text.strip()
+        
+        # Sanitize response
+        response_text = _sanitize_json_response(response_text)
+        
+        # Parse
+        result = json.loads(response_text)
+        result["status"] = "success"
+        return result
+        
+    except json.JSONDecodeError as e:
+        # Try auto-fix
+        try:
+            fixed = _auto_fix_json(response_text)
+            result = json.loads(fixed)
+            result["status"] = "success"
+            result["auto_fixed"] = True
+            return result
+        except:
+            return None
+    except:
+        return None
+
+
+def _sanitize_json_response(text):
+    """ניקוי תשובת JSON מבעיות נפוצות"""
+    # Remove markdown
+    if "```json" in text:
+        text = text.split("```json")[1].split("```")[0].strip()
+    elif "```" in text:
+        text = text.split("```")[1].split("```")[0].strip()
+    
+    # Extract JSON object
+    if "{" in text and "}" in text:
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        text = text[start:end]
+    
+    # Fix common issues
+    # Remove list indices like "0: {" → "{"
+    import re
+    text = re.sub(r'^\s*\d+:\s*', '', text, flags=re.MULTILINE)
+    
+    # Replace NULL with null
+    text = text.replace("NULL", "null")
+    text = text.replace("None", "null")
+    
+    return text
+
+
+def _auto_fix_json(text):
+    """ניסיון אוטומטי לתקן JSON שגוי"""
+    # Remove trailing commas
+    text = text.replace(",]", "]")
+    text = text.replace(",}", "}")
+    
+    # Fix unescaped quotes (simple heuristic)
+    # This is risky - only as last resort
+    
+    return text
+
+
+# ==========================================
+# LEGEND ANALYSIS (separate function)
+# ==========================================
+
+LEGEND_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "plan_type": {"type": "string"},
+        "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+        "materials_found": {
+            "type": "array",
+            "items": {"type": "string"}
+        },
+        "ceiling_types": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "description": {"type": "string"},
+                    "dimensions": {"type": "string"}
+                },
+                "required": ["code", "description", "dimensions"],
+                "additionalProperties": False
+            }
+        },
+        "symbols": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string"},
+                    "meaning": {"type": "string"}
+                },
+                "required": ["symbol", "meaning"],
+                "additionalProperties": False
+            }
+        },
+        "notes": {"type": "string"},
+        "legend_title": {"type": "string"}
+    },
+    "required": ["plan_type", "confidence", "materials_found", "ceiling_types", 
+                "symbols", "notes", "legend_title"],
+    "additionalProperties": False
+}
+
+
 def analyze_legend_image(image_bytes):
-    """מנתח תמונת מקרא"""
+    """
+    מנתח תמונה של מקרא תוכנית בניה ומזהה סוג תוכנית וחומרים
+    משתמש ב-Structured Outputs למניעת שגיאות JSON
+    """
     client, error = get_anthropic_client()
     if error:
         return {"error": error}
 
-    models = [
-        "claude-sonnet-4-20250514",
-        "claude-opus-4-20250514",
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-sonnet-20240620"
-    ]
-
     encoded_image = base64.b64encode(image_bytes).decode('utf-8')
     
     prompt = """
-נתח את המקרא בתמונה.
+אתה מומחה בניתוח תוכניות בניה ישראליות.
+נתח את המקרא (Legend) בתמונה זו.
 
-CRITICAL JSON:
-- Return ONLY valid JSON
-- Use null (lowercase), not NULL
-- No indices like "0:"
-- Double quotes only
+**צעדים לזיהוי:**
 
-Required structure:
-{
-  "plan_type": "תקרה|קירות|ריצוף|חשמל|אחר",
-  "confidence": 0-100,
-  "materials_found": ["material1"],
-  "ceiling_types": [],
-  "symbols": [{"symbol": "C11", "meaning": "description"}],
-  "notes": "string or null",
-  "legend_title": "string or null"
-}
+1️⃣ **קרא את הכותרת המרכזית במקרא**
+   - חפש: "מקרא תקרה" / "מקרא קירות" / "מקרא ריצוף"
 
-JSON:"""
+2️⃣ **חפש מילות מפתח ספציפיות:**
+   
+   **תקרה →**
+   - "תקרה אקוסטית" / "תקרת גבס" / "תקרה פריקה"
+   - "לוחות מינרלים" / "ארקליט" 
+   - מידות: "60X60" / "60X120"
+   
+   **קירות →**
+   - "קיר בטון" / "קיר בלוקים"
+   - "עובי קיר"
+   - סימונים: C11, C12, C13 (קורות)
+   
+   **ריצוף →**
+   - "אריח קרמי" / "גרניט פורצלן"
+   - "מפלס גמר"
+   - מידות: "30X30" / "60X60"
 
-    for model in models:
+**חובה להחזיר:**
+- plan_type: "תקרה" / "קירות" / "ריצוף" / "חשמל" / "אחר"
+- confidence: 0-100
+- materials_found: רשימת חומרים
+- ceiling_types: רשימת סוגי תקרות (אם רלוונטי)
+- symbols: רשימת סמלים
+- notes: הערות
+- legend_title: הכותרת שנמצאה
+"""
+
+    errors_by_model = {}
+    
+    for model in ACTIVE_MODELS:
         try:
-            message = client.messages.create(
+            message = client.beta.messages.create(
                 model=model,
-                max_tokens=800,
+                max_tokens=1500,
+                betas=["structured-outputs-2025-11-13"],
                 messages=[{
                     "role": "user",
                     "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": encoded_image}},
+                        {
+                            "type": "image", 
+                            "source": {
+                                "type": "base64", 
+                                "media_type": "image/png", 
+                                "data": encoded_image
+                            }
+                        },
                         {"type": "text", "text": prompt}
                     ]
-                }]
+                }],
+                output_format={
+                    "type": "json_schema",
+                    "schema": LEGEND_SCHEMA
+                }
             )
             
-            response_text = message.content[0].text.strip()
+            # Guaranteed valid JSON
+            response_text = message.content[0].text
+            result = json.loads(response_text)
+            result["_model_used"] = model
             
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
+            return result
             
-            if "{" in response_text:
-                start = response_text.find("{")
-                end = response_text.rfind("}") + 1
-                response_text = response_text[start:end]
+        except anthropic.NotFoundError:
+            errors_by_model[model] = "Model not found (404)"
+            continue
             
-            cleaned = _sanitize_json(response_text)
+        except anthropic.BadRequestError as e:
+            errors_by_model[model] = f"Bad request: {str(e)[:80]}"
             
+            # Fallback to legacy
             try:
-                result = json.loads(cleaned)
-                
-                # ולידציה
-                required = ["plan_type", "confidence", "materials_found", "ceiling_types", "symbols"]
-                for field in required:
-                    if field not in result:
-                        if field == "confidence":
-                            result[field] = 50
-                        elif field in ["materials_found", "ceiling_types", "symbols"]:
-                            result[field] = []
-                        else:
-                            result[field] = "אחר"
-                
-                result["_model_used"] = model
-                return result
-                
-            except json.JSONDecodeError:
+                result = _fallback_legend_prompt(client, model, encoded_image)
+                if result:
+                    result["_model_used"] = model
+                    result["_fallback_used"] = True
+                    return result
+            except:
                 continue
             
         except Exception as e:
-            if "not_found_error" in str(e) or "404" in str(e):
-                continue
+            errors_by_model[model] = str(e)[:100]
             continue
     
-    return {"error": "כל המודלים נכשלו"}
+    # All models failed
+    return {
+        "error": f"כל המודלים נכשלו. ניסה: {', '.join(ACTIVE_MODELS)}",
+        "errors_by_model": errors_by_model,
+        "tried_models": ACTIVE_MODELS
+    }
+
+
+def _fallback_legend_prompt(client, model, encoded_image):
+    """Fallback למקרא ללא structured outputs"""
+    prompt_legacy = """
+Analyze this construction plan legend.
+Return ONLY valid JSON. No markdown, no explanation.
+
+JSON structure:
+{
+  "plan_type": "string",
+  "confidence": 0-100,
+  "materials_found": [],
+  "ceiling_types": [],
+  "symbols": [],
+  "notes": "string",
+  "legend_title": "string"
+}
+"""
+    
+    try:
+        message = client.messages.create(
+            model=model,
+            max_tokens=800,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": encoded_image
+                        }
+                    },
+                    {"type": "text", "text": prompt_legacy}
+                ]
+            }]
+        )
+        
+        response_text = message.content[0].text.strip()
+        response_text = _sanitize_json_response(response_text)
+        
+        return json.loads(response_text)
+    except:
+        return None

@@ -1,6 +1,7 @@
 import os
 import base64
 import json
+from typing import Optional
 try:
     import anthropic
 except ImportError:
@@ -166,7 +167,7 @@ def _build_strict_prompt(text: str, candidates: dict) -> str:
   }},
   "execution_notes": {{
     "general_notes": [{{"value": null, "confidence": 0, "evidence": []}}],
-    "standards": [{{"value": null, "confidence": 0, "evidence": []}},
+    "standards": [{{"value": null, "confidence": 0, "evidence": []}}],
     "contractor_requirements": [{{"value": null, "confidence": 0, "evidence": []}}]
   }},
   "quantities_hint": {{

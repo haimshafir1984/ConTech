@@ -101,7 +101,12 @@ if mode == "🏢 מנהל פרויקט":
                                 
                                 # Enhanced metadata extraction with full text
                                 if meta.get("raw_text_full") or meta.get("raw_text"):
-                                    llm_data = safe_process_metadata(meta=meta)
+                                    llm_data = safe_process_metadata(
+                                        raw_text=meta.get("raw_text"),
+                                        raw_text_full=meta.get("raw_text_full"),
+                                        normalized_text=meta.get("normalized_text"),
+                                        raw_blocks=meta.get("raw_blocks")
+                                    )
                                     meta.update({k: v for k, v in llm_data.items() if v})
 
                                 st.session_state.projects[f.name] = {

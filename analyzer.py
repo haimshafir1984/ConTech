@@ -15,15 +15,9 @@ class FloorPlanAnalyzer:
     
     def _skeletonize(self, img: np.ndarray) -> np.ndarray:
         """יצירת skeleton ללא צורך ב-ximgproc"""
-        # TEMPORARY DEBUG
+        # Ensure we have a valid numpy array of an image
         if not isinstance(img, np.ndarray):
-            print(f"ERROR: _skeletonize received {type(img)}, not numpy array!")
-            print(f"Value: {str(img)[:200]}")
-            # Try to handle gracefully
-            if isinstance(img, list):
-                img = np.array(img, dtype=np.uint8)
-            else:
-                raise ValueError(f"Cannot process input of type {type(img)}")
+            raise TypeError(f"Expected numpy array, got {type(img).__name__}")
         
         if len(img.shape) == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)

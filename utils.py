@@ -3,44 +3,38 @@ import numpy as np
 import pandas as pd
 from database import get_progress_reports
 
-def safe_process_metadata(raw_text=None, meta=None):
+def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=None, raw_blocks=None, candidates=None):
     """
-    Enhanced wrapper for metadata processing with full text support.
+    Wrapper for metadata processing - matches brain.py signature.
     
     Args:
-        raw_text: Legacy - short text for backward compatibility
-        meta: Full metadata dict from analyzer with raw_text_full, normalized_text, raw_blocks
+        raw_text: Legacy short text (3000 chars)
+        raw_text_full: Full text (up to 20K chars)
+        normalized_text: Block-sorted text
+        raw_blocks: Structured blocks with bbox
+        candidates: Pre-extracted candidates from deterministic parser
     """
     try:
         from brain import safe_process_metadata as brain_process
         from extractor import ArchitecturalTextExtractor
         
-        # If meta dict provided, use enhanced extraction
-        if meta and isinstance(meta, dict):
-            raw_text_full = meta.get("raw_text_full")
-            normalized_text = meta.get("normalized_text")
-            raw_blocks = meta.get("raw_blocks")
-            
-            # Extract candidates if we have good text
-            candidates = None
-            text_to_extract = normalized_text or raw_text_full or meta.get("raw_text")
-            if text_to_extract and len(text_to_extract) > 50:
+        # If candidates not provided, extract them
+        if candidates is None:
+            text_to_use = normalized_text or raw_text_full or raw_text
+            if text_to_use and len(text_to_use) > 50:
                 try:
                     extractor = ArchitecturalTextExtractor()
-                    candidates = extractor.extract_candidates(text_to_extract)
-                except:
+                    candidates = extractor.extract_candidates(text_to_use)
+                except Exception:
                     candidates = None
-            
-            return brain_process(
-                raw_text=meta.get("raw_text"),
-                raw_text_full=raw_text_full,
-                normalized_text=normalized_text,
-                raw_blocks=raw_blocks,
-                candidates=candidates
-            )
-        else:
-            # Legacy mode - just use raw_text
-            return brain_process(raw_text=raw_text)
+        
+        return brain_process(
+            raw_text=raw_text,
+            raw_text_full=raw_text_full,
+            normalized_text=normalized_text,
+            raw_blocks=raw_blocks,
+            candidates=candidates
+        )
             
     except (ImportError, Exception) as e:
         return {"error": str(e), "status": "extraction_failed"}

@@ -187,44 +187,100 @@ def process_plan_metadata(raw_text):
         }
 
     prompt = f"""
-אתה מומחה לניתוח תוכניות בניה ישראליות. נתח את הטקסט הבא שחולץ מתוכנית PDF.
+אתה מומחה מנוסה בניתוח תוכניות בניה ישראליות. המשימה שלך היא לחלץ את כל המידע הזמין מהטקסט שלפניך.
 
-**חשוב מאוד:**
-- החזר JSON בפורמט המדויק המבוקש
-- אם אין מידע - השתמש ב-null כ-value
-- confidence: 0-100 (גבוה = בטוח, נמוך = לא בטוח)
-- evidence: רשימת ציטוטים/עדויות מהטקסט
+**קריטי - קרא בקפידה:**
+- חלץ **כל** מידע זמין, במיוחד **מידות חדרים** ו**שטחים**
+- אל תדלג על שום נתון מספרי (שטחים, גבהים, מידות)
+- אם יש טקסט חוזר או OCR לא מושלם - נסה להבין את הכוונה
+- confidence גבוה (80-100) רק כשאתה בטוח 100%
+- confidence בינוני (50-79) כשיש ראיות חלקיות
+- confidence נמוך (1-49) כשאתה משער
+- evidence: צטט את המקור המדויק מהטקסט
 
-**טקסט מהתוכנית:**
-{raw_text[:2500]}
+**טקסט מהתוכנית (חולץ מ-PDF):**
+{raw_text[:3500]}
 
-**שדות חובה:**
-- document: plan_title, plan_type, scale, date, floor_or_level, project_name, project_address, architect_name, drawing_number
-- rooms: מערך של חדרים (name, area_m2, ceiling_height_m, ceiling_notes, flooring_notes, other_notes)
-- heights_and_levels: default_ceiling_height_m, default_floor_height_m, construction_level_m
-- execution_notes: general_notes, structural_notes, hvac_notes, electrical_notes, plumbing_notes
-- limitations: מערך של מחרוזות (מה חסר / לא ברור)
-- quantities_hint: wall_types_mentioned (מערך), material_hints (מערך)
+**מבנה JSON נדרש:**
 
-**דוגמה למבנה שדה:**
-{{"value": "קומה א'", "confidence": 95, "evidence": ["נמצא: 'קומה ראשונה'"]}}
-אם אין מידע: {{"value": null, "confidence": 0, "evidence": []}}
+1. **document** - פרטי התוכנית הכללית:
+   - plan_title: שם/כותרת התוכנית (חפש בראש המסמך)
+   - plan_type: סוג התוכנית (קירות/תקרה/ריצוף/חשמל/אינסטלציה)
+   - scale: קנה מידה (1:50, 1:100, 1:200 וכו')
+   - date: תאריך התוכנית
+   - floor_or_level: קומה/מפלס (קומה א', קרקע, מינוס 1)
+   - project_name: שם הפרויקט
+   - project_address: כתובת הפרויקט
+   - architect_name: שם האדריכל/משרד
+   - drawing_number: מספר שרטוט
+
+2. **rooms** - מערך של חדרים (זה החשוב ביותר!):
+   
+   **חיפוש חכם של חדרים:**
+   - חפש שמות חדרים: "חדר שינה", "סלון", "מטבח", "שירותים", "חדר רחצה", "מרפסת"
+   - חפש מספרי חדרים: "חדר 1", "חדר 2", "101", "102"
+   - **שטחים**: חפש מספרים עם יחידות:
+     * "15 מ\"ר", "15.5 מ\"ר", "15 m²", "15 sqm"
+     * מספר + "מ\"ר" או "מטר רבוע"
+     * אפילו רק מספר ליד שם חדר (לדוגמה: "סלון 25" = 25 מ\"ר)
+   - **גובה תקרה**: 
+     * "H=2.80", "H=2.60", "גובה 2.70"
+     * "תקרה 2.80 מ'", "ceiling height 2.80m"
+   - **ריצוף**: "קרמיקה", "פרקט", "שיש", "גרניט פורצלן"
+   - **תקרה**: "גבס", "טרוול", "תקרה אקוסטית"
+   
+   **דוגמה:**
+   אם הטקסט: "חדר שינה 1 15.5 מ\"ר H=2.70 פרקט"
+   אז:
+   {{
+     "name": {{"value": "חדר שינה 1", "confidence": 95, "evidence": ["חדר שינה 1"]}},
+     "area_m2": {{"value": 15.5, "confidence": 95, "evidence": ["15.5 מ\"ר"]}},
+     "ceiling_height_m": {{"value": 2.70, "confidence": 90, "evidence": ["H=2.70"]}},
+     "flooring_notes": {{"value": "פרקט", "confidence": 90, "evidence": ["פרקט"]}},
+     "ceiling_notes": {{"value": null, "confidence": 0, "evidence": []}},
+     "other_notes": {{"value": null, "confidence": 0, "evidence": []}}
+   }}
+
+3. **heights_and_levels** - גבהים ומפלסים כלליים:
+   - default_ceiling_height_m: גובה תקרה סטנדרטי בקומה
+   - default_floor_height_m: גובה רצפה ממפלס 0
+   - construction_level_m: מפלס בנייה
+
+4. **execution_notes** - הערות ביצוע:
+   - general_notes: הערות כלליות
+   - structural_notes: הערות קונסטרוקציה
+   - hvac_notes: הערות מיזוג אוויר
+   - electrical_notes: הערות חשמל
+   - plumbing_notes: הערות אינסטלציה
+
+5. **limitations** - מערך של בעיות/מגבלות:
+   - רשום כאן אם הטקסט חלקי, יש בעיות OCR, מידע חסר וכו'
+   - דוגמה: ["Document appears to be partial", "Some room areas missing"]
+
+6. **quantities_hint** - רמזים לכמויות:
+   - wall_types_mentioned: ["קיר בטון 20 ס\"מ", "קיר בלוקים 10 ס\"מ"]
+   - material_hints: ["גרניט פורצלן", "אריח קרמי 60x60"]
+
+**פורמט שדה בסיסי:**
+{{"value": <string/number/null>, "confidence": 0-100, "evidence": [ציטוטים]}}
+
+**אסטרטגיית חילוץ:**
+1. קרא את כל הטקסט מלמעלה למטה
+2. זהה את סוג התוכנית קודם כל
+3. חפש טבלאות של חדרים (לרוב בפורמט: שם | שטח | גובה)
+4. חפש מספרים ליד שמות חדרים
+5. אם יש טקסט חוזר - קח את הגרסה הברורה ביותר
+6. רשום ב-limitations כל בעיה שמצאת
 
 **סוגי תוכניות נפוצים:**
-- "קירות" / "Walls"
-- "תקרה" / "Ceiling"
-- "ריצוף" / "Flooring"
-- "חשמל" / "Electrical"
-- "אינסטלציה" / "Plumbing"
-- "אדריכלות" / "Architecture"
+- "קירות/Walls" - קווי קירות, פתחים, דלתות
+- "תקרה/Ceiling" - פרטי תקרה, גבהים, סוגי תקרה
+- "ריצוף/Flooring" - סוגי ריצוף, שטחים
+- "חשמל/Electrical" - נקודות חשמל, תאורה
+- "אינסטלציה/Plumbing" - נקודות מים, ניקוז
+- "אדריכלות/Architecture" - כללי, שילוב הכל
 
-**חפש מידע על:**
-1. כותרות (שם פרויקט, תוכנית, קומה)
-2. קנה מידה (1:50, 1:100 וכו')
-3. תאריכים
-4. חדרים + שטחים
-5. גבהים
-6. הערות ביצוע
+**התחל עכשיו - חלץ כל מה שאתה יכול!**
 """
 
     errors_by_model = {}
@@ -235,7 +291,7 @@ def process_plan_metadata(raw_text):
             # ===== STRUCTURED OUTPUTS - GUARANTEED JSON =====
             message = client.beta.messages.create(
                 model=model,
-                max_tokens=4000,
+                max_tokens=6000,  # ← הגדלנו מ-4000 ל-6000
                 betas=["structured-outputs-2025-11-13"],
                 messages=[{"role": "user", "content": prompt}],
                 output_format={
@@ -246,10 +302,10 @@ def process_plan_metadata(raw_text):
             
             # Check if response was truncated
             if message.stop_reason == "max_tokens":
-                # Retry with higher max_tokens
+                # Retry with even higher max_tokens
                 message = client.beta.messages.create(
                     model=model,
-                    max_tokens=8000,
+                    max_tokens=10000,  # ← הגדלנו מ-8000 ל-10000
                     betas=["structured-outputs-2025-11-13"],
                     messages=[{"role": "user", "content": prompt}],
                     output_format={
@@ -327,14 +383,26 @@ def _fallback_prompt_based_json(client, model, raw_text):
     משתמש רק אם structured outputs לא זמין
     """
     prompt_legacy = f"""
-Analyze this construction plan text and return ONLY valid JSON.
+Analyze this construction plan text and extract ALL available information, especially ROOM DIMENSIONS.
 
-**CRITICAL: Response must be ONLY JSON. No markdown, no explanation, no preamble.**
+**CRITICAL INSTRUCTIONS:**
+1. Extract EVERY piece of numerical data (areas, heights, dimensions)
+2. Find ALL rooms with their exact measurements
+3. Look for patterns: "room_name XX.X m²", "H=X.XX", "area: XX"
+4. If text is repeated or has OCR errors - interpret and extract the data anyway
+5. Return ONLY valid JSON - no markdown, no explanation
 
-Input text:
-{raw_text[:2000]}
+**Input text from PDF:**
+{raw_text[:3000]}
 
-Return JSON with this EXACT structure:
+**ROOM EXTRACTION PATTERNS:**
+- "bedroom 15.5 m²" → area_m2: 15.5
+- "H=2.70" or "height 2.70m" → ceiling_height_m: 2.70
+- "living room 25" → likely 25 m² (use confidence: 70)
+- "ceramic tiles" → flooring_notes
+- Look for tables with: name | area | height
+
+**Required JSON structure:**
 {{
   "document": {{
     "plan_title": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
@@ -347,7 +415,16 @@ Return JSON with this EXACT structure:
     "architect_name": {{"value": "string or null", "confidence": 0-100, "evidence": []}},
     "drawing_number": {{"value": "string or null", "confidence": 0-100, "evidence": []}}
   }},
-  "rooms": [],
+  "rooms": [
+    {{
+      "name": {{"value": "room name", "confidence": 90, "evidence": ["quote from text"]}},
+      "area_m2": {{"value": 15.5, "confidence": 95, "evidence": ["15.5 m²"]}},
+      "ceiling_height_m": {{"value": 2.70, "confidence": 90, "evidence": ["H=2.70"]}},
+      "ceiling_notes": {{"value": "gypsum board", "confidence": 80, "evidence": ["gypsum"]}},
+      "flooring_notes": {{"value": "ceramic tiles", "confidence": 85, "evidence": ["ceramic"]}},
+      "other_notes": {{"value": null, "confidence": 0, "evidence": []}}
+    }}
+  ],
   "heights_and_levels": {{
     "default_ceiling_height_m": {{"value": null, "confidence": 0, "evidence": []}},
     "default_floor_height_m": {{"value": null, "confidence": 0, "evidence": []}},
@@ -360,12 +437,14 @@ Return JSON with this EXACT structure:
     "electrical_notes": {{"value": null, "confidence": 0, "evidence": []}},
     "plumbing_notes": {{"value": null, "confidence": 0, "evidence": []}}
   }},
-  "limitations": [],
+  "limitations": ["list any issues: partial text, OCR errors, missing data"],
   "quantities_hint": {{
-    "wall_types_mentioned": [],
-    "material_hints": []
+    "wall_types_mentioned": ["concrete wall 20cm", "block wall 10cm"],
+    "material_hints": ["ceramic tiles 60x60", "parquet flooring"]
   }}
 }}
+
+**START EXTRACTION NOW - Return JSON only:**
 """
 
     try:

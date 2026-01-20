@@ -156,6 +156,48 @@ if mode == "🏢 מנהל פרויקט":
                                 
                                 os.unlink(path)
                                 st.success(f"✅ {f.name} נותח בהצלחה!")
+                                
+                                # Display extracted metadata
+                                if llm_data and llm_data.get("document"):
+                                    st.markdown("### 📋 מטא-דאטה שחולץ")
+                                    
+                                    doc_info = llm_data.get("document", {})
+                                    col1, col2, col3 = st.columns(3)
+                                    
+                                    with col1:
+                                        if doc_info.get("plan_title", {}).get("value"):
+                                            st.metric("כותרת", doc_info["plan_title"]["value"])
+                                        if doc_info.get("scale", {}).get("value"):
+                                            st.metric("קנ\"מ", doc_info["scale"]["value"])
+                                    
+                                    with col2:
+                                        if doc_info.get("floor_or_level", {}).get("value"):
+                                            st.metric("קומה", doc_info["floor_or_level"]["value"])
+                                        if doc_info.get("date", {}).get("value"):
+                                            st.metric("תאריך", doc_info["date"]["value"])
+                                    
+                                    with col3:
+                                        rooms_count = len(llm_data.get("rooms", []))
+                                        st.metric("חדרים שזוהו", rooms_count)
+                                    
+                                    # Show rooms table
+                                    if llm_data.get("rooms"):
+                                        st.markdown("#### 🏠 חדרים")
+                                        rooms_data = []
+                                        for room in llm_data["rooms"]:
+                                            name = room.get("name", {}).get("value", "לא ידוע")
+                                            area = room.get("area_m2", {}).get("value", 0)
+                                            height = room.get("ceiling_height_m", {}).get("value", "-")
+                                            confidence = room.get("name", {}).get("confidence", 0)
+                                            rooms_data.append({
+                                                "שם": name,
+                                                "שטח (מ\"ר)": area,
+                                                "גובה תקרה (מ)": height,
+                                                "ביטחון": f"{confidence}%"
+                                            })
+                                        
+                                        import pandas as pd
+                                        st.dataframe(pd.DataFrame(rooms_data), use_container_width=True)
                             except Exception as e: 
                                 st.error(f"❌ שגיאה בעיבוד {f.name}: {str(e)}")
                                 import traceback

@@ -7,6 +7,7 @@ import tempfile
 import os
 import json
 import io
+import gc  # 🆕 לניהול זיכרון
 from streamlit_drawable_canvas import st_canvas
 from datetime import datetime
 
@@ -36,6 +37,17 @@ if 'wall_height' not in st.session_state: st.session_state.wall_height = 2.5
 if 'default_cost_per_meter' not in st.session_state: st.session_state.default_cost_per_meter = 0.0
 if 'manual_corrections' not in st.session_state: st.session_state.manual_corrections = {}
 
+# 🆕 פונקציות ייעול זיכרון
+def compress_image(img, max_size=1200):
+    """מקטין תמונה גדולה לחיסכון בזיכרון"""
+    h, w = img.shape[:2]
+    if max(h, w) > max_size:
+        scale = max_size / max(h, w)
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return img
+
 # --- פונקציה לחישוב קירות מתוקנים ---
 def get_corrected_walls(selected_plan, proj):
     """מחזיר את מסכת הקירות המתוקנת (אם יש תיקונים)"""
@@ -63,10 +75,23 @@ with st.sidebar:
         st.session_state.wall_height = st.number_input("גובה קירות (מ')", value=st.session_state.wall_height, step=0.1, key="global_wall_height")
         st.session_state.default_cost_per_meter = st.number_input("עלות למטר (₪)", value=st.session_state.default_cost_per_meter, step=10.0, key="global_cost_per_meter")
     
+    # 🆕 ניטור וניקוי זיכרון
+    if st.session_state.projects:
+        num_proj = len(st.session_state.projects)
+        st.caption(f"📊 {num_proj} פרויקט{'ים' if num_proj > 1 else ''} טעונים")
+        if st.button("🧹 נקה זיכרון"):
+            for proj in st.session_state.projects.values():
+                if "debug_layers" in proj:
+                    proj["debug_layers"] = {}
+            gc.collect()
+            st.success("הזיכרון נוקה!")
+            st.rerun()
+    
     if st.button("🗑️ איפוס נתונים"):
         if reset_all_data():
             st.session_state.projects = {}
             st.session_state.manual_corrections = {}
+            gc.collect()  # 🆕 שחרור זיכרון
             st.success("המערכת אופסה")
             st.rerun()
 
@@ -102,16 +127,21 @@ if mode == "🏢 מנהל פרויקט":
                                 # 🆕 עיבוד LLM משופר עם סכמה מלאה
                                 llm_data = {}
                                 if meta.get("raw_text"):
+                                    # 🆕 הגבלת raw_text לחיסכון בזיכרון
+                                    meta["raw_text"] = meta["raw_text"][:4000]
                                     llm_data = safe_process_metadata(meta["raw_text"])
                                     
                                     # חילוץ ערכים פשוטים לשדות ישנים
                                     simple_data = get_simple_metadata_values(llm_data)
                                     meta.update(simple_data)
 
+                                # 🆕 דחיסת תמונה מקורית לחיסכון בזיכרון
+                                orig_compressed = compress_image(orig, max_size=1200)
+
                                 st.session_state.projects[f.name] = {
-                                    "skeleton": skel, 
+                                    "skeleton": None,  # 🆕 לא שומרים - חוסך ~10MB
                                     "thick_walls": thick, 
-                                    "original": orig,
+                                    "original": orig_compressed,  # 🆕 גרסה דחוסה
                                     "raw_pixels": pix, 
                                     "scale": 200.0, 
                                     "metadata": meta,
@@ -120,7 +150,7 @@ if mode == "🏢 מנהל פרויקט":
                                     "flooring_mask": floor,
                                     "total_length": pix/200.0, 
                                     "llm_data": llm_data,  # ← שם מפתח נכון!
-                                    "debug_layers": getattr(analyzer, 'debug_layers', {})
+                                    "debug_layers": {}  # 🆕 מערך ריק - חוסך ~20-30MB
                                 }
                                 
                                 # תצוגת Debug משופרת
@@ -155,6 +185,14 @@ if mode == "🏢 מנהל פרויקט":
                                             
                                             st.metric("Confidence ממוצע", f"{meta.get('confidence_avg', 0):.2f}")
                                             st.metric("פיקסלי טקסט שהוסרו", f"{meta.get('text_removed_pixels', 0):,}")
+                                
+                                # 🆕 ניקוי זיכרון מיידי
+                                del orig, skel
+                                if debug_img is not None:
+                                    del debug_img
+                                if hasattr(analyzer, 'debug_layers'):
+                                    del analyzer.debug_layers
+                                gc.collect()
                                 
                                 os.unlink(path)
                                 st.success(f"✅ {f.name} נותח בהצלחה!")
@@ -221,7 +259,8 @@ if mode == "🏢 מנהל פרויקט":
                         st.markdown("---")
                         st.markdown("#### 🏠 חדרים שזוהו")
                         
-                        for i, room in enumerate(rooms[:5], 1):
+                        # 🆕 הגבלה ל-10 חדרים לחיסכון בזיכרון
+                        for i, room in enumerate(rooms[:10], 1):
                             with st.expander(f"חדר {i}: {room.get('name', 'ללא שם')}"):
                                 col1, col2 = st.columns(2)
                                 
@@ -237,8 +276,8 @@ if mode == "🏢 מנהל פרויקט":
                                     if room.get("other_notes"):
                                         st.caption(f"**הערות:** {room['other_notes']}")
                         
-                        if len(rooms) > 5:
-                            st.caption(f"מציג 5 מתוך {len(rooms)} חדרים")
+                        if len(rooms) > 10:
+                            st.caption(f"מציג 10 מתוך {len(rooms)} חדרים")
                     
                     # מגבלות
                     if pretty.get("limitations"):

@@ -49,23 +49,30 @@ def create_colored_overlay(original, concrete_mask, blocks_mask, flooring_mask=N
     """
     יוצר תמונה צבעונית המשלבת את התוכנית המקורית עם השכבות שזוהו
     """
-    # המרה ל-RGB (פורמט שהמסך יודע להציג)
+    # המרה ל-RGB
     img_vis = cv2.cvtColor(original, cv2.COLOR_BGR2RGB).astype(float)
     overlay = img_vis.copy()
     
-    # צביעת בטון (כחול)
-    if concrete_mask is not None:
-        overlay[concrete_mask > 0] = [30, 144, 255] 
+    # ===== תיקון קריטי: התאמת גדלים =====
+    h, w = original.shape[:2]
     
-    # צביעת בלוקים (כתום)
+    # וידוא שכל המסכות באותו גודל
+    if concrete_mask is not None:
+        if concrete_mask.shape[:2] != (h, w):
+            concrete_mask = cv2.resize(concrete_mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        overlay[concrete_mask > 0] = [30, 144, 255]
+    
     if blocks_mask is not None:
+        if blocks_mask.shape[:2] != (h, w):
+            blocks_mask = cv2.resize(blocks_mask, (w, h), interpolation=cv2.INTER_NEAREST)
         overlay[blocks_mask > 0] = [255, 165, 0]
     
-    # צביעת ריצוף (סגול בהיר) - אם נבחר להציג
     if flooring_mask is not None:
-         overlay[flooring_mask > 0] = [200, 100, 255]
+        if flooring_mask.shape[:2] != (h, w):
+            flooring_mask = cv2.resize(flooring_mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        overlay[flooring_mask > 0] = [200, 100, 255]
     
-    # שילוב עם שקיפות (60% מקור, 40% צבע)
+    # שילוב עם שקיפות
     cv2.addWeighted(overlay, 0.6, img_vis, 0.4, 0, img_vis)
     return img_vis.astype(np.uint8)
 

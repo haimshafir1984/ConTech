@@ -160,18 +160,10 @@ if mode == "🏢 מנהל פרויקט":
                                 os.unlink(path)
                                 st.success(f"✅ {f.name} נותח בהצלחה!")
                                 
-                                # ALWAYS display raw JSON from LLM (even on errors)
-                                st.markdown("### 🧾 LLM JSON (Raw)")
-                                st.json(llm_data)
-                                
-                                # Show error if extraction failed
-                                if isinstance(llm_data, dict) and llm_data.get("status") in ("no_api_client", "empty_text", "extraction_failed"):
-                                    st.error(f"❌ LLM extraction failed: {llm_data.get('error', 'Unknown error')}")
-                                    if llm_data.get("debug_trace"):
-                                        with st.expander("🐛 Debug Trace"):
-                                            st.code(llm_data["debug_trace"], language="python")
-                                
-                                # Display extracted metadata (only if successful)
+                                # Store llm_data in session state for persistent display
+                                if 'last_llm_data' not in st.session_state:
+                                    st.session_state.last_llm_data = {}
+                                st.session_state.last_llm_data[f.name] = llm_data
                                 if llm_data and llm_data.get("document"):
                                     st.markdown("### 📋 מטא-דאטה שחולץ")
                                     
@@ -218,6 +210,23 @@ if mode == "🏢 מנהל פרויקט":
                                 # Show error details without nested expander
                                 st.markdown("**פרטי שגיאה:**")
                                 st.code(traceback.format_exc(), language="python")
+
+        # Display LLM JSON for all uploaded files (persistent, won't disappear)
+        if 'last_llm_data' in st.session_state and st.session_state.last_llm_data:
+            st.markdown("---")
+            st.markdown("## 🧾 LLM Extraction Results (Raw JSON)")
+            st.caption("תוצאות חילוץ המטא-דאטה עבור כל קובץ שהועלה")
+            
+            for filename, llm_data in st.session_state.last_llm_data.items():
+                with st.expander(f"📄 {filename}", expanded=True):
+                    st.json(llm_data)
+                    
+                    # Show error if extraction failed
+                    if isinstance(llm_data, dict) and llm_data.get("status") in ("no_api_client", "empty_text", "extraction_failed"):
+                        st.error(f"❌ LLM extraction failed: {llm_data.get('error', 'Unknown error')}")
+                        if llm_data.get("debug_trace"):
+                            with st.expander("🐛 Debug Trace (Full Stack)"):
+                                st.code(llm_data["debug_trace"], language="python")
 
         if st.session_state.projects:
             st.markdown("---")

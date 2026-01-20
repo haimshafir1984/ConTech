@@ -467,11 +467,7 @@ class FloorPlanAnalyzer:
         # === הפרדת חומרים ===
         kernel = np.ones((6,6), np.uint8)
         concrete = cv2.dilate(cv2.erode(final_walls, kernel, iterations=1), kernel, iterations=2)
-        blocks = cv2.subtract(final_walls, concrete)
-        
-        # DEBUG: Verify types before using
-        print(f"DEBUG: concrete type = {type(concrete)}, shape = {concrete.shape if isinstance(concrete, np.ndarray) else 'N/A'}")
-        print(f"DEBUG: blocks type = {type(blocks)}, shape = {blocks.shape if isinstance(blocks, np.ndarray) else 'N/A'}")
+        blocks_mask = cv2.subtract(final_walls, concrete)  # Renamed to avoid shadowing with text blocks
         
         # === ריצוף ===
         edges = cv2.Canny(gray, 50, 150)
@@ -512,9 +508,9 @@ class FloorPlanAnalyzer:
             
             # Extract text blocks with bounding boxes
             try:
-                blocks = page.get_text("blocks")
+                text_blocks = page.get_text("blocks")  # Renamed to avoid shadowing blocks_mask
                 # Sort blocks by y position (top to bottom) then x (left to right)
-                sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))
+                sorted_blocks = sorted(text_blocks, key=lambda b: (b[1], b[0]))
                 
                 # Build structured block list
                 meta["raw_blocks"] = [
@@ -543,9 +539,15 @@ class FloorPlanAnalyzer:
             meta["raw_blocks"] = []
             meta["normalized_text"] = ""
         
+        # Guard: Ensure masks are numpy arrays before skeletonization
+        if not isinstance(blocks_mask, np.ndarray):
+            raise TypeError(f"blocks_mask must be numpy array, got {type(blocks_mask).__name__}")
+        if not isinstance(concrete, np.ndarray):
+            raise TypeError(f"concrete must be numpy array, got {type(concrete).__name__}")
+        
         meta.update({
             "pixels_concrete": cv2.countNonZero(self._skeletonize(concrete)),
-            "pixels_blocks": cv2.countNonZero(self._skeletonize(blocks)),
+            "pixels_blocks": cv2.countNonZero(self._skeletonize(blocks_mask)),
             "pixels_flooring_area": cv2.countNonZero(flooring),
             "confidence_avg": float(np.mean(confidence_map[final_walls > 0])) if np.any(final_walls > 0) else 0.0,
             "text_removed_pixels": cv2.countNonZero(text_mask_combined)
@@ -553,7 +555,7 @@ class FloorPlanAnalyzer:
         
         gc.collect()
         
-        return pix, skel, final_walls, image_proc, meta, concrete, blocks, flooring, debug_img
+        return pix, skel, final_walls, image_proc, meta, concrete, blocks_mask, flooring, debug_img
 
     # ==========================================
     # פונקציות לזיהוי מקרא אוטומטי

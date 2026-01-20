@@ -241,7 +241,7 @@ if mode == "🏢 מנהל פרויקט":
                                 
                                 # 🆕 תצוגת מטא-דאטה יפה
                                 if llm_data and not llm_data.get("error"):
-                                    display_llm_extraction(llm_data)
+                                    
                                 
                                 os.unlink(path)
                                 st.success(f"✅ {f.name} נותח בהצלחה!")
@@ -255,6 +255,11 @@ if mode == "🏢 מנהל פרויקט":
             st.markdown("---")
             selected = st.selectbox("בחר תוכנית לעריכה:", list(st.session_state.projects.keys()))
             proj = st.session_state.projects[selected]
+            # 🆕 תצוגת מטא-דאטה
+            if proj.get("llm_data") and not proj["llm_data"].get("error"):
+                display_llm_extraction(proj["llm_data"])
+            
+            st.markdown("---")
             
             name_key = f"name_{selected}"
             scale_key = f"scale_{selected}"

@@ -1,7 +1,7 @@
 import os
 import base64
 import json
-from typing import Optional
+import re
 try:
     import anthropic
 except ImportError:
@@ -28,299 +28,173 @@ def get_anthropic_client():
         
     return anthropic.Anthropic(api_key=api_key), None
 
-def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=None, raw_blocks=None, candidates=None):
+
+def _sanitize_json(text: str) -> str:
     """
-    Enhanced metadata extraction with deterministic pre-parsing and LLM validation.
+    מנקה JSON שבור - מסיר אינדקסים, מתקן NULL, ותווים לא חוקיים
     
     Args:
-        raw_text: Legacy short text (3000 chars) - for backward compatibility
-        raw_text_full: Full text extraction (up to 20000 chars)
-        normalized_text: Block-sorted text for better reading order
-        raw_blocks: Structured text blocks with bbox info
-        candidates: Pre-extracted candidates from deterministic parser
-        
+        text: טקסט JSON פגום
+    
     Returns:
-        Structured JSON with evidence-based metadata
+        JSON מנוקה
     """
-    client, error = get_anthropic_client()
-    if error:
-        return {"error": error, "status": "no_api_client"}
+    # שלב 0: תיקון newlines בתוך strings - החלפה ב-space או \\n
+    # מוצא strings עם newline בפנים ומחליף ב-רווח
+    lines = text.split('\n')
+    fixed_lines = []
+    in_string = False
+    current_line = ""
     
-    # Choose best available text source
-    text_to_use = normalized_text or raw_text_full or raw_text or ""
+    for line in lines:
+        # ספירת מרכאות (זוגי = לא בתוך string, אי-זוגי = בתוך string)
+        quote_count = line.count('"') - line.count('\\"')  # לא כולל מרכאות escaped
+        
+        if in_string:
+            # אנחנו באמצע string שחוצה שורות
+            current_line += " " + line.strip()
+            if quote_count % 2 == 1:  # יצאנו מה-string
+                in_string = False
+                fixed_lines.append(current_line)
+                current_line = ""
+        else:
+            if quote_count % 2 == 1:  # נכנסנו ל-string שלא נסגר
+                in_string = True
+                current_line = line
+            else:
+                fixed_lines.append(line)
     
-    if len(text_to_use.strip()) < 10:
-        return {"error": "Insufficient text", "status": "empty_text"}
+    text = '\n'.join(fixed_lines)
     
-    # If candidates not provided, extract them now
-    if candidates is None:
-        try:
-            from extractor import ArchitecturalTextExtractor
-            extractor = ArchitecturalTextExtractor()
-            candidates = extractor.extract_candidates(text_to_use)
-        except Exception as e:
-            # Fallback: no candidates
-            candidates = {}
+    # שלב 1: הסרת אינדקסים במערכים: 0:"text" -> "text"
+    text = re.sub(r'(?m)^\s*\d+\s*:\s*', '', text)
     
-    # Build strict LLM prompt
-    prompt = _build_strict_prompt(text_to_use, candidates)
+    # שלב 2: החלפת NULL ב-null
+    text = re.sub(r'\bNULL\b', 'null', text)
     
-    # Try multiple models
-    models = [
-    "claude-sonnet-4-5-20250929",  # ברירת מחדל מומלצת
-    "claude-sonnet-4-20250514",    # fallback
-    "claude-haiku-4-5-20251001",   # fallback מהיר/זול
-    "claude-opus-4-5-20251101",    # fallback חזק/יקר
-     ]
+    # שלב 3: הוספת פסיקים חסרים - גישה כוללת
+    # 3.1: בין string לstring: "x"\n" -> "x",\n"
+    text = re.sub(r'"(\s*\n\s*)"', r'",\1"', text)
+    
+    # 3.2: בין string למספר/bool/null: "x"\n5 -> "x",\n5
+    text = re.sub(r'"(\s*\n\s*)(true|false|null|\d+)', r'",\1\2', text)
+    
+    # 3.3: בין מספר/bool/null לstring: 5\n" -> 5,\n"
+    text = re.sub(r'(true|false|null|\d+)(\s*\n\s*)"', r'\1,\2"', text)
+    
+    # 3.4: בין ] לstring או למספר: ]\n" -> ],\n"
+    text = re.sub(r'](\s*\n\s*)(["{0-9tfn])', r'],\1\2', text)
+    
+    # 3.5: בין } לstring או למספר: }\n" -> },\n"
+    text = re.sub(r'}(\s*\n\s*)(["{0-9tfn])', r'},\1\2', text)
+    
+    # שלב 4: הסרת פסיקים מיותרים לפני } או ]
+    text = re.sub(r',(\s*[}\]])', r'\1', text)
+    
+    return text
 
-    
-    errors_by_model = {}  # Track what went wrong with each model
+
+def process_plan_metadata(raw_text):
+    """מעבד מטא-דאטה של תוכנית עם ניסיון מרובה מודלים"""
+    client, error = get_anthropic_client()
+    if error: return {}
+
+    # רשימת מודלים לניסיון (מהחדש לישן)
+    models = [
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-20240620", 
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229",
+        "claude-3-haiku-20240307"
+    ]
+
+    prompt = f"""
+Analyze construction plan text and extract metadata.
+
+CRITICAL REQUIREMENTS:
+1. Return ONLY valid JSON - no explanations, no markdown, no comments
+2. Use null (lowercase) for missing values, NEVER NULL
+3. Do NOT add list indices like "0:" or "1:" inside arrays
+4. Use double quotes for all keys and string values
+5. No pretty-printing with numbered indices
+
+Input text:
+{raw_text[:2000]}
+
+Required JSON format:
+{{
+    "plan_name": "string or null",
+    "scale": "string like 1:50 or null",
+    "plan_type": "construction/demolition/flooring/ceiling/electrical/other"
+}}
+
+Return ONLY the JSON object, nothing else.
+"""
+
+    last_error = None
     
     for model in models:
         try:
             message = client.messages.create(
                 model=model,
-                max_tokens=4000,
-                temperature=0.1,  # Low temperature for factual extraction
+                max_tokens=500,
                 messages=[{"role": "user", "content": prompt}]
             )
             
             response_text = message.content[0].text.strip()
             
-            # Clean and extract JSON
-            clean_json = _extract_json_from_response(response_text)
+            # ניקוי markdown אם יש
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
             
-            # Parse and validate
+            # חילוץ JSON בלבד
+            if "{" in response_text and "}" in response_text:
+                start = response_text.find("{")
+                end = response_text.rfind("}") + 1
+                response_text = response_text[start:end]
+            
+            # ניקוי JSON
+            cleaned = _sanitize_json(response_text)
+            
+            # ניסיון לפרסר
             try:
-                result = json.loads(clean_json)
+                result = json.loads(cleaned)
                 result["_model_used"] = model
-                result["_extraction_method"] = "enhanced_v1"
                 return result
-                
             except json.JSONDecodeError as json_err:
-                # Auto-fix attempt
-                fixed_result = _auto_fix_json(client, model, clean_json, json_err)
-                if fixed_result:
-                    return fixed_result
-                # Track JSON error and continue
-                errors_by_model[model] = f"JSON parse error: {str(json_err)[:100]}"
+                last_error = f"JSON Error with {model}: {str(json_err)[:100]}"
                 continue
                 
         except Exception as e:
-            # Track the actual error
-            error_msg = str(e)
-            errors_by_model[model] = error_msg[:200]  # First 200 chars
+            error_str = str(e)
+            last_error = error_str
             
-            # Model not available - try next
-            if "not_found_error" in error_msg or "404" in error_msg:
+            # אם המודל לא נמצא, נסה את הבא
+            if "not_found_error" in error_str or "404" in error_str:
                 continue
-            # Other error - try next model
-            continue
+            else:
+                continue
     
-    # All models failed - return detailed error info
-    return {
-        "error": "All models failed to extract metadata",
-        "status": "extraction_failed",
-        "tried_models": models,
-        "errors_by_model": errors_by_model  # NEW: Show what went wrong
-    }
+    # כל המודלים נכשלו
+    return {"error": f"All models failed. Last: {last_error}"}
 
-
-def _build_strict_prompt(text: str, candidates: dict) -> str:
-    """Build strict extraction prompt with candidates"""
-    
-    candidates_summary = _format_candidates(candidates)
-    
-    prompt = f"""אתה מומחה בחילוץ מטא-דאטה מתוכניות אדריכליות ישראליות.
-
-**חוקים קשיחים (אסור להפר!):**
-1. אסור להמציא מידע. אם אין evidence → null + confidence נמוך + reason
-2. לכל שדה מלא → evidence חובה (מקור הטקסט המדויק)
-3. תעדף את הנתונים מ-CANDIDATES (חולצו בצורה דטרמיניסטית)
-4. אם אתה רוצה לשנות ערך מ-CANDIDATES → הבא evidence חזק יותר
-5. החזר **רק JSON** - אסור טקסט נוסף
-
-**CANDIDATES שחולצו אוטומטית:**
-{candidates_summary}
-
-**טקסט מלא התוכנית:**
-```
-{text[:8000]}
-```
-
-**פורמט פלט (חובה - JSON בלבד):**
-{{
-  "document": {{
-    "plan_title": {{"value": null, "confidence": 0, "evidence": []}},
-    "plan_type": {{"value": null, "confidence": 0, "evidence": []}},
-    "floor_or_level": {{"value": null, "confidence": 0, "evidence": []}},
-    "project_name": {{"value": null, "confidence": 0, "evidence": []}},
-    "issue_or_revision": {{"value": null, "confidence": 0, "evidence": []}},
-    "date": {{"value": null, "confidence": 0, "evidence": []}},
-    "scale": {{"value": null, "confidence": 0, "evidence": []}},
-    "sheet_numbers": {{"value": [], "confidence": 0, "evidence": []}}
-  }},
-  "rooms": [
-    {{
-      "name": {{"value": null, "confidence": 0, "evidence": []}},
-      "area_m2": {{"value": null, "confidence": 0, "evidence": []}},
-      "ceiling_height_m": {{"value": null, "confidence": 0, "evidence": []}},
-      "ceiling_notes": {{"value": null, "confidence": 0, "evidence": []}},
-      "flooring_notes": {{"value": null, "confidence": 0, "evidence": []}},
-      "other_notes": {{"value": null, "confidence": 0, "evidence": []}}
-    }}
-  ],
-  "heights_and_levels": {{
-    "ceiling_levels_m": [{{"value": null, "confidence": 0, "evidence": []}}],
-    "other_levels": [{{"value": null, "confidence": 0, "evidence": []}}]
-  }},
-  "execution_notes": {{
-    "general_notes": [{{"value": null, "confidence": 0, "evidence": []}}],
-    "standards": [{{"value": null, "confidence": 0, "evidence": []}}],
-    "contractor_requirements": [{{"value": null, "confidence": 0, "evidence": []}}]
-  }},
-  "quantities_hint": {{
-    "has_enough_data_for_wall_lengths": {{"value": false, "confidence": 0, "reason": null}},
-    "has_enough_data_for_per_room_perimeters": {{"value": false, "confidence": 0, "reason": null}},
-    "has_explicit_room_areas": {{"value": false, "confidence": 0, "reason": null}}
-  }},
-  "limitations": [
-    {{"value": null, "confidence": 0, "evidence": []}}
-  ]
-}}
-
-**דוגמה נכונה:**
-{{
-  "document": {{
-    "plan_title": {{"value": "תכנית קומה ב'", "confidence": 90, "evidence": ["תכנית קומה ב' - בית ספר"]}},
-    "scale": {{"value": "1:50", "confidence": 95, "evidence": ["קנ\\"מ 1:50"]}}
-  }},
-  "rooms": [
-    {{
-      "name": {{"value": "חדר מורים", "confidence": 85, "evidence": ["חדר מורים ר\\"מ 25.5"]}},
-      "area_m2": {{"value": 25.5, "confidence": 90, "evidence": ["חדר מורים ר\\"מ 25.5"]}}
-    }}
-  ]
-}}
-
-**התחל עכשיו - החזר רק JSON:**"""
-    
-    return prompt
-
-
-def _format_candidates(candidates: dict) -> str:
-    """Format candidates for inclusion in prompt"""
-    if not candidates:
-        return "לא נמצאו candidates"
-    
-    parts = []
-    
-    # Rooms
-    if candidates.get('rooms'):
-        parts.append(f"חדרים ({len(candidates['rooms'])}):")
-        for room in candidates['rooms'][:10]:  # Limit to first 10
-            name = room.get('name', {}).get('value', '?')
-            area = room.get('area_m2', {}).get('value', '?')
-            parts.append(f"  - {name}: {area} מ\"ר")
-    
-    # Scale
-    if candidates.get('scale'):
-        scale = candidates['scale']
-        parts.append(f"קנ\"מ: {scale.get('ratio', '?')} (value={scale.get('value', '?')})")
-    
-    # Levels
-    if candidates.get('levels'):
-        parts.append(f"מפלסים ({len(candidates['levels'])}):")
-        for level in candidates['levels'][:5]:
-            label = level.get('label', '?')
-            value = level.get('value_m', '?')
-            parts.append(f"  - {label}: {value}m")
-    
-    # Heights
-    if candidates.get('heights'):
-        parts.append(f"גבהים: {len(candidates['heights'])} נמצאו")
-    
-    # Document info
-    doc_info = candidates.get('document_info', {})
-    if doc_info.get('plan_title'):
-        parts.append(f"כותרת: {doc_info['plan_title']['value']}")
-    if doc_info.get('date'):
-        parts.append(f"תאריך: {doc_info['date']['value']}")
-    
-    return "\n".join(parts) if parts else "אין candidates"
-
-
-def _extract_json_from_response(response_text: str) -> str:
-    """Extract clean JSON from LLM response"""
-    # Remove markdown code blocks
-    if "```json" in response_text:
-        response_text = response_text.split("```json")[1].split("```")[0].strip()
-    elif "```" in response_text:
-        response_text = response_text.split("```")[1].split("```")[0].strip()
-    
-    # Extract JSON object
-    if "{" in response_text and "}" in response_text:
-        start = response_text.find("{")
-        end = response_text.rfind("}") + 1
-        response_text = response_text[start:end]
-    
-    return response_text
-
-
-def _auto_fix_json(client, model: str, broken_json: str, error) -> Optional[dict]:
-    """
-    Attempt to auto-fix broken JSON by asking LLM to repair it.
-    Returns parsed dict or None if unfixable.
-    """
-    fix_prompt = f"""The following JSON has a syntax error. Fix it and return ONLY valid JSON (no explanations):
-
-ERROR: {str(error)}
-
-BROKEN JSON:
-```
-{broken_json[:2000]}
-```
-
-Return the corrected JSON:"""
-    
-    try:
-        message = client.messages.create(
-            model=model,
-            max_tokens=3000,
-            temperature=0,
-            messages=[{"role": "user", "content": fix_prompt}]
-        )
-        
-        fixed_text = message.content[0].text.strip()
-        clean_fixed = _extract_json_from_response(fixed_text)
-        
-        result = json.loads(clean_fixed)
-        result["_auto_fixed"] = True
-        return result
-        
-    except Exception:
-        return None
-
-
-def process_plan_metadata(raw_text):
-    """Legacy function - redirects to safe_process_metadata for backward compatibility"""
-    return safe_process_metadata(raw_text=raw_text)
 
 def analyze_legend_image(image_bytes):
     """
     מנתח תמונה של מקרא תוכנית בניה ומזהה סוג תוכנית וחומרים
-    מנסה מספר מודלים עד שאחד עובד
     """
     client, error = get_anthropic_client()
     if error: return {"error": error}
 
-    # רשימת מודלים לניסיון (מהחדש לישן)
+    # רשימת מודלים לניסיון
     models = [
-        "claude-3-5-sonnet-20241022",  # הכי חדש
-        "claude-3-5-sonnet-20240620",  # גרסה קודמת
-        "claude-3-opus-20240229",      # Opus (יקר יותר אבל טוב)
-        "claude-3-sonnet-20240229",    # Sonnet ישן
-        "claude-3-haiku-20240307"      # Haiku (זול וחלש)
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-20240620",
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229",
+        "claude-3-haiku-20240307"
     ]
 
     encoded_image = base64.b64encode(image_bytes).decode('utf-8')
@@ -358,36 +232,41 @@ def analyze_legend_image(image_bytes):
    - D14/D17/D18 → דלתות (קירות)
    - H= → גובה (תקרה/קירות)
 
-**פורמט תשובה - JSON בלבד:**
+**CRITICAL - JSON FORMAT RULES:**
+1. Return ONLY valid JSON - no markdown, no explanations
+2. Use null (lowercase) for missing values, NEVER NULL
+3. Do NOT add indices like "0:" or "1:" in arrays
+4. All keys and strings must use double quotes
+5. No trailing commas before ] or }
+
+**Required JSON structure:**
 {
-    "plan_type": "תקרה",
-    "confidence": 95,
-    "materials_found": ["לוחות מינרלים", "גבס", "ארקליט"],
+    "plan_type": "תקרה|קירות|ריצוף|אחר",
+    "confidence": 0-100,
+    "materials_found": ["material1", "material2"],
     "ceiling_types": [
         {
-            "code": "E Advantage",
-            "description": "תקרה חצי שקועה",
-            "dimensions": "60X60"
+            "code": "string",
+            "description": "string",
+            "dimensions": "string"
         }
     ],
     "symbols": [
-        {"symbol": "C11", "meaning": "קורה סוג 11"},
-        {"symbol": "H=2.80", "meaning": "גובה תקרה 2.80 מטר"}
+        {"symbol": "C11", "meaning": "description"}
     ],
-    "notes": "תכנית תקרה קומה ב' - 8 כיתות",
-    "legend_title": "מקרא תקרה"
+    "notes": "string or null",
+    "legend_title": "string or null"
 }
 
-**חשוב מאוד:**
-- אם רואה "מקרא תקרה" → plan_type חייב להיות "תקרה" (ביטחון 98%)
-- אם רואה "לוחות מינרלים" → זו בוודאות תקרה
-- קרא את כל הטקסט בעברית בקפידה
-- החזר **רק** JSON, אין טקסט נוסף
-- אם לא בטוח ב-100%, כתב confidence נמוך (60-70)
+**Examples of CORRECT output:**
+✅ {"plan_type": "תקרה", "confidence": 98, "materials_found": ["גבס"], "ceiling_types": [], "symbols": [], "notes": null, "legend_title": "מקרא תקרה"}
 
-**דוגמאות:**
-✅ נכון: {"plan_type": "תקרה", "confidence": 98, "legend_title": "מקרא תקרה"}
-❌ שגוי: {"plan_type": "אחר", "confidence": 80}  ← אם יש "מקרא תקרה"!
+**Examples of WRONG output:**
+❌ {"plan_type": "אחר", "confidence": 80} ← Missing required fields!
+❌ {0: {"symbol": "C11"}} ← Never use numeric indices!
+❌ {"notes": NULL} ← Use null not NULL!
+
+Return ONLY the JSON object, nothing else.
 """
 
     last_error = None
@@ -415,51 +294,54 @@ def analyze_legend_image(image_bytes):
             
             response_text = message.content[0].text.strip()
             
-            # ניקוי התשובה אם יש markdown
+            # ניקוי markdown
             if "```json" in response_text:
                 response_text = response_text.split("```json")[1].split("```")[0].strip()
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
             
-            # ניקוי נוסף - חילוץ רק ה-JSON
+            # חילוץ JSON
             if "{" in response_text and "}" in response_text:
                 start = response_text.find("{")
                 end = response_text.rfind("}") + 1
                 response_text = response_text[start:end]
             
-            # ניסיון ראשון לפרסור
+            # ניקוי JSON
+            cleaned = _sanitize_json(response_text)
+            
+            # פרסור
             try:
-                result = json.loads(response_text)
+                result = json.loads(cleaned)
+                
+                # ולידציה בסיסית
+                required_fields = ["plan_type", "confidence", "materials_found", "ceiling_types", "symbols"]
+                if not all(field in result for field in required_fields):
+                    # נסה למלא שדות חסרים
+                    for field in required_fields:
+                        if field not in result:
+                            if field == "confidence":
+                                result[field] = 50
+                            elif field in ["materials_found", "ceiling_types", "symbols"]:
+                                result[field] = []
+                            else:
+                                result[field] = "אחר"
+                
                 result["_model_used"] = model
                 return result
-            except json.JSONDecodeError as json_err:
-                # ניסיון לתקן שגיאות נפוצות
-                fixed_text = response_text
-                fixed_text = fixed_text.replace(",]", "]")  # פסיק מיותר לפני ]
-                fixed_text = fixed_text.replace(",}", "}")  # פסיק מיותר לפני }
                 
-                try:
-                    result = json.loads(fixed_text)
-                    result["_model_used"] = model
-                    result["_auto_fixed"] = True
-                    return result
-                except:
-                    # נכשל - נשמור את השגיאה ונמשיך למודל הבא
-                    last_error = f"JSON Error: {str(json_err)} | Response: {response_text[:200]}"
-                    continue
+            except json.JSONDecodeError as json_err:
+                last_error = f"JSON Error with {model}: {str(json_err)[:100]} | Text: {cleaned[:200]}"
+                continue
             
         except Exception as e:
             error_str = str(e)
             last_error = error_str
             
-            # אם המודל לא נמצא (404), נסה את הבא
             if "not_found_error" in error_str or "404" in error_str:
                 continue
-            
-            # שגיאה אחרת - נסה את המודל הבא
-            continue
+            else:
+                continue
     
-    # אם הגענו לכאן - כל המודלים נכשלו
     return {
         "error": f"כל המודלים נכשלו. שגיאה אחרונה: {last_error}",
         "tried_models": models

@@ -1,48 +1,14 @@
 import cv2
 import numpy as np
 import pandas as pd
-import traceback
 from database import get_progress_reports
 
-def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=None, raw_blocks=None, candidates=None):
-    """
-    Wrapper for metadata processing - matches brain.py signature.
-    
-    Args:
-        raw_text: Legacy short text (3000 chars)
-        raw_text_full: Full text (up to 20K chars)
-        normalized_text: Block-sorted text
-        raw_blocks: Structured blocks with bbox
-        candidates: Pre-extracted candidates from deterministic parser
-    """
+def safe_process_metadata(raw_text):
     try:
-        from brain import safe_process_metadata as brain_process
-        from extractor import ArchitecturalTextExtractor
-        
-        # If candidates not provided, extract them
-        if candidates is None:
-            text_to_use = normalized_text or raw_text_full or raw_text
-            if text_to_use and len(text_to_use) > 50:
-                try:
-                    extractor = ArchitecturalTextExtractor()
-                    candidates = extractor.extract_candidates(text_to_use)
-                except Exception:
-                    candidates = None
-        
-        return brain_process(
-            raw_text=raw_text,
-            raw_text_full=raw_text_full,
-            normalized_text=normalized_text,
-            raw_blocks=raw_blocks,
-            candidates=candidates
-        )
-            
-    except (ImportError, Exception) as e:
-        return {
-            "error": str(e), 
-            "status": "extraction_failed",
-            "debug_trace": traceback.format_exc()
-        }
+        from brain import process_plan_metadata
+        return process_plan_metadata(raw_text)
+    except (ImportError, Exception):
+        return {}
 
 def safe_analyze_legend(image_bytes):
     try:
@@ -84,3 +50,95 @@ def create_colored_overlay(original, concrete_mask, blocks_mask, flooring_mask=N
     # שילוב עם שקיפות (60% מקור, 40% צבע)
     cv2.addWeighted(overlay, 0.6, img_vis, 0.4, 0, img_vis)
     return img_vis.astype(np.uint8)
+
+
+# ==========================================
+# 🆕 פונקציות חדשות להצגת LLM Data
+# ==========================================
+
+def unwrap_field(field):
+    """
+    מחלץ את הערך מתוך מבנה {value, confidence, evidence}
+    
+    Args:
+        field: יכול להיות dict עם value, או ערך רגיל
+    
+    Returns:
+        הערך עצמו
+    """
+    if isinstance(field, dict) and "value" in field:
+        return field["value"]
+    return field
+
+
+def format_llm_metadata(llm_data):
+    """
+    ממיר LLM data מורכב לפורמט נקי ופשוט
+    
+    Args:
+        llm_data: dict עם document, rooms, וכו'
+    
+    Returns:
+        dict פשוט עם רק הערכים
+    """
+    if not llm_data or not isinstance(llm_data, dict):
+        return {}
+    
+    # מבנה פשוט
+    pretty = {}
+    
+    # חלק 1: Document metadata
+    if "document" in llm_data:
+        pretty["document"] = {
+            k: unwrap_field(v) 
+            for k, v in llm_data.get("document", {}).items()
+        }
+    
+    # חלק 2: Rooms (אם יש)
+    if "rooms" in llm_data and isinstance(llm_data["rooms"], list):
+        pretty["rooms"] = [
+            {
+                "name": unwrap_field(r.get("name")),
+                "area_m2": unwrap_field(r.get("area_m2")),
+                "ceiling_height_m": unwrap_field(r.get("ceiling_height_m")),
+                "ceiling_notes": unwrap_field(r.get("ceiling_notes")),
+                "flooring_notes": unwrap_field(r.get("flooring_notes")),
+                "other_notes": unwrap_field(r.get("other_notes")),
+            }
+            for r in llm_data.get("rooms", [])
+        ]
+    
+    return pretty
+
+
+def get_simple_metadata_values(llm_data):
+    """
+    מחלץ רק את הערכים הפשוטים (ללא confidence/evidence)
+    מחזיר dict שטוח שאפשר לעדכן ישירות ל-metadata
+    
+    Args:
+        llm_data: dict מלא מ-LLM
+    
+    Returns:
+        dict שטוח עם ערכים בלבד
+    """
+    pretty = format_llm_metadata(llm_data)
+    
+    # שטח - רק הערכים החשובים
+    simple = {}
+    
+    if "document" in pretty:
+        doc = pretty["document"]
+        
+        # שדות שאנחנו רוצים להעתיק ישירות
+        fields_to_copy = [
+            "plan_title", "plan_name", "plan_type", 
+            "scale", "date", "floor_or_level", 
+            "project_name", "sheet_numbers"
+        ]
+        
+        for field in fields_to_copy:
+            if field in doc and doc[field] is not None:
+                simple[field] = doc[field]
+    
+    return simple

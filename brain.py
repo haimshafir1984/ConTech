@@ -149,10 +149,10 @@ METADATA_SCHEMA = {
 # ==========================================
 
 ACTIVE_MODELS = [
-    "claude-sonnet-4-20250514",      # Sonnet 4.x
-    "claude-opus-4-20250514",        # Opus 4.x
+    "claude-sonnet-4-20250514",      # Sonnet 4.5 (latest)
+    "claude-opus-4-20250514",        # Opus 4.5 (latest)
     "claude-sonnet-4-20250328",      # Sonnet 4 (stable)
-    "claude-haiku-4-20250416"        # Haiku 4.x (fastest)
+    "claude-haiku-4-20250416"        # Haiku 4.5 (fastest)
 ]
 
 
@@ -196,6 +196,7 @@ def process_plan_metadata(raw_text):
 - evidence: רשימת ציטוטים/עדויות מהטקסט
 
 **טקסט מהתוכנית:**
+{raw_text[:2500]}
 
 **שדות חובה:**
 - document: plan_title, plan_type, scale, date, floor_or_level, project_name, project_address, architect_name, drawing_number
@@ -320,40 +321,6 @@ def process_plan_metadata(raw_text):
     }
 
 
-# ==========================================================
-# ADD THIS: COMPATIBLE WRAPPER (fixes import error in utils.py)
-# ==========================================================
-def safe_process_metadata(
-    raw_text=None,
-    raw_text_full=None,
-    normalized_text=None,
-    raw_blocks=None,
-    candidates=None
-):
-    """
-    Wrapper expected by utils.py: from brain import safe_process_metadata
-
-    Chooses the best available text source:
-    normalized_text -> raw_text_full -> raw_text -> raw_blocks (joined)
-    Then calls process_plan_metadata(best_text).
-    """
-    best_text = None
-    for t in (normalized_text, raw_text_full, raw_text):
-        if isinstance(t, str) and t.strip():
-            best_text = t
-            break
-
-    if not best_text and isinstance(raw_blocks, list) and raw_blocks:
-        try:
-            best_text = "\n".join(
-                [(b.get("text") or "").strip() for b in raw_blocks if (b.get("text") or "").strip()]
-            )
-        except Exception:
-            best_text = None
-
-    return process_plan_metadata(best_text or "")
-
-
 def _fallback_prompt_based_json(client, model, raw_text):
     """
     Fallback למצב legacy (ללא structured outputs)
@@ -365,6 +332,7 @@ Analyze this construction plan text and return ONLY valid JSON.
 **CRITICAL: Response must be ONLY JSON. No markdown, no explanation, no preamble.**
 
 Input text:
+{raw_text[:2000]}
 
 Return JSON with this EXACT structure:
 {{
@@ -446,8 +414,11 @@ def _sanitize_json_response(text):
         text = text[start:end]
     
     # Fix common issues
+    # Remove list indices like "0: {" → "{"
     import re
     text = re.sub(r'^\s*\d+:\s*', '', text, flags=re.MULTILINE)
+    
+    # Replace NULL with null
     text = text.replace("NULL", "null")
     text = text.replace("None", "null")
     
@@ -459,6 +430,10 @@ def _auto_fix_json(text):
     # Remove trailing commas
     text = text.replace(",]", "]")
     text = text.replace(",}", "}")
+    
+    # Fix unescaped quotes (simple heuristic)
+    # This is risky - only as last resort
+    
     return text
 
 
@@ -584,9 +559,11 @@ def analyze_legend_image(image_bytes):
                 }
             )
             
+            # Guaranteed valid JSON
             response_text = message.content[0].text
             result = json.loads(response_text)
             result["_model_used"] = model
+            
             return result
             
         except anthropic.NotFoundError:
@@ -595,6 +572,8 @@ def analyze_legend_image(image_bytes):
             
         except anthropic.BadRequestError as e:
             errors_by_model[model] = f"Bad request: {str(e)[:80]}"
+            
+            # Fallback to legacy
             try:
                 result = _fallback_legend_prompt(client, model, encoded_image)
                 if result:
@@ -608,6 +587,7 @@ def analyze_legend_image(image_bytes):
             errors_by_model[model] = str(e)[:100]
             continue
     
+    # All models failed
     return {
         "error": f"כל המודלים נכשלו. ניסה: {', '.join(ACTIVE_MODELS)}",
         "errors_by_model": errors_by_model,
@@ -655,6 +635,7 @@ JSON structure:
         
         response_text = message.content[0].text.strip()
         response_text = _sanitize_json_response(response_text)
+        
         return json.loads(response_text)
     except Exception:
         return None

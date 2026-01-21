@@ -285,53 +285,67 @@ def render_workshop_tab():
                     key=f"paper_select_{selected}",
                 )
 
+                prev_override = st.session_state.get(paper_override_key)
+
+                # ⚠️ חשוב: להימנע מ-loop אינסופי של rerun.
+                # נבצע rerun רק אם המשתמש באמת שינה את הבחירה (או אם מוחקים override).
                 if selected_paper != "זיהוי אוטומטי":
-                    st.session_state[paper_override_key] = selected_paper
+                    if prev_override != selected_paper:
+                        st.session_state[paper_override_key] = selected_paper
 
-                    # חישוב מחדש עם override
-                    ISO_SIZES = {
-                        "A0": (841, 1189),
-                        "A1": (594, 841),
-                        "A2": (420, 594),
-                        "A3": (297, 420),
-                        "A4": (210, 297),
-                    }
+                        # חישוב מחדש עם override
+                        ISO_SIZES = {
+                            "A0": (841, 1189),
+                            "A1": (594, 841),
+                            "A2": (420, 594),
+                            "A3": (297, 420),
+                            "A4": (210, 297),
+                        }
 
-                    paper_w_mm, paper_h_mm = ISO_SIZES[selected_paper]
+                        paper_w_mm, paper_h_mm = ISO_SIZES[selected_paper]
 
-                    # עדכון metadata
-                    meta["paper_size_detected"] = selected_paper
-                    meta["paper_mm"] = {"width": paper_w_mm, "height": paper_h_mm}
-                    meta["paper_detection_confidence"] = 1.0
+                        # התאמת כיוון (portrait/landscape) לפי יחס התמונה
+                        if meta.get("image_size_px"):
+                            w_px = meta["image_size_px"]["width"]
+                            h_px = meta["image_size_px"]["height"]
+                            if w_px > h_px and paper_w_mm < paper_h_mm:
+                                paper_w_mm, paper_h_mm = paper_h_mm, paper_w_mm
 
-                    # חישוב mm_per_pixel מחדש
-                    if meta.get("image_size_px"):
-                        w_px = meta["image_size_px"]["width"]
-                        h_px = meta["image_size_px"]["height"]
+                        # עדכון metadata
+                        meta["paper_size_detected"] = selected_paper
+                        meta["paper_mm"] = {"width": paper_w_mm, "height": paper_h_mm}
+                        meta["paper_detection_confidence"] = 1.0
 
-                        mm_per_pixel_x = paper_w_mm / w_px
-                        mm_per_pixel_y = paper_h_mm / h_px
-                        mm_per_pixel = (mm_per_pixel_x + mm_per_pixel_y) / 2
+                        # חישוב mm_per_pixel מחדש
+                        if meta.get("image_size_px"):
+                            w_px = meta["image_size_px"]["width"]
+                            h_px = meta["image_size_px"]["height"]
 
-                        meta["mm_per_pixel"] = mm_per_pixel
+                            mm_per_pixel_x = paper_w_mm / w_px
+                            mm_per_pixel_y = paper_h_mm / h_px
+                            mm_per_pixel = (mm_per_pixel_x + mm_per_pixel_y) / 2
 
-                        # חישוב meters_per_pixel מחדש
-                        scale_denom = meta.get("scale_denominator")
-                        if scale_denom:
-                            meters_per_pixel = (mm_per_pixel * scale_denom) / 1000
-                            meta["meters_per_pixel"] = meters_per_pixel
+                            meta["mm_per_pixel"] = mm_per_pixel
 
-                            # חישוב אורך קירות מחדש
-                            if meta.get("wall_length_total_px"):
-                                wall_length_m = (
-                                    meta["wall_length_total_px"] * meters_per_pixel
-                                )
-                                meta["wall_length_total_m"] = wall_length_m
+                            # חישוב meters_per_pixel מחדש
+                            scale_denom = meta.get("scale_denominator")
+                            if scale_denom:
+                                meters_per_pixel = (mm_per_pixel * scale_denom) / 1000
+                                meta["meters_per_pixel"] = meters_per_pixel
 
-                    st.success(f"✅ גודל נייר עודכן ל-{selected_paper}")
-                    st.rerun()
-                elif paper_override_key in st.session_state:
-                    del st.session_state[paper_override_key]
+                                # חישוב אורך קירות מחדש
+                                if meta.get("wall_length_total_px"):
+                                    wall_length_m = (
+                                        meta["wall_length_total_px"] * meters_per_pixel
+                                    )
+                                    meta["wall_length_total_m"] = wall_length_m
+
+                        st.success(f"✅ גודל נייר עודכן ל-{selected_paper}")
+                        st.rerun()
+                else:
+                    if prev_override is not None:
+                        del st.session_state[paper_override_key]
+                        st.rerun()
 
                 # Debug - למה לא זוהה?
                 if not scale_denom:

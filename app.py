@@ -485,39 +485,36 @@ if mode == "🏢 מנהל פרויקט":
                         st.metric(
                             "קנה מידה", f"1:{scale_denom}" if scale_denom else "לא זוהה"
                         )
-                    # Debug - למה לא זוהה?
-scale_denom = meta.get("scale_denominator")
-if not scale_denom:
-    st.markdown("---")
-    st.markdown("#### 🔍 למה קנה מידה לא זוהה?")
+    # Debug - למה לא זוהה?
+                    if not scale_denom:
+                        st.markdown("---")
+                        st.markdown("#### 🔍 למה קנה מידה לא זוהה?")
 
-    with st.container():
-        st.write("**מקורות שנבדקו:**")
-        st.write(f"1. meta['scale'] = `{meta.get('scale', 'לא קיים')}`")
-        st.write(
-            f"2. meta['raw_text'][:200] = `{meta.get('raw_text', 'לא קיים')[:200]}`"
-        )
+                        with st.container():
+                            st.write("**מקורות שנבדקו:**")
+                            st.write(f"1. meta['scale'] = `{meta.get('scale', 'לא קיים')}`")
+                            st.write(f"2. meta['raw_text'][:200] = `{meta.get('raw_text', 'לא קיים')[:200]}`")
 
-        # ניסיון ידני
-        st.markdown("**ניסיון ידני:**")
-        manual_scale_text = st.text_input(
-            "הזן קנה מידה ידנית (לדוגמה: 1:50):", key=f"manual_scale_{selected}"
-        )
+                            # ניסיון ידני
+                            st.markdown("**ניסיון ידני:**")
+                            manual_scale_text = st.text_input(
+                                "הזן קנה מידה ידנית (לדוגמה: 1:50):", 
+                                key=f"manual_scale_{selected}"
+                            )
 
-        if manual_scale_text and st.button("החל", key=f"apply_scale_{selected}"):
-            from analyzer import parse_scale
+                            if manual_scale_text and st.button("החל", key=f"apply_scale_{selected}"):
+                                from analyzer import parse_scale
+                                parsed = parse_scale(manual_scale_text)
+                                if parsed:
+                                    meta["scale_denominator"] = parsed
+                                    meta["scale"] = manual_scale_text
+                                    st.success(f"✅ קנה מידה עודכן ל-1:{parsed}")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ לא הצלחתי לפרסר את הקנה מידה")
 
-            parsed = parse_scale(manual_scale_text)
-            if parsed:
-                meta["scale_denominator"] = parsed
-                meta["scale"] = manual_scale_text
-                st.success(f"✅ קנה מידה עודכן ל-1:{parsed}")
-                st.rerun()
-            else:
-                st.error("❌ לא הצלחתי לפרסר את הקנה מידה")
-
-                # תצוגת יחס המרה
-                if meta.get("meters_per_pixel"):
+                    # תצוגת יחס המרה
+                    if meta.get("meters_per_pixel"):
                     st.success(
                         f"✅ יחס המרה: **{meta['meters_per_pixel']*1000:.3f} מ\"מ/פיקסל** → **{meta['meters_per_pixel']:.6f} מ'/פיקסל**"
                     )

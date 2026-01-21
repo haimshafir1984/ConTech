@@ -787,12 +787,72 @@ class FloorPlanAnalyzer:
 
             doc.close()
 
+        # === חישובי מדידה מדויקים (Stage 1 + 2) ===
+        try:
+            doc = fitz.open(pdf_path)
+            page = doc[0]
+            
+            # Stage 1: זיהוי גודל נייר
+            paper_info = detect_paper_size_mm(page)
+            meta['paper_size_detected'] = paper_info['detected_size']
+            meta['paper_mm'] = {
+                'width': paper_info['width_mm'],
+                'height': paper_info['height_mm']
+            }
+            meta['paper_detection_error_mm'] = paper_info['error_mm']
+            meta['paper_detection_confidence'] = paper_info['confidence']
+            
+            # חילוץ קנה מידה מטקסט
+            scale_denom = None
+            
+            # 1. אם כבר חולץ scale_text קודם
+            if meta.get('scale'):
+                scale_denom = parse_scale(meta['scale'])
+            
+            # 2. אם לא, נסה מהטקסט הגולמי
+            if not scale_denom and meta.get('raw_text'):
+                scale_denom = parse_scale(meta['raw_text'])
+            
+            meta['scale_denominator'] = scale_denom
+            
+            # חישוב mm_per_pixel
+            if image_proc is not None:
+                h, w = image_proc.shape[:2]
+                mm_per_pixel_x = paper_info['width_mm'] / w
+                mm_per_pixel_y = paper_info['height_mm'] / h
+                mm_per_pixel = (mm_per_pixel_x + mm_per_pixel_y) / 2
+                
+                meta['mm_per_pixel'] = mm_per_pixel
+                meta['image_size_px'] = {'width': w, 'height': h}
+                
+                # חישוב meters_per_pixel
+                if scale_denom:
+                    meters_per_pixel = (mm_per_pixel * scale_denom) / 1000
+                    meta['meters_per_pixel'] = meters_per_pixel
+                    meta['measurement_confidence'] = paper_info['confidence']
+                else:
+                    meta['meters_per_pixel'] = None
+                    meta['measurement_confidence'] = 0.0
+            
+            # Stage 2: מדידת אורך skeleton
+            skeleton_length_px = compute_skeleton_length_px(skel)
+            meta['wall_length_total_px'] = skeleton_length_px
+            
+            if meta.get('meters_per_pixel'):
+                wall_length_m = skeleton_length_px * meta['meters_per_pixel']
+                meta['wall_length_total_m'] = wall_length_m
+                meta['wall_length_method'] = 'skeleton_based'
+            else:
+                meta['wall_length_total_m'] = None
+                meta['wall_length_method'] = 'insufficient_data'
+            
+            doc.close()
+            
         except Exception as e:
             # אם נכשל - לא לשבור את כל התהליך
-            meta["measurement_error"] = str(e)
-            meta["meters_per_pixel"] = None
-            meta["wall_length_total_m"] = None
-
+            meta['measurement_error'] = str(e)
+            meta['meters_per_pixel'] = None
+            meta['wall_length_total_m'] = None
         return (
             pix,
             skel,

@@ -484,6 +484,7 @@ if mode == "🏢 מנהל פרויקט":
                         scale_denom = meta.get("scale_denominator")
                         st.metric(
                             "קנה מידה", f"1:{scale_denom}" if scale_denom else "לא זוהה"
+                            )
                             # Debug - למה לא זוהה?
                     if not scale_denom:
                         with st.expander("🔍 למה קנה מידה לא זוהה?"):

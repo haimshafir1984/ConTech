@@ -378,6 +378,11 @@ def render_workshop_tab():
                                 st.rerun()
                             else:
                                 st.error("❌ לא הצלחתי לפרסר את הקנה מידה")
+                                # ============================================
+                # 📊 תצוגת נתוני חישוב מה-PDF
+                # ============================================
+                st.markdown("---")
+                st.markdown("#### 📊 נתוני חישוב מה-PDF")
 
                 # בדיקה האם יש נתונים
                 has_data = all(
@@ -422,7 +427,28 @@ def render_workshop_tab():
                     with col_r3:
                         st.markdown(f"**מטר/px**  \n`{m_per_px:.6f}`")
 
-                    # 3. תוצאות סופיות
+                    # 3. חישוב מפורט
+                    st.markdown("**3️⃣ חישוב צעד אחר צעד:**")
+                    with st.expander("👁️ הצג נוסחאות", expanded=True):
+                        st.code(
+                            f"""
+נוסחאות החישוב:
+
+1. מ"מ/פיקסל = גודל נייר במ"מ / גודל תמונה בפיקסלים
+   mm_per_pixel_x = {paper_w} / {img_w} = {paper_w/img_w:.4f}
+   mm_per_pixel_y = {paper_h} / {img_h} = {paper_h/img_h:.4f}
+   mm_per_pixel = ממוצע = {mm_per_px:.4f}
+
+2. מטר/פיקסל = (מ"מ/פיקסל × קנה מידה) / 1000
+   meters_per_pixel = ({mm_per_px:.4f} × {scale_denom}) / 1000
+   meters_per_pixel = {m_per_px:.6f}
+
+3. אורך קירות במטרים = פיקסלי קירות × מטר/פיקסל
+                        """,
+                            language="text",
+                        )
+
+                    # 4. תוצאות סופיות
                     if meta.get("wall_length_total_px"):
                         wall_px = meta["wall_length_total_px"]
                         wall_m = meta.get("wall_length_total_m", wall_px * m_per_px)

@@ -429,7 +429,8 @@ def render_workshop_tab():
 
                     # 3. חישוב מפורט
                     st.markdown("**3️⃣ חישוב צעד אחר צעד:**")
-                    with st.expander("👁️ הצג נוסחאות", expanded=True):
+                    show_formulas = st.checkbox("👁️ הצג נוסחאות", value=True, key=f"show_formulas_{selected}")
+                    if show_formulas:
                         st.code(
                             f"""
 נוסחאות החישוב:
@@ -447,6 +448,13 @@ def render_workshop_tab():
                         """,
                             language="text",
                         )
+
+                    # אם לא התקבל wall_length_total_px מהאנלייזר, ננסה לחשב מה-skeleton
+                    if not meta.get("wall_length_total_px") and proj.get("skeleton") is not None:
+                        try:
+                            meta["wall_length_total_px"] = float(compute_skeleton_length_px(proj["skeleton"]))
+                        except Exception:
+                            pass
 
                     # 4. תוצאות סופיות
                     if meta.get("wall_length_total_px"):

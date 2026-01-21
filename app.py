@@ -269,15 +269,10 @@ if mode == "🏢 מנהל פרויקט":
                                             """
                                             )
 
-                                            st.metric(
-                                                "Confidence ממוצע", f"{
-                                                    meta.get(
-                                                        'confidence_avg', 0):.2f}", )
-                                            st.metric(
-                                                "פיקסלי טקסט שהוסרו", f"{
-                                                    meta.get(
-                                                        'text_removed_pixels', 0):,}", )
-
+                                            st.metric("Confidence ממוצע", f"{meta.get('confidence_avg', 0):.2f}", )     
+                                            st.metric("פיקסלי טקסט שהוסרו", f"{meta.get('text_removed_pixels', 0):,}", )
+                                                
+                                                                                       
                                 # 🆕 ניקוי זיכרון מיידי
                                 del orig, skel
                                 if debug_img is not None:

@@ -486,6 +486,7 @@ if mode == "🏢 מנהל פרויקט":
                             "קנה מידה", f"1:{scale_denom}" if scale_denom else "לא זוהה"
                         )
                     # Debug - למה לא זוהה?
+scale_denom = meta.get("scale_denominator")
 if not scale_denom:
     st.markdown("---")
     st.markdown("#### 🔍 למה קנה מידה לא זוהה?")

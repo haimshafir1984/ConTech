@@ -515,7 +515,7 @@ if mode == "🏢 מנהל פרויקט":
 
                     # תצוגת יחס המרה
                     if meta.get("meters_per_pixel"):
-                    st.success(
+                        st.success(
                         f"✅ יחס המרה: **{meta['meters_per_pixel']*1000:.3f} מ\"מ/פיקסל** → **{meta['meters_per_pixel']:.6f} מ'/פיקסל**"
                     )
 

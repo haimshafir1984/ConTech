@@ -374,14 +374,122 @@ def render_workshop_tab():
                             if parsed:
                                 meta["scale_denominator"] = parsed
                                 meta["scale"] = manual_scale_text
+                                
+                                # חישוב meters_per_pixel מחדש
+                                if meta.get("mm_per_pixel"):
+                                    meters_per_pixel = (meta["mm_per_pixel"] * parsed) / 1000
+                                    meta["meters_per_pixel"] = meters_per_pixel
+                                    
+                                    # חישוב אורך קירות מחדש
+                                    if meta.get("wall_length_total_px"):
+                                        wall_length_m = (
+                                            meta["wall_length_total_px"] * meters_per_pixel
+                                        )
+                                        meta["wall_length_total_m"] = wall_length_m
+                                
                                 st.success(f"✅ קנה מידה עודכן ל-1:{parsed}")
                                 st.rerun()
                             else:
                                 st.error("❌ לא הצלחתי לפרסר את הקנה מידה")
 
-                # תצוגת יחס המרה
+                # ============================================
+                # 📊 תצוגת נתוני חישוב מה-PDF
+                # ============================================
+                st.markdown("---")
+                st.markdown("#### 📊 נתוני חישוב מה-PDF")
+                
+                # בדיקה האם יש נתונים
+                has_data = all([
+                    meta.get("paper_size_detected"),
+                    meta.get("image_size_px"),
+                    meta.get("scale_denominator"),
+                    meta.get("mm_per_pixel"),
+                    meta.get("meters_per_pixel")
+                ])
+                
+                if has_data:
+                    # 1. גודל נייר וגודל תמונה
+                    st.markdown("**1️⃣ גודל נייר ותמונה:**")
+                    col_p1, col_p2 = st.columns(2)
+                    with col_p1:
+                        paper_w = meta["paper_mm"]["width"]
+                        paper_h = meta["paper_mm"]["height"]
+                        st.info(f"📄 נייר: {meta['paper_size_detected']} ({paper_w}×{paper_h} מ\"מ)")
+                    with col_p2:
+                        img_w = meta["image_size_px"]["width"]
+                        img_h = meta["image_size_px"]["height"]
+                        st.info(f"🖼️ תמונה: {img_w}×{img_h} פיקסלים")
+                    
+                    # 2. יחסי המרה
+                    st.markdown("**2️⃣ יחסי המרה:**")
+                    mm_per_px = meta["mm_per_pixel"]
+                    m_per_px = meta["meters_per_pixel"]
+                    scale_denom = meta["scale_denominator"]
+                    
+                    col_r1, col_r2, col_r3 = st.columns(3)
+                    with col_r1:
+                        st.metric("מ\"מ/פיקסל", f"{mm_per_px:.3f}")
+                    with col_r2:
+                        st.metric("קנה מידה", f"1:{scale_denom}")
+                    with col_r3:
+                        st.metric("מטר/פיקסל", f"{m_per_px:.6f}")
+                    
+                    # 3. חישוב מפורט
+                    st.markdown("**3️⃣ חישוב צעד אחר צעד:**")
+                    with st.expander("👁️ הצג נוסחאות", expanded=True):
+                        st.code(f"""
+נוסחאות החישוב:
+
+1. מ"מ/פיקסל = גודל נייר במ"מ / גודל תמונה בפיקסלים
+   mm_per_pixel_x = {paper_w} / {img_w} = {paper_w/img_w:.4f}
+   mm_per_pixel_y = {paper_h} / {img_h} = {paper_h/img_h:.4f}
+   mm_per_pixel = ממוצע = {mm_per_px:.4f}
+
+2. מטר/פיקסל = (מ"מ/פיקסל × קנה מידה) / 1000
+   meters_per_pixel = ({mm_per_px:.4f} × {scale_denom}) / 1000
+   meters_per_pixel = {m_per_px:.6f}
+
+3. אורך קירות במטרים = פיקסלי קירות × מטר/פיקסל
+                        """, language="text")
+                    
+                    # 4. תוצאות סופיות
+                    if meta.get("wall_length_total_px"):
+                        wall_px = meta["wall_length_total_px"]
+                        wall_m = meta.get("wall_length_total_m", wall_px * m_per_px)
+                        
+                        st.markdown("**4️⃣ תוצאות:**")
+                        col_w1, col_w2 = st.columns(2)
+                        with col_w1:
+                            st.success(f"📏 קירות: **{wall_px:.0f}** פיקסלים")
+                        with col_w2:
+                            st.success(f"📐 קירות: **{wall_m:.2f}** מטר")
+                    else:
+                        st.warning("⚠️ לא זוהו קירות עדיין")
+                    
+                    # 5. סטטוס כללי
+                    st.markdown("---")
+                    st.success("✅ כל הנתונים זמינים - המערכת מוכנה לחישובים!")
+                    
+                else:
+                    # אין נתונים מספיקים
+                    st.warning("⚠️ חסרים נתונים לחישוב")
+                    
+                    missing = []
+                    if not meta.get("paper_size_detected") or meta.get("paper_size_detected") == "unknown":
+                        missing.append("📄 גודל נייר (בחר ידנית למעלה)")
+                    if not meta.get("scale_denominator"):
+                        missing.append("📏 קנה מידה (הזן ידנית למעלה)")
+                    if not meta.get("image_size_px"):
+                        missing.append("🖼️ גודל תמונה (שגיאת עיבוד PDF)")
+                    
+                    st.markdown("**חסר:**")
+                    for item in missing:
+                        st.markdown(f"- {item}")
+                
+                # תצוגת יחס המרה (השורות הישנות - נשארות לתאימות לאחור)
                 if meta.get("meters_per_pixel"):
-                    st.success(
+                    st.markdown("---")
+                    st.info(
                         f"✅ יחס המרה: {meta['meters_per_pixel']*1000:.3f} מ\"מ/פיקסל → {meta['meters_per_pixel']:.6f} מ'/פיקסל"
                     )
 
@@ -391,6 +499,7 @@ def render_workshop_tab():
                         )
                 else:
                     st.warning("⚠️ לא ניתן לחשב יחס המרה - חסר קנה מידה או גודל נייר")
+
 
             # מחשבון הצעת מחיר
             with st.expander("💰 מחשבון הצעת מחיר", expanded=False):

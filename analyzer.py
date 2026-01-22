@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import fitz
 from typing import Tuple, Dict, Optional
+from preprocessing import apply_crop
 import os
 import gc
 import re
@@ -557,11 +558,17 @@ class FloorPlanAnalyzer:
     # ==========================================
     # MAIN PROCESSING
     # ==========================================
-    def process_file(self, pdf_path: str, save_debug=False):
+    def process_file(self, pdf_path: str, save_debug=False, crop_bbox=None):
         """
         עיבוד מרכזי עם multi-pass filtering
         """
-        image_proc = self.pdf_to_image(pdf_path)
+        image_full = self.pdf_to_image(pdf_path)
+        full_gray = cv2.cvtColor(image_full, cv2.COLOR_BGR2GRAY)
+        full_h, full_w = full_gray.shape
+
+        # אם המשתמש בחר אזור חיתוך – ננתח גיאומטריה רק עליו, אבל נשמור טקסט/מקרא מהדף המלא
+        image_proc, crop_meta = apply_crop(image_full, crop_bbox)
+
         gray = cv2.cvtColor(image_proc, cv2.COLOR_BGR2GRAY)
         h, w = gray.shape
 
@@ -748,15 +755,18 @@ class FloorPlanAnalyzer:
 
             meta["scale_denominator"] = scale_denom
 
-            # חישוב mm_per_pixel
-            if image_proc is not None:
-                h, w = image_proc.shape[:2]
-                mm_per_pixel_x = paper_info["width_mm"] / w
-                mm_per_pixel_y = paper_info["height_mm"] / h
+            # חישוב mm_per_pixel (מבוסס על גודל הדף המלא, לא על אזור החיתוך)
+            if image_full is not None:
+                mm_per_pixel_x = paper_info["width_mm"] / full_w
+                mm_per_pixel_y = paper_info["height_mm"] / full_h
                 mm_per_pixel = (mm_per_pixel_x + mm_per_pixel_y) / 2
 
                 meta["mm_per_pixel"] = mm_per_pixel
-                meta["image_size_px"] = {"width": w, "height": h}
+                meta["image_size_px"] = {"width": full_w, "height": full_h}
+
+                # מידע על אזור הניתוח (אם יש crop)
+                meta["analysis_crop"] = crop_meta
+                meta["analysis_image_size_px"] = {"width": w, "height": h}
 
                 # חישוב meters_per_pixel
                 if scale_denom:

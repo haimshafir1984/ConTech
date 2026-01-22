@@ -1,28 +1,24 @@
 """
 ConTech Pro - Manager Pages
-חייב לכלול את הפונקציות שהאפליקציה מייבאת ב-app.py:
-- render_workshop_tab
-- render_corrections_tab
-- render_dashboard_tab
-- render_invoices_tab
+מכיל את כל הטאבים של מצב מנהל
 """
 
-import os
-import json
-import tempfile
-from datetime import datetime
-
+import streamlit as st
 import cv2
 import numpy as np
 import pandas as pd
-import streamlit as st
+import tempfile
+import os
+import json
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
+from datetime import datetime
 
 from analyzer import FloorPlanAnalyzer, compute_skeleton_length_px
 from reporter import generate_status_pdf, generate_payment_invoice_pdf
 from database import (
     save_plan,
+    get_plan_by_id,
     get_progress_reports,
     get_project_forecast,
     get_project_financial_status,
@@ -39,392 +35,388 @@ from utils import (
 )
 
 
-# --------------------------------------------------------------------------------------
-# Session State
-# --------------------------------------------------------------------------------------
-def _ensure_state():
-    if "projects" not in st.session_state:
-        st.session_state.projects = {}
-    if "manual_corrections" not in st.session_state:
-        st.session_state.manual_corrections = {}
-
-
-# --------------------------------------------------------------------------------------
-# Small helpers
-# --------------------------------------------------------------------------------------
-def _bgr_to_rgb(img_bgr: np.ndarray) -> np.ndarray:
-    return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-
-
-def _pil_from_bgr(img_bgr: np.ndarray) -> Image.Image:
-    return Image.fromarray(_bgr_to_rgb(img_bgr))
-
-
-def _clamp_bbox(x, y, w, h, W, H):
-    x = int(max(0, min(x, W - 1)))
-    y = int(max(0, min(y, H - 1)))
-    w = int(max(1, min(w, W - x)))
-    h = int(max(1, min(h, H - y)))
-    return x, y, w, h
-
-
-def _extract_bbox_from_canvas(canvas_result):
-    """
-    מחלץ bbox (x,y,w,h) מתוך streamlit-drawable-canvas אם צויר rect.
-    """
-    if not canvas_result or not getattr(canvas_result, "json_data", None):
-        return None
-    data = canvas_result.json_data or {}
-    objs = data.get("objects") or []
-    rects = [o for o in objs if o.get("type") in ("rect", "rectangle")]
-    if not rects:
-        return None
-    r = rects[-1]
-    x = r.get("left")
-    y = r.get("top")
-    w = r.get("width")
-    h = r.get("height")
-    if x is None or y is None or w is None or h is None:
-        return None
-    sx = r.get("scaleX", 1.0) or 1.0
-    sy = r.get("scaleY", 1.0) or 1.0
-    w = w * sx
-    h = h * sy
-    return int(x), int(y), int(w), int(h)
-
-
-def _normalize_analyzer_result(res):
-    """
-    תומך גם בפורמט tuple של האנלייזר המקורי וגם בפורמט dict (אם שינית).
-    מחזיר:
-      pix, skel, thick, orig, meta, conc, blok, floor, debug_img
-    """
-    if isinstance(res, dict):
-        pix = res.get("raw_pixels") or res.get("pix") or 0.0
-        skel = res.get("skeleton")
-        thick = res.get("thick_walls") or res.get("final_walls") or res.get("walls")
-        orig = res.get("original") or res.get("image") or res.get("image_proc")
-        meta = res.get("metadata") or {}
-        conc = res.get("concrete_mask")
-        blok = res.get("blocks_mask")
-        floor = res.get("flooring_mask")
-        debug_img = res.get("debug_image")
-        return pix, skel, thick, orig, meta, conc, blok, floor, debug_img
-
-    # tuple המקורי: (pix, skel, final_walls, image_proc, meta, concrete, blocks_mask, flooring, debug_img)
-    if isinstance(res, tuple) and len(res) >= 9:
-        pix, skel, thick, orig, meta, conc, blok, floor, debug_img = res[:9]
-        return pix, skel, thick, orig, meta, conc, blok, floor, debug_img
-
-    # fallback
-    return 0.0, None, None, None, {}, None, None, None, None
-
-
 def get_corrected_walls(selected_plan, proj):
     """מחזיר את מסכת הקירות המתוקנת (אם יש תיקונים)"""
     if selected_plan in st.session_state.manual_corrections:
         corrections = st.session_state.manual_corrections[selected_plan]
         corrected = proj["thick_walls"].copy()
 
-        if "added_walls" in corrections and corrections["added_walls"] is not None:
+        if "added_walls" in corrections:
             corrected = cv2.bitwise_or(corrected, corrections["added_walls"])
 
-        if "removed_walls" in corrections and corrections["removed_walls"] is not None:
+        if "removed_walls" in corrections:
             corrected = cv2.subtract(corrected, corrections["removed_walls"])
 
         return corrected
-    return proj["thick_walls"]
+    else:
+        return proj["thick_walls"]
 
 
-# --------------------------------------------------------------------------------------
-# TAB 1: Workshop
-# --------------------------------------------------------------------------------------
 def render_workshop_tab():
-    _ensure_state()
+    """טאב 1: סדנת עבודה - העלאה ועריכה"""
 
-    st.markdown("## 🧰 סדנת עבודה")
+    # במקום expander (כדי למנוע nested expander כשיש בפנים expander של "פרטי שגיאה")
+    st.markdown("### 📤 העלאת קבצים")
 
-    # ⛔ אין expander חיצוני כדי לא ליפול על nested expander
-    files = st.file_uploader(
-        "גרור PDF או לחץ לבחירה",
-        type="pdf",
-        accept_multiple_files=True,
-        key="mgr_uploader",
-    )
-
-    colA, colB = st.columns([1, 1], gap="medium")
-    with colA:
-        show_debug = st.checkbox("הצג Debug", value=False)
-    with colB:
-        debug_mode = st.selectbox(
-            "מצב Debug",
-            ["בסיסי", "מפורט - שכבות"],
-            index=0,
-            disabled=not show_debug,
+    files_container = st.container()
+    with files_container:
+        files = st.file_uploader(
+            "גרור PDF או לחץ לבחירה", type="pdf", accept_multiple_files=True
         )
+        debug_mode = st.selectbox(
+            "מצב Debug", ["בסיסי", "מפורט - שכבות", "מלא - עם confidence"], index=0
+        )
+        show_debug = debug_mode != "בסיסי"
 
-    st.markdown("---")
+        if files:
+            for f in files:
+                if f.name not in st.session_state.projects:
+                    with st.spinner(f"מעבד {f.name} עם Multi-Pass Detection..."):
+                        try:
+                            with tempfile.NamedTemporaryFile(
+                                delete=False, suffix=".pdf"
+                            ) as tmp:
+                                tmp.write(f.getvalue())
+                                path = tmp.name
 
-    # ניתוח קבצים
-    if files:
-        for f in files:
-            st.markdown(f"### 📄 {f.name}")
+                            analyzer = FloorPlanAnalyzer()
+                            (
+                                pix,
+                                skel,
+                                thick,
+                                orig,
+                                meta,
+                                conc,
+                                blok,
+                                floor,
+                                debug_img,
+                            ) = analyzer.process_file(path, save_debug=show_debug)
 
-            # קובץ זמני
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(f.getbuffer())
-                path = tmp.name
+                            if not meta.get("plan_name"):
+                                meta["plan_name"] = (
+                                    f.name.replace(".pdf", "").replace("-", " ").strip()
+                                )
 
-            # Preview + Crop ROI
-            crop_bbox = None
-            preview_img = None
-            try:
-                analyzer_preview = FloorPlanAnalyzer()
-                preview_img = analyzer_preview.pdf_to_image(path)
-                st.image(
-                    _bgr_to_rgb(preview_img),
-                    caption="תצוגה מקדימה",
-                    use_container_width=True,
-                )
-            except Exception as e:
-                st.warning(f"לא הצלחתי להציג תצוגה מקדימה: {e}")
-
-            if preview_img is not None:
-                st.markdown("#### ✂️ חיתוך אזור שרטוט (אופציונלי)")
-                st.caption(
-                    "צייר מלבן סביב השרטוט כדי למדוד רק את האזור הזה (הטקסטים בצד לא ייכנסו לחישוב)."
-                )
-
-                canvas_result = st_canvas(
-                    fill_color="rgba(255, 0, 0, 0.05)",
-                    stroke_width=2,
-                    stroke_color="rgba(255, 0, 0, 0.8)",
-                    background_image=_pil_from_bgr(preview_img),
-                    update_streamlit=True,
-                    drawing_mode="rect",
-                    height=min(650, preview_img.shape[0]),
-                    width=min(1200, preview_img.shape[1]),
-                    key=f"crop_canvas_{f.name}",
-                )
-                bbox = _extract_bbox_from_canvas(canvas_result)
-                if bbox:
-                    x, y, w, h = bbox
-                    H, W = preview_img.shape[:2]
-                    x, y, w, h = _clamp_bbox(x, y, w, h, W, H)
-                    crop_bbox = {"x": x, "y": y, "w": w, "h": h}
-                    st.success(f"✅ ROI: x={x}, y={y}, w={w}, h={h}")
-                else:
-                    st.info("לא נבחר ROI — הניתוח יתבצע על כל הדף.")
-
-            run_btn = st.button(
-                "🚀 נתח והוסף", key=f"run_{f.name}", use_container_width=True
-            )
-
-            if run_btn:
-                try:
-                    analyzer = FloorPlanAnalyzer()
-
-                    # נסה להריץ עם crop_bbox אם האנלייזר תומך. אם לא — fallback.
-                    try:
-                        res = analyzer.process_file(
-                            path, save_debug=show_debug, crop_bbox=crop_bbox
-                        )
-                    except TypeError:
-                        res = analyzer.process_file(path, save_debug=show_debug)
-
-                    pix, skel, thick, orig, meta, conc, blok, floor, debug_img = (
-                        _normalize_analyzer_result(res)
-                    )
-
-                    # שילוב LLM מטא־דאטה אם קיים raw_text
-                    llm_data = {}
-                    try:
-                        if isinstance(meta, dict) and meta.get("raw_text"):
-                            llm_data = safe_process_metadata(meta["raw_text"])
-                            if isinstance(llm_data, dict):
+                            if meta.get("raw_text"):
+                                llm_data = safe_process_metadata(meta["raw_text"])
                                 meta.update({k: v for k, v in llm_data.items() if v})
-                    except Exception:
-                        llm_data = {}
 
-                    st.session_state.projects[f.name] = {
-                        "skeleton": skel,
-                        "thick_walls": thick,
-                        "original": orig,
-                        "raw_pixels": float(pix or 0.0),
-                        "scale": 200.0,  # fallback legacy px/meter
-                        "metadata": meta if isinstance(meta, dict) else {},
-                        "concrete_mask": conc,
-                        "blocks_mask": blok,
-                        "flooring_mask": floor,
-                        "total_length": (float(pix or 0.0) / 200.0) if pix else 0.0,
-                        "llm_suggestions": (
-                            llm_data if meta and isinstance(meta, dict) else {}
-                        ),
-                        "debug_layers": getattr(analyzer, "debug_layers", {}),
-                        "analysis_crop": crop_bbox,
-                    }
+                            # שמירה ל-session
+                            st.session_state.projects[f.name] = {
+                                "skeleton": skel,
+                                "thick_walls": thick,
+                                "original": orig,
+                                "raw_pixels": pix,
+                                "scale": 200.0,
+                                "metadata": meta,
+                                "concrete_mask": conc,
+                                "blocks_mask": blok,
+                                "flooring_mask": floor,
+                                "total_length": pix / 200.0,
+                                "llm_suggestions": (
+                                    llm_data if meta.get("raw_text") else {}
+                                ),
+                                "debug_image": debug_img,
+                                "debug_layers": analyzer.debug_layers,
+                                "confidence_map": analyzer.confidence_map,
+                            }
 
-                    # Debug תצוגה (ללא expanders מקוננים)
-                    if show_debug and debug_img is not None:
-                        st.markdown("#### 🔍 Debug")
-                        st.image(
-                            debug_img, caption="תוצאה משולבת", use_container_width=True
-                        )
+                            try:
+                                os.unlink(path)
+                            except Exception:
+                                pass
 
-                    st.success(f"✅ {f.name} נותח ונוסף לרשימה")
-                    try:
-                        os.unlink(path)
-                    except Exception:
-                        pass
+                        except Exception as e:
+                            st.error(f"שגיאה: {str(e)}")
+                            import traceback
 
-                    st.rerun()
+                            with st.expander("פרטי שגיאה"):
+                                st.code(traceback.format_exc())
 
-                except Exception as e:
-                    st.error(f"שגיאה: {str(e)}")
-                    import traceback
+    if st.session_state.projects:
+        st.markdown("---")
+        selected = st.selectbox(
+            "בחר תוכנית לעריכה:", list(st.session_state.projects.keys())
+        )
+        if selected is None or selected not in st.session_state.projects:
+            st.warning("בחר תוכנית כדי להמשיך.")
+            return
+        proj = st.session_state.projects[selected]
 
-                    st.code(traceback.format_exc())
+        name_key = f"name_{selected}"
+        scale_key = f"scale_text_{selected}"
+        if name_key not in st.session_state:
+            st.session_state[name_key] = proj["metadata"].get("plan_name", "")
+        if scale_key not in st.session_state:
+            st.session_state[scale_key] = proj["metadata"].get("scale", "")
+
+        col_edit, col_preview = st.columns([1, 1.5], gap="large")
+
+        with col_edit:
+            st.markdown("### הגדרות תוכנית")
+
+            if selected in st.session_state.manual_corrections:
+                st.success("✏️ תוכנית זו תוקנה ידנית")
+
+            p_name = st.text_input("שם התוכנית", key=name_key)
+
+            p_scale_text = st.text_input("קנה מידה (לדוגמה 1:50)", key=scale_key)
+
+            # Legacy scale slider (px per meter)
+            scale_val = st.slider(
+                "פיקסלים למטר (Legacy)",
+                10.0,
+                1000.0,
+                float(proj.get("scale", 200.0)),
+                key=f"scale_slider_{selected}",
+            )
+            proj["scale"] = scale_val
+
+            corrected_walls = get_corrected_walls(selected, proj)
+            corrected_pixels = int(np.count_nonzero(corrected_walls))
+
+            total_len = corrected_pixels / scale_val
+
+            st.write(f"🧱 פיקסלים (קירות): {corrected_pixels:,}")
+            st.write(f"📏 אורך קירות (Legacy, מטר): {total_len:.2f}")
 
             st.markdown("---")
 
-    # ✅ Guard: אם אין פרויקטים — לא מציגים selectbox שמחזיר None
-    if not st.session_state.projects:
-        st.info("📂 עדיין לא נטענו תוכניות. העלה PDF כדי להתחיל.")
-        return
+            # ------------------------------------------------------------
+            # 📐 מדידות מתקדמות (Stage 1 + 2)
+            # ------------------------------------------------------------
+            with st.expander("📐 מדידות מתקדמות (Stage 1 + 2)", expanded=True):
+                meta = proj.get("metadata", {})
 
-    st.markdown("## 📌 תוכניות שנטענו")
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    paper_size = meta.get("paper_size_detected", "unknown")
+                    st.metric("גודל נייר", paper_size)
+                with col_b:
+                    conf = meta.get("paper_detection_confidence", 0) * 100
+                    st.metric("ביטחון זיהוי", f"{conf:.0f}%")
+                with col_c:
+                    scale_denom = meta.get("scale_denominator")
+                    st.metric(
+                        "קנה מידה", f"1:{scale_denom}" if scale_denom else "לא זוהה"
+                    )
 
-    selected = st.selectbox(
-        "בחר תוכנית לעריכה:",
-        list(st.session_state.projects.keys()),
-        key="mgr_select_plan",
-    )
-    if selected is None or selected not in st.session_state.projects:
-        st.warning("בחר תוכנית כדי להמשיך.")
-        return
+                # בחירת גודל נייר ידנית
+                st.markdown("---")
+                st.markdown("#### 📄 Override גודל נייר")
 
-    proj = st.session_state.projects[selected]
+                paper_override_key = f"paper_override_{selected}"
+                current_detected = meta.get("paper_size_detected", "unknown")
 
-    name_key = f"name_{selected}"
-    scale_key = f"scale_text_{selected}"
-    if name_key not in st.session_state:
-        st.session_state[name_key] = proj.get("metadata", {}).get("plan_name", "")
-    if scale_key not in st.session_state:
-        st.session_state[scale_key] = proj.get("metadata", {}).get("scale", "")
+                paper_options = ["זיהוי אוטומטי", "A0", "A1", "A2", "A3", "A4"]
+                default_idx = 0
+                if paper_override_key in st.session_state:
+                    try:
+                        default_idx = paper_options.index(
+                            st.session_state[paper_override_key]
+                        )
+                    except ValueError:
+                        default_idx = 0
 
-    col_edit, col_preview = st.columns([1, 1.5], gap="large")
-
-    # ---------------------------
-    # Edit
-    # ---------------------------
-    with col_edit:
-        st.markdown("### הגדרות תוכנית")
-
-        if selected in st.session_state.manual_corrections:
-            st.success("✏️ תוכנית זו תוקנה ידנית")
-
-        p_name = st.text_input("שם התוכנית", key=name_key)
-        p_scale_text = st.text_input(
-            "קנה מידה (לתיעוד)", key=scale_key, placeholder="1:50"
-        )
-
-        # Legacy calibration (px per meter) - נשאר
-        st.markdown("#### כיול (Legacy)")
-        scale_val = st.slider(
-            "פיקסלים למטר",
-            10.0,
-            1000.0,
-            float(proj.get("scale", 200.0)),
-            key=f"scale_slider_{selected}",
-        )
-        proj["scale"] = scale_val
-
-        corrected_walls = get_corrected_walls(selected, proj)
-        corrected_pixels = (
-            int(np.count_nonzero(corrected_walls)) if corrected_walls is not None else 0
-        )
-        total_len_legacy = (corrected_pixels / scale_val) if scale_val else 0.0
-
-        st.write(f"🧱 פיקסלים (קירות): {corrected_pixels:,}")
-        st.write(f"📏 אורך קירות (Legacy, מטר): {total_len_legacy:.2f}")
-
-        # אם יש meters_per_px מהמטא — נחשב גם “השיטה החדשה”
-        meta = proj.get("metadata", {}) or {}
-        meters_per_px = meta.get("meters_per_px")
-        wall_px = meta.get("wall_length_total_px")
-
-        # fallback ל-skeleton אם חסר wall_length_total_px
-        if wall_px is None and proj.get("skeleton") is not None:
-            try:
-                wall_px = compute_skeleton_length_px(proj["skeleton"])
-            except Exception:
-                wall_px = None
-
-        st.markdown("#### חישוב לפי דף + קנה מידה (אם זמין)")
-        if meters_per_px and wall_px:
-            st.success(
-                f"📏 אורך קירות (מ׳): {(float(wall_px) * float(meters_per_px)):.2f}"
-            )
-            st.caption(
-                f"(wall_px={float(wall_px):.1f}, meters_per_px={float(meters_per_px):.6f})"
-            )
-        else:
-            st.info(
-                "לא נמצאו meters_per_px / wall_length_total_px במטאדאטה — מוצג חישוב Legacy בלבד."
-            )
-
-        # שמירה ל-DB (קיים בפרויקט)
-        st.markdown("---")
-        if st.button("💾 שמור תוכנית לבסיס נתונים", use_container_width=True):
-            try:
-                # שמירה בסיסית: שם + metadata
-                save_plan(
-                    file_name=selected,
-                    plan_name=p_name,
-                    metadata=meta,
+                selected_paper = st.selectbox(
+                    f"גודל נייר (זוהה: {current_detected}):",
+                    options=paper_options,
+                    index=default_idx,
+                    key=f"paper_select_{selected}",
                 )
-                st.success("✅ נשמר בהצלחה")
-            except Exception as e:
-                st.error(f"❌ שגיאה בשמירה: {e}")
 
-    # ---------------------------
-    # Preview
-    # ---------------------------
-    with col_preview:
-        st.markdown("### תצוגה")
-        if proj.get("original") is not None:
-            overlay = None
-            try:
-                # overlay פשוט אם יש masks
-                overlay = create_colored_overlay(
-                    proj.get("original"),
-                    proj.get("concrete_mask"),
-                    proj.get("blocks_mask"),
-                    proj.get("flooring_mask"),
+                if selected_paper != "זיהוי אוטומטי":
+                    st.session_state[paper_override_key] = selected_paper
+
+                    ISO_SIZES = {
+                        "A0": (841, 1189),
+                        "A1": (594, 841),
+                        "A2": (420, 594),
+                        "A3": (297, 420),
+                        "A4": (210, 297),
+                    }
+
+                    paper_w_mm, paper_h_mm = ISO_SIZES[selected_paper]
+
+                    # עדכון metadata
+                    meta["paper_size_detected"] = selected_paper
+                    meta["paper_mm"] = {"width": paper_w_mm, "height": paper_h_mm}
+                    meta["paper_detection_confidence"] = 1.0
+
+                    # חישוב mm_per_pixel מחדש
+                    if meta.get("image_size_px"):
+                        w_px = meta["image_size_px"]["width"]
+                        h_px = meta["image_size_px"]["height"]
+
+                        mm_per_pixel_x = paper_w_mm / w_px
+                        mm_per_pixel_y = paper_h_mm / h_px
+                        mm_per_pixel = (mm_per_pixel_x + mm_per_pixel_y) / 2
+
+                        meta["mm_per_pixel"] = mm_per_pixel
+
+                        # חישוב meters_per_pixel מחדש
+                        scale_denom = meta.get("scale_denominator")
+                        if scale_denom:
+                            meters_per_pixel = (mm_per_pixel * scale_denom) / 1000
+                            meta["meters_per_pixel"] = meters_per_pixel
+
+                            # חישוב אורך קירות מחדש
+                            if meta.get("wall_length_total_px"):
+                                wall_length_m = (
+                                    meta["wall_length_total_px"] * meters_per_pixel
+                                )
+                                meta["wall_length_total_m"] = wall_length_m
+
+                    st.success(f"✅ גודל נייר עודכן ל-{selected_paper}")
+                    st.rerun()
+                elif paper_override_key in st.session_state:
+                    del st.session_state[paper_override_key]
+
+                # במקום expander מקונן: checkbox
+                show_formulas = st.checkbox(
+                    "👁️ הצג נוסחאות", value=True, key=f"show_formulas_{selected}"
                 )
-            except Exception:
-                overlay = None
+                if show_formulas:
+                    st.markdown("#### 🔎 חישוב צעד-אחר-צעד")
+                    if meta.get("paper_mm") and meta.get("image_size_px"):
+                        pw = meta["paper_mm"]["width"]
+                        ph = meta["paper_mm"]["height"]
+                        wpx = meta["image_size_px"]["width"]
+                        hpx = meta["image_size_px"]["height"]
+                        st.code(
+                            f"mm_per_pixel = average({pw}/{wpx}, {ph}/{hpx})\n"
+                            f"mm_per_pixel = {meta.get('mm_per_pixel')}"
+                        )
+                        if meta.get("scale_denominator"):
+                            sd = meta["scale_denominator"]
+                            st.code(
+                                f"meters_per_pixel = (mm_per_pixel * scale_denominator) / 1000\n"
+                                f"meters_per_pixel = ({meta.get('mm_per_pixel')} * {sd}) / 1000 = {meta.get('meters_per_pixel')}"
+                            )
 
+                    if meta.get("wall_length_total_px") and meta.get(
+                        "meters_per_pixel"
+                    ):
+                        st.code(
+                            f"wall_length_m = wall_length_total_px * meters_per_pixel\n"
+                            f"wall_length_m = {meta['wall_length_total_px']} * {meta['meters_per_pixel']} = {meta.get('wall_length_total_m')}"
+                        )
+
+            st.markdown("---")
+
+            # מחירון (קיים אצלך)
+            with st.expander("💰 תמחור אוטומטי (Beta)", expanded=False):
+                st.caption("הערכה אוטומטית בסיסית – לפי אורכי קירות ושטח ריצוף אם זוהו")
+
+                c_price = st.number_input("מחיר בטון למטר", 0.0, 2000.0, 350.0)
+                b_price = st.number_input("מחיר בלוקים למטר", 0.0, 2000.0, 250.0)
+                f_price = st.number_input("מחיר ריצוף למ״ר", 0.0, 2000.0, 180.0)
+
+                meta = proj.get("metadata", {})
+
+                conc_len = float(meta.get("concrete_length_m", 0) or 0)
+                block_len = float(meta.get("blocks_length_m", 0) or 0)
+                floor_area = float(meta.get("floor_area_m2", 0) or 0)
+
+                total_quote = (
+                    conc_len * c_price + block_len * b_price + floor_area * f_price
+                )
+
+                quote_df = pd.DataFrame(
+                    {
+                        "סוג": ["בטון", "בלוקים", "ריצוף", "סה״כ"],
+                        "כמות": [conc_len, block_len, floor_area, ""],
+                        "יחידה": ["מ׳", "מ׳", "מ״ר", ""],
+                        "מחיר יחידה": [c_price, b_price, f_price, ""],
+                        'סה"כ': [
+                            f"{conc_len*c_price:,.0f}₪",
+                            f"{block_len*b_price:,.0f}₪",
+                            f"{floor_area*f_price:,.0f}₪",
+                            f"{total_quote:,.0f}₪",
+                        ],
+                    }
+                )
+                st.dataframe(quote_df, hide_index=True, use_container_width=True)
+
+            st.markdown("---")
+            if st.button(
+                "💾 שמור תוכנית למערכת", type="primary", key=f"save_{selected}"
+            ):
+                proj["metadata"]["plan_name"] = p_name
+                proj["metadata"]["scale"] = p_scale_text
+                meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
+                materials = json.dumps(
+                    {
+                        "concrete": float(
+                            proj["metadata"].get("concrete_length_m", 0) or 0
+                        ),
+                        "blocks": float(
+                            proj["metadata"].get("blocks_length_m", 0) or 0
+                        ),
+                        "flooring": float(
+                            proj["metadata"].get("floor_area_m2", 0) or 0
+                        ),
+                    },
+                    ensure_ascii=False,
+                )
+
+                plan_id = save_plan(
+                    selected,
+                    p_name,
+                    p_scale_text,
+                    scale_val,
+                    corrected_pixels,
+                    meta_json,
+                    None,
+                    0,
+                    0,
+                    materials,
+                )
+                st.toast("✅ נשמר למערכת!")
+                st.success(f"התוכנית נשמרה בהצלחה (ID: {plan_id})")
+
+        with col_preview:
+            st.markdown("### תצוגה מקדימה")
+
+            if selected in st.session_state.manual_corrections:
+                corrected = get_corrected_walls(selected, proj)
+                overlay = create_colored_overlay(proj["original"], corrected)
+            else:
+                overlay = proj.get("overlay")
+
+            # חשוב: ב-streamlit 1.28–1.29 משתמשים ב-use_column_width
             if overlay is not None:
                 st.image(
-                    _bgr_to_rgb(overlay), caption="Overlay", use_container_width=True
+                    overlay,
+                    caption="Overlay",
+                    use_column_width=True,
+                )
+            elif proj.get("original") is not None:
+                st.image(
+                    proj["original"],
+                    caption="מקור",
+                    use_column_width=True,
+                )
+
+            # הצגת אורך קירות "סופי" אם קיים
+            meta = proj.get("metadata", {})
+            if meta.get("wall_length_total_m") is not None:
+                st.success(f"🧱 אורך קירות (מ׳): {meta['wall_length_total_m']:.2f}")
+            elif (
+                meta.get("wall_length_total_px") is not None
+                and meta.get("meters_per_pixel") is not None
+            ):
+                st.success(
+                    f"🧱 אורך קירות (מ׳): {meta['wall_length_total_px'] * meta['meters_per_pixel']:.2f}"
                 )
             else:
-                st.image(
-                    _bgr_to_rgb(proj["original"]),
-                    caption="מקור",
-                    use_container_width=True,
+                st.info(
+                    "ℹ️ עדיין אין חישוב מטרי מלא (בדוק קנה מידה/גודל דף וזיהוי קירות)."
                 )
-        else:
-            st.info("אין תמונה להצגה")
 
 
-# --------------------------------------------------------------------------------------
-# TAB 2: Corrections
-# --------------------------------------------------------------------------------------
 def render_corrections_tab():
-    _ensure_state()
-
+    """טאב 2: תיקונים ידניים"""
     st.markdown("## 🎨 תיקונים ידניים")
 
     if not st.session_state.projects:
@@ -436,120 +428,68 @@ def render_corrections_tab():
         list(st.session_state.projects.keys()),
         key="correction_plan_select",
     )
-    if selected_plan is None or selected_plan not in st.session_state.projects:
-        st.warning("בחר תוכנית כדי להמשיך.")
-        return
-
     proj = st.session_state.projects[selected_plan]
-    if proj.get("original") is None or proj.get("thick_walls") is None:
-        st.warning("חסרים נתונים לתיקון (תמונה/מסכת קירות).")
-        return
 
-    st.caption("מימוש תיקון ידני בסיסי (אפשר להרחיב).")
-
-    mode = st.radio(
-        "מצב:",
-        ["➕ הוסף קירות", "➖ הסר קירות"],
-        horizontal=True,
-        key="corr_mode",
-    )
-
-    base_img = proj["original"].copy()
-    st.image(_bgr_to_rgb(base_img), use_container_width=True)
-
-    st.info(
-        "טאב זה נשאר מינימלי כדי לא להפיל את המערכת. אם תרצה, נרחיב אותו עם ציור על canvas."
-    )
+    st.info("טאב תיקונים – נשאר כמו במערכת המקורית. (אפשר להרחיב לפי צורך)")
 
 
-# --------------------------------------------------------------------------------------
-# TAB 3: Dashboard (App expects this in manager.py)
-# --------------------------------------------------------------------------------------
 def render_dashboard_tab():
-    _ensure_state()
-
+    """טאב 3: דשבורד"""
     st.markdown("## 📊 דשבורד")
 
-    # דוגמה: טבלת סטטיסטיקות אם קיימת
     try:
         df = load_stats_df()
         if isinstance(df, pd.DataFrame) and not df.empty:
             st.dataframe(df, use_container_width=True)
         else:
-            st.info("אין עדיין נתוני סטטיסטיקה להצגה.")
-    except Exception as e:
-        st.info("אין עדיין נתוני סטטיסטיקה להצגה.")
-        st.caption(f"(debug: {e})")
-
-    # דוגמאות לקריאות DB (לא חובה)
-    try:
-        plans = get_all_plans()
-        st.caption(f"מספר תוכניות בבסיס: {len(plans) if plans else 0}")
+            st.info("אין עדיין נתונים להצגה.")
     except Exception:
-        pass
+        st.info("אין עדיין נתונים להצגה.")
 
 
-# --------------------------------------------------------------------------------------
-# TAB 4: Invoices (App expects this in manager.py)
-# --------------------------------------------------------------------------------------
 def render_invoices_tab():
-    _ensure_state()
-
-    st.markdown("## 🧾 חשבוניות ודוחות")
+    """טאב 4: חשבונות"""
+    st.markdown("## 💰 חשבונות")
 
     if not st.session_state.projects:
         st.info("📂 אנא העלה תוכנית תחילה בטאב 'סדנת עבודה'")
         return
 
     selected_plan = st.selectbox(
-        "בחר תוכנית:",
+        "בחר תוכנית לחשבונית/דוח:",
         list(st.session_state.projects.keys()),
-        key="invoice_plan_select",
+        key="invoices_plan_select",
     )
-    if selected_plan is None or selected_plan not in st.session_state.projects:
-        st.warning("בחר תוכנית כדי להמשיך.")
-        return
-
     proj = st.session_state.projects[selected_plan]
-    meta = proj.get("metadata", {}) or {}
 
-    c1, c2 = st.columns([1, 1], gap="medium")
+    st.markdown("### 📄 דוח סטטוס")
+    if st.button("צור דוח PDF", key="btn_status_pdf"):
+        meta = proj.get("metadata", {})
+        pdf_bytes = generate_status_pdf(
+            plan_name=meta.get("plan_name", selected_plan),
+            metadata=meta,
+        )
+        st.download_button(
+            "⬇️ הורד דוח סטטוס",
+            data=pdf_bytes,
+            file_name=f"status_{selected_plan}.pdf",
+            mime="application/pdf",
+        )
 
-    with c1:
-        st.markdown("### 📄 דוח סטטוס")
-        if st.button("צור דוח PDF", use_container_width=True, key="btn_status_pdf"):
-            try:
-                pdf_bytes = generate_status_pdf(
-                    plan_name=meta.get("plan_name", selected_plan),
-                    metadata=meta,
-                )
-                st.download_button(
-                    label="⬇️ הורד דוח סטטוס",
-                    data=pdf_bytes,
-                    file_name=f"status_{selected_plan}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-            except Exception as e:
-                st.error(f"❌ שגיאה ביצירת דוח: {e}")
-
-    with c2:
-        st.markdown("### 🧾 חשבונית תשלום")
-        if st.button(
-            "צור חשבונית PDF", use_container_width=True, key="btn_invoice_pdf"
-        ):
-            try:
-                invoice_data = get_payment_invoice_data()
-                pdf_bytes = generate_payment_invoice_pdf(
-                    plan_name=meta.get("plan_name", selected_plan),
-                    invoice_data=invoice_data,
-                )
-                st.download_button(
-                    label="⬇️ הורד חשבונית",
-                    data=pdf_bytes,
-                    file_name=f"invoice_{selected_plan}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-            except Exception as e:
-                st.error(f"❌ שגיאה ביצירת חשבונית: {e}")
+    st.markdown("---")
+    st.markdown("### 🧾 חשבונית תשלום")
+    if st.button("צור חשבונית PDF", key="btn_invoice_pdf"):
+        meta = proj.get("metadata", {})
+        invoice_data = get_payment_invoice_data()
+        pdf_bytes = generate_payment_invoice_pdf(
+            plan_name=meta.get("plan_name", selected_plan),
+            invoice_data=invoice_data,
+        )
+        st.download_button(
+            "⬇️ הורד חשבונית",
+            data=pdf_bytes,
+            file_name=f"invoice_{selected_plan}.pdf",
+            mime="application/pdf",
+        )
+     except Exception as e:
+         st.error(f"❌ שגיאה ביצירת חשבונית: {e}")

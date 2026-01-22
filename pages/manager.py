@@ -52,6 +52,7 @@ def get_corrected_walls(selected_plan, proj):
         return corrected
     return proj["thick_walls"]
 
+
 def render_workshop_tab():
     """טאב 1: סדנת עבודה - העלאה ועריכה (עם תמיכה ב-Crop ROI)"""
 
@@ -59,74 +60,80 @@ def render_workshop_tab():
     # שלב 0: Crop ROI (אופציונלי) - חדש!
     # ==========================================
     st.markdown("### ✂️ שלב 0: גזירת אזור שרטוט (אופציונלי)")
-    
+
     enable_crop = st.checkbox(
         "🎯 הפעל גזירה ידנית לפני ניתוח",
         value=False,
-        help="אפשר לסמן אזור מסוים בתוכנית לניתוח (ROI). שאר התוכנית תתעלם."
+        help="אפשר לסמן אזור מסוים בתוכנית לניתוח (ROI). שאר התוכנית תתעלם.",
     )
-    
+
     if enable_crop:
-        st.info("💡 במצב זה, תוכל לסמן מלבן על התוכנית לפני הניתוח. רק האזור בתוך המלבן ינותח.")
-        
+        st.info(
+            "💡 במצב זה, תוכל לסמן מלבן על התוכנית לפני הניתוח. רק האזור בתוך המלבן ינותח."
+        )
+
         # אתחול session state ל-crop
-        if 'crop_mode_data' not in st.session_state:
+        if "crop_mode_data" not in st.session_state:
             st.session_state.crop_mode_data = {}
-        
+
         # העלאת קובץ למצב Crop
         crop_file = st.file_uploader(
             "📂 העלה PDF לגזירה",
             type="pdf",
             key="crop_file_uploader",
-            help="העלה תוכנית אחת לפעם עבור גזירה"
+            help="העלה תוכנית אחת לפעם עבור גזירה",
         )
-        
+
         if crop_file:
             file_key = crop_file.name
-            
+
             # אם זה קובץ חדש, נאתחל
             if file_key not in st.session_state.crop_mode_data:
                 with st.spinner("טוען תצוגה מקדימה..."):
                     try:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=".pdf"
+                        ) as tmp:
                             tmp.write(crop_file.getvalue())
                             temp_path = tmp.name
-                        
+
                         analyzer = FloorPlanAnalyzer()
                         preview_img = analyzer.pdf_to_image(temp_path)
-                        
+
                         st.session_state.crop_mode_data[file_key] = {
-                            'preview_img': preview_img,
-                            'pdf_path': temp_path,
-                            'crop_bbox': None,
-                            'processed': False
+                            "preview_img": preview_img,
+                            "pdf_path": temp_path,
+                            "crop_bbox": None,
+                            "processed": False,
                         }
-                        
+
                         os.unlink(temp_path)
-                        
+
                     except Exception as e:
                         st.error(f"❌ שגיאה בטעינת PDF: {str(e)}")
                         crop_file = None
-            
+
             # הצגת Canvas לציור ROI
             if file_key in st.session_state.crop_mode_data:
                 data = st.session_state.crop_mode_data[file_key]
-                preview_img = data['preview_img']
-                
+                preview_img = data["preview_img"]
+
                 preview_rgb = cv2.cvtColor(preview_img, cv2.COLOR_BGR2RGB)
                 h, w = preview_rgb.shape[:2]
-                
+
                 max_width = 800
                 scale_factor = min(1.0, max_width / w)
                 display_w = int(w * scale_factor)
                 display_h = int(h * scale_factor)
-                
+
                 pil_preview = Image.fromarray(preview_rgb)
-                pil_preview_resized = pil_preview.resize((display_w, display_h), Image.Resampling.LANCZOS)
-                
+                pil_preview_resized = pil_preview.resize(
+                    (display_w, display_h), Image.Resampling.LANCZOS
+                )
+
                 st.markdown("#### 🎨 צייר מלבן סביב אזור השרטוט:")
                 st.caption(f"גודל מקורי: {w}x{h}px | תצוגה: {display_w}x{display_h}px")
-                
+
                 canvas_result = st_canvas(
                     fill_color="rgba(0, 255, 0, 0.1)",
                     stroke_width=3,
@@ -136,39 +143,64 @@ def render_workshop_tab():
                     width=display_w,
                     drawing_mode="rect",
                     key=f"crop_canvas_{file_key}",
-                    update_streamlit=True
+                    update_streamlit=True,
                 )
-                
+
                 from preprocessing import get_crop_bbox_from_canvas_data
+
                 if canvas_result.json_data and canvas_result.json_data.get("objects"):
-                    bbox = get_crop_bbox_from_canvas_data(canvas_result.json_data, scale_factor)
-                    
+                    bbox = get_crop_bbox_from_canvas_data(
+                        canvas_result.json_data, scale_factor
+                    )
+
                     if bbox:
                         x, y, bw, bh = bbox
                         st.success(f"✅ אזור נבחר: {bw}x{bh}px (מיקום: x={x}, y={y})")
-                        
-                        if st.button("🚀 נתח תוכנית עם גזירה", type="primary", key=f"analyze_crop_{file_key}"):
+
+                        if st.button(
+                            "🚀 נתח תוכנית עם גזירה",
+                            type="primary",
+                            key=f"analyze_crop_{file_key}",
+                        ):
                             with st.spinner(f"מנתח {file_key} עם Crop ROI..."):
                                 try:
-                                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                                    with tempfile.NamedTemporaryFile(
+                                        delete=False, suffix=".pdf"
+                                    ) as tmp:
                                         tmp.write(crop_file.getvalue())
                                         path = tmp.name
-                                    
+
                                     analyzer = FloorPlanAnalyzer()
-                                    (pix, skel, thick, orig, meta, conc, blok, floor, debug_img) = analyzer.process_file(
-                                        path,
-                                        save_debug=False,
-                                        crop_bbox=bbox
+                                    (
+                                        pix,
+                                        skel,
+                                        thick,
+                                        orig,
+                                        meta,
+                                        conc,
+                                        blok,
+                                        floor,
+                                        debug_img,
+                                    ) = analyzer.process_file(
+                                        path, save_debug=False, crop_bbox=bbox
                                     )
-                                    
+
                                     if not meta.get("plan_name"):
-                                        meta["plan_name"] = file_key.replace(".pdf", "").replace("-", " ").strip()
-                                    
+                                        meta["plan_name"] = (
+                                            file_key.replace(".pdf", "")
+                                            .replace("-", " ")
+                                            .strip()
+                                        )
+
                                     llm_data = {}
                                     if meta.get("raw_text"):
-                                        llm_data = safe_process_metadata(meta["raw_text"])
-                                        meta.update({k: v for k, v in llm_data.items() if v})
-                                    
+                                        llm_data = safe_process_metadata(
+                                            meta["raw_text"]
+                                        )
+                                        meta.update(
+                                            {k: v for k, v in llm_data.items() if v}
+                                        )
+
                                     st.session_state.projects[file_key] = {
                                         "skeleton": skel,
                                         "thick_walls": thick,
@@ -180,20 +212,27 @@ def render_workshop_tab():
                                         "blocks_mask": blok,
                                         "flooring_mask": floor,
                                         "total_length": pix / 200.0,
-                                        "llm_suggestions": llm_data if meta.get("raw_text") else {},
-                                        "debug_layers": getattr(analyzer, "debug_layers", {}),
+                                        "llm_suggestions": (
+                                            llm_data if meta.get("raw_text") else {}
+                                        ),
+                                        "debug_layers": getattr(
+                                            analyzer, "debug_layers", {}
+                                        ),
                                     }
-                                    
+
                                     os.unlink(path)
                                     del st.session_state.crop_mode_data[file_key]
-                                    
+
                                     st.success(f"✅ {file_key} נותח בהצלחה עם Crop!")
-                                    st.info("💾 עכשיו תוכל למצוא את התוכנית ברשימה למטה")
+                                    st.info(
+                                        "💾 עכשיו תוכל למצוא את התוכנית ברשימה למטה"
+                                    )
                                     st.rerun()
-                                    
+
                                 except Exception as e:
                                     st.error(f"❌ שגיאה: {str(e)}")
                                     import traceback
+
                                     with st.expander("פרטי שגיאה"):
                                         st.code(traceback.format_exc())
                     else:
@@ -202,37 +241,42 @@ def render_workshop_tab():
                     st.info("👆 צייר מלבן על אזור השרטוט")
         else:
             st.info("📂 העלה קובץ PDF למעלה")
-        
+
         st.markdown("---")
-    
+
     # ==========================================
     # END OF CROP SECTION
     # מכאן והלאה - הקוד הישן ממשיך בדיוק כמו שהוא
     # ==========================================
-    
-    # לזה:
-    with st.expander("העלאת קבצים (מצב רגיל)", expanded=not st.session_state.projects and not enable_crop):
+
+    with st.expander(
+        "העלאת קבצים (מצב רגיל)",
+        expanded=not st.session_state.projects and not enable_crop,
+    ):
         if enable_crop:
             st.warning("⚠️ מצב גזירה פעיל - השתמש בהעלאה למעלה")
-        
+
         files = st.file_uploader(
             "גרור PDF או לחץ לבחירה",
             type="pdf",
             accept_multiple_files=True,
-            key="regular_file_uploader"  # ← הוסף key זה!
+            key="regular_file_uploader",  # ← הוסף key זה!
         )
-        
+
         # ... שאר הקוד ממשיך ללא שינוי ...
 
-      with st.expander("העלאת קבצים (מצב רגיל)", expanded=not st.session_state.projects and not enable_crop):
+    with st.expander(
+        "העלאת קבצים (מצב רגיל)",
+        expanded=not st.session_state.projects and not enable_crop,
+    ):
         if enable_crop:
             st.warning("⚠️ מצב גזירה פעיל - השתמש בהעלאה למעלה")
-        
+
         files = st.file_uploader(
             "גרור PDF או לחץ לבחירה",
             type="pdf",
             accept_multiple_files=True,
-            key="regular_file_uploader"  # ← הוסף key!
+            key="regular_file_uploader",  # ← הוסף key!
         )
         debug_mode = st.selectbox(
             "מצב Debug", ["בסיסי", "מפורט - שכבות", "מלא - עם confidence"], index=0

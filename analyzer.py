@@ -558,7 +558,7 @@ class FloorPlanAnalyzer:
     # ==========================================
     # MAIN PROCESSING
     # ==========================================
-    def process_file(self, pdf_path: str, save_debug=False, crop_bbox=None):
+    def analyzer.process_file(path, save_debug=show_debug, crop_bbox=None):
         """
         עיבוד מרכזי עם multi-pass filtering
         """

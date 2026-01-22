@@ -55,7 +55,9 @@ def get_corrected_walls(selected_plan, proj):
 def render_workshop_tab():
     """טאב 1: סדנת עבודה - העלאה ועריכה"""
 
-    with st.expander("העלאת קבצים", expanded=not st.session_state.projects):
+    with st.container():
+        st.subheader("העלאת קבצים")
+        st.caption("העלאה, בחירת אזור ניתוח (Crop), והרצה על קבצי PDF")
         files = st.file_uploader(
             "גרור PDF או לחץ לבחירה", type="pdf", accept_multiple_files=True
         )
@@ -75,7 +77,9 @@ def render_workshop_tab():
                 if f.name in st.session_state.projects:
                     continue
 
-                with st.expander(f"📄 {f.name}", expanded=True):
+                with st.container():
+                    st.markdown(f"#### 📄 {f.name}")
+                    st.markdown("---")
                     # שמירת ה-PDF לקובץ זמני
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                         tmp.write(f.getvalue())

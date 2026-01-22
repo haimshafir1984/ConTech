@@ -439,11 +439,11 @@ def render_corrections_tab():
     st.info("טאב זה הוא בסיס לתיקונים — אפשר להרחיב בהמשך לפי הצורך.")
 
 
-# --- דוחות ---
 def render_reports_tab():
+    """טאב 3: דוחות וסטטוסים"""
     st.markdown("## 📑 דוחות")
 
-    if not st.session_state.get("projects"):
+    if not st.session_state.projects:
         st.info("📂 אנא העלה תוכנית תחילה בטאב 'סדנת עבודה'")
         return
 
@@ -452,20 +452,15 @@ def render_reports_tab():
         list(st.session_state.projects.keys()),
         key="reports_plan_select",
     )
-    if selected_plan is None or selected_plan not in st.session_state.projects:
-        st.warning("בחר תוכנית כדי להמשיך.")
-        return
-
     proj = st.session_state.projects[selected_plan]
 
     st.markdown("### 🧾 יצוא דוח סטטוס")
     if st.button("📄 צור דוח PDF", use_container_width=True):
         try:
             pdf_bytes = generate_status_pdf(
-                plan_name=proj.get("metadata", {}).get("plan_name", selected_plan),
-                metadata=proj.get("metadata", {}),
+                plan_name=proj["metadata"].get("plan_name", selected_plan),
+                metadata=proj["metadata"],
             )
-
             st.download_button(
                 label="⬇️ הורד דוח PDF",
                 data=pdf_bytes,
@@ -475,3 +470,74 @@ def render_reports_tab():
             )
         except Exception as e:
             st.error(f"❌ שגיאה ביצירת דוח: {e}")
+
+
+def render_financial_tab():
+    """טאב 4: מצב פיננסי"""
+    st.markdown("## 💰 מצב פיננסי")
+    st.info("טאב זה מיועד לחיבור נתוני DB וסטטוסים פיננסיים. (אפשר להרחיב בהמשך)")
+
+
+def render_payment_tab():
+    """טאב 5: חשבוניות/תשלומים"""
+    st.markdown("## 🧾 חשבוניות ותשלומים")
+
+    if not st.session_state.projects:
+        st.info("📂 אנא העלה תוכנית תחילה בטאב 'סדנת עבודה'")
+        return
+
+    selected_plan = st.selectbox(
+        "בחר תוכנית לחשבונית:",
+        list(st.session_state.projects.keys()),
+        key="payment_plan_select",
+    )
+    proj = st.session_state.projects[selected_plan]
+
+    st.markdown("### 🧾 יצוא חשבונית תשלום")
+    if st.button("📄 צור חשבונית PDF", use_container_width=True):
+        try:
+            invoice_data = get_payment_invoice_data()
+            pdf_bytes = generate_payment_invoice_pdf(
+                plan_name=proj["metadata"].get("plan_name", selected_plan),
+                invoice_data=invoice_data,
+            )
+            st.download_button(
+                label="⬇️ הורד חשבונית PDF",
+                data=pdf_bytes,
+                file_name=f"invoice_{selected_plan}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"❌ שגיאה ביצירת חשבונית: {e}")
+
+
+# ------------------------------------------------------------
+# Main render
+# ------------------------------------------------------------
+def render_manager():
+    ensure_session_state()
+
+    st.markdown("# 🏗️ ConTech Pro - מנהל")
+    st.caption("נהל תוכניות, תקן זיהוי, והפק דוחות")
+
+    tabs = st.tabs(
+        [
+            "🧰 סדנת עבודה",
+            "🎨 תיקונים",
+            "📑 דוחות",
+            "💰 פיננסי",
+            "🧾 תשלומים",
+        ]
+    )
+
+    with tabs[0]:
+        render_workshop_tab()
+    with tabs[1]:
+        render_corrections_tab()
+    with tabs[2]:
+        render_reports_tab()
+    with tabs[3]:
+        render_financial_tab()
+    with tabs[4]:
+        render_payment_tab()

@@ -36,6 +36,7 @@ from utils import (
     iso_paper_mm,
 )
 
+
 # ------------------------------------------------------------
 # Session State Init
 # ------------------------------------------------------------
@@ -141,7 +142,9 @@ def render_workshop_tab():
                         st.info("כבר נותח ונמצא ברשימת התוכניות (למטה).")
 
                     # שמירה זמנית לקובץ כדי שהאנלייזר יקרא אותו
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".pdf"
+                    ) as tmp:
                         tmp.write(f.getbuffer())
                         tmp_path = tmp.name
 
@@ -341,11 +344,11 @@ def render_workshop_tab():
 
             st.write("📊 נתוני חישוב מה-PDF")
             if pw and ph:
-                st.write(f"📄 נייר: {paper} {pw}×{ph} מ\"מ")
+                st.write(f'📄 נייר: {paper} {pw}×{ph} מ"מ')
             if img_w and img_h:
                 st.write(f"🖼️ תמונה: {img_w}×{img_h} px")
             if mm_per_px:
-                st.write(f"מ\"מ/px {mm_per_px:.4f}")
+                st.write(f'מ"מ/px {mm_per_px:.4f}')
             if scale:
                 st.write(f"קנה מידה {scale}")
             if meters_per_px:
@@ -397,7 +400,9 @@ def render_workshop_tab():
                         wall_px = None
 
             if wall_px is None:
-                st.warning("לא הצלחתי לחשב אורך קירות בפיקסלים (ייתכן שלא נוצר skeleton).")
+                st.warning(
+                    "לא הצלחתי לחשב אורך קירות בפיקסלים (ייתכן שלא נוצר skeleton)."
+                )
             else:
                 st.write(f"🧱 אורך קירות (px): {wall_px:.1f}")
                 if meters_per_px:
@@ -434,11 +439,11 @@ def render_corrections_tab():
     st.info("טאב זה הוא בסיס לתיקונים — אפשר להרחיב בהמשך לפי הצורך.")
 
 
+# --- דוחות ---
 def render_reports_tab():
-    """טאב 3: דוחות וסטטוסים"""
     st.markdown("## 📑 דוחות")
 
-    if not st.session_state.projects:
+    if not st.session_state.get("projects"):
         st.info("📂 אנא העלה תוכנית תחילה בטאב 'סדנת עבודה'")
         return
 
@@ -447,10 +452,26 @@ def render_reports_tab():
         list(st.session_state.projects.keys()),
         key="reports_plan_select",
     )
+    if selected_plan is None or selected_plan not in st.session_state.projects:
+        st.warning("בחר תוכנית כדי להמשיך.")
+        return
+
     proj = st.session_state.projects[selected_plan]
 
     st.markdown("### 🧾 יצוא דוח סטטוס")
     if st.button("📄 צור דוח PDF", use_container_width=True):
         try:
             pdf_bytes = generate_status_pdf(
-                plan_name=proj_
+                plan_name=proj.get("metadata", {}).get("plan_name", selected_plan),
+                metadata=proj.get("metadata", {}),
+            )
+
+            st.download_button(
+                label="⬇️ הורד דוח PDF",
+                data=pdf_bytes,
+                file_name=f"status_{selected_plan}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"❌ שגיאה ביצירת דוח: {e}")

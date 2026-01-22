@@ -260,23 +260,7 @@ def render_workshop_tab():
             "גרור PDF או לחץ לבחירה",
             type="pdf",
             accept_multiple_files=True,
-            key="regular_file_uploader",  # ← הוסף key זה!
-        )
-
-        # ... שאר הקוד ממשיך ללא שינוי ...
-
-    with st.expander(
-        "העלאת קבצים (מצב רגיל)",
-        expanded=not st.session_state.projects and not enable_crop,
-    ):
-        if enable_crop:
-            st.warning("⚠️ מצב גזירה פעיל - השתמש בהעלאה למעלה")
-
-        files = st.file_uploader(
-            "גרור PDF או לחץ לבחירה",
-            type="pdf",
-            accept_multiple_files=True,
-            key="regular_file_uploader",  # ← הוסף key!
+            key="main_file_uploader",  # ← הוסף key!
         )
         debug_mode = st.selectbox(
             "מצב Debug", ["בסיסי", "מפורט - שכבות", "מלא - עם confidence"], index=0

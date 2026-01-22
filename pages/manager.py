@@ -210,9 +210,6 @@ def render_workshop_tab():
     # מכאן והלאה - הקוד הישן ממשיך בדיוק כמו שהוא
     # ==========================================
     
-    # שנה את זה:
-    with st.expander("העלאת קבצים", expanded=not st.session_state.projects):
-    
     # לזה:
     with st.expander("העלאת קבצים (מצב רגיל)", expanded=not st.session_state.projects and not enable_crop):
         if enable_crop:

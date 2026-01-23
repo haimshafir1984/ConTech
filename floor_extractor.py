@@ -510,9 +510,14 @@ def analyze_floor_and_rooms(
         }
         
         # 7. ויזואליזציה
-        overlay = create_rooms_overlay(original_image, room_regions, room_metrics)
-        result['visualizations']['overlay'] = overlay
-        result['visualizations']['masks'] = {r['id']: room_regions[i]['mask'] for i, r in enumerate(room_metrics)}
+        try:
+            overlay = create_rooms_overlay(original_image, room_regions, room_metrics)
+            result['visualizations']['overlay'] = overlay
+            result['visualizations']['masks'] = {r['room_id']: room_regions[i]['mask'] for i, r in enumerate(room_metrics)}
+        except Exception as viz_err:
+            result['limitations'].append(f"שגיאה ביצירת ויזואליזציה: {str(viz_err)}")
+            result['visualizations']['overlay'] = None
+            result['visualizations']['masks'] = {}
         
         result['rooms'] = room_metrics
         result['success'] = True
@@ -541,70 +546,79 @@ def create_rooms_overlay(
     """
     יוצר תמונת overlay עם חדרים מסומנים בצבעים
     """
-    if original_image is None:
+    if original_image is None or len(room_regions) == 0:
         return None
     
-    # וידוא RGB
-    if len(original_image.shape) == 2:
-        img_rgb = cv2.cvtColor(original_image, cv2.COLOR_GRAY2RGB)
-    elif original_image.shape[2] == 4:
-        img_rgb = cv2.cvtColor(original_image, cv2.COLOR_BGRA2RGB)
-    else:
-        img_rgb = original_image.copy()
-        if img_rgb.shape[2] == 3 and img_rgb.dtype == np.uint8:
-            img_rgb = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2RGB)
-    
-    overlay = img_rgb.copy()
-    
-    # צבעים שונים לכל חדר
-    colors = [
-        (255, 200, 200),  # אדום בהיר
-        (200, 255, 200),  # ירוק בהיר
-        (200, 200, 255),  # כחול בהיר
-        (255, 255, 200),  # צהוב בהיר
-        (255, 200, 255),  # סגול בהיר
-        (200, 255, 255),  # ציאן בהיר
-    ]
-    
-    for idx, (region, metrics) in enumerate(zip(room_regions, room_metrics)):
-        color = colors[idx % len(colors)]
-        
-        # מלא את החדר בצבע
-        mask_bool = region['mask'] > 0
-        overlay[mask_bool] = color
-        
-        # כתוב טקסט במרכז
-        cx, cy = metrics['center']
-        
-        if metrics['area_m2'] is not None:
-            text = f"#{metrics['room_id']}\n{metrics['area_m2']:.1f} מ\"ר"
+    try:
+        # וידוא RGB
+        if len(original_image.shape) == 2:
+            img_rgb = cv2.cvtColor(original_image, cv2.COLOR_GRAY2RGB)
+        elif original_image.shape[2] == 4:
+            img_rgb = cv2.cvtColor(original_image, cv2.COLOR_BGRA2RGB)
         else:
-            text = f"#{metrics['room_id']}\n{metrics['area_px']} px"
+            img_rgb = original_image.copy()
+            if img_rgb.shape[2] == 3 and img_rgb.dtype == np.uint8:
+                img_rgb = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2RGB)
         
-        if metrics.get('matched_name'):
-            text = f"{metrics['matched_name']}\n{metrics['area_m2']:.1f} מ\"ר"
+        overlay = img_rgb.copy()
         
-        # רקע לבן לטקסט (קריא יותר)
-        lines = text.split('\n')
-        y_offset = cy - 15 * len(lines) // 2
+        # צבעים שונים לכל חדר
+        colors = [
+            (255, 200, 200),  # אדום בהיר
+            (200, 255, 200),  # ירוק בהיר
+            (200, 200, 255),  # כחול בהיר
+            (255, 255, 200),  # צהוב בהיר
+            (255, 200, 255),  # סגול בהיר
+            (200, 255, 255),  # ציאן בהיר
+        ]
         
-        for line in lines:
-            text_size = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-            cv2.rectangle(
-                overlay,
-                (cx - text_size[0]//2 - 5, y_offset - text_size[1] - 5),
-                (cx + text_size[0]//2 + 5, y_offset + 5),
-                (255, 255, 255),
-                -1
-            )
-            cv2.putText(
-                overlay, line,
-                (cx - text_size[0]//2, y_offset),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1
-            )
-            y_offset += 20
+        for idx, (region, metrics) in enumerate(zip(room_regions, room_metrics)):
+            try:
+                color = colors[idx % len(colors)]
+                
+                # מלא את החדר בצבע
+                mask_bool = region['mask'] > 0
+                overlay[mask_bool] = color
+                
+                # כתוב טקסט במרכז
+                cx, cy = metrics['center']
+                
+                if metrics['area_m2'] is not None:
+                    text = f"#{metrics['room_id']}\n{metrics['area_m2']:.1f} מ\"ר"
+                else:
+                    text = f"#{metrics['room_id']}\n{metrics['area_px']} px"
+                
+                if metrics.get('matched_name'):
+                    text = f"{metrics['matched_name']}\n{metrics['area_m2']:.1f} מ\"ר"
+                
+                # רקע לבן לטקסט (קריא יותר)
+                lines = text.split('\n')
+                y_offset = cy - 15 * len(lines) // 2
+                
+                for line in lines:
+                    text_size = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+                    cv2.rectangle(
+                        overlay,
+                        (cx - text_size[0]//2 - 5, y_offset - text_size[1] - 5),
+                        (cx + text_size[0]//2 + 5, y_offset + 5),
+                        (255, 255, 255),
+                        -1
+                    )
+                    cv2.putText(
+                        overlay, line,
+                        (cx - text_size[0]//2, y_offset),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1
+                    )
+                    y_offset += 20
+            except Exception as e:
+                # דלג על חדר זה אם יש שגיאה
+                continue
+        
+        # שילוב עם התמונה המקורית (שקיפות)
+        result = cv2.addWeighted(overlay, 0.5, img_rgb, 0.5, 0)
+        
+        return result
     
-    # שילוב עם התמונה המקורית (שקיפות)
-    result = cv2.addWeighted(overlay, 0.5, img_rgb, 0.5, 0)
-    
-    return result
+    except Exception as e:
+        # במקרה של שגיאה כללית, החזר None
+        return None

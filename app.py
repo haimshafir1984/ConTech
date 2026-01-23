@@ -80,22 +80,22 @@ if mode == "🏢 מנהל פרויקט":
     "💰 חשבונות"
 ])
 
-with tab1:
+    with tab1:
     render_workshop_tab()
 
-with tab2:
+    with tab2:
     render_corrections_tab()
 
-with tab3:
+    with tab3:
     render_plan_data_tab()
 
-with tab4:
+    with tab4:
     render_floor_analysis_tab()  # ← הוסף את זה
 
-with tab5:
+    with tab5:
     render_dashboard_tab()
 
-with tab6:
+    with tab6:
     render_invoices_tab()
 
 # סיום בלוק הטאבים - חזרה לרמה הראשית

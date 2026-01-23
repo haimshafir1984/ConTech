@@ -3,14 +3,71 @@ import numpy as np
 import pandas as pd
 from database import get_progress_reports
 
-def safe_process_metadata(raw_text):
+def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=None, raw_blocks=None, candidates=None):
     """
-    Wrapper function for brain.process_plan_metadata
-    Handles import errors gracefully
+    Enhanced wrapper for brain.process_plan_metadata
+    Accepts multiple text sources and chooses the best one
+    Always returns full schema structure
+    
+    Args:
+        raw_text: Original text (legacy, 3000 chars)
+        raw_text_full: Full text extraction
+        normalized_text: Cleaned/normalized text
+        raw_blocks: List of text blocks with metadata
+        candidates: Alternative text candidates
+    
+    Returns:
+        Dict with full schema: status, document, rooms, heights_and_levels, etc.
     """
+    # Choose best available text source
+    best_text = None
+    
+    # Priority order (best to worst)
+    if normalized_text and normalized_text.strip():
+        best_text = normalized_text
+    elif raw_text_full and raw_text_full.strip():
+        best_text = raw_text_full
+    elif raw_text and raw_text.strip():
+        best_text = raw_text
+    elif raw_blocks and isinstance(raw_blocks, list):
+        # Join text from blocks
+        best_text = "\n".join([
+            block.get("text", "") for block in raw_blocks 
+            if isinstance(block, dict) and block.get("text")
+        ])
+    elif candidates and isinstance(candidates, list):
+        # Join candidates
+        best_text = "\n".join([str(c) for c in candidates if c])
+    
+    # If no text available, return empty schema
+    if not best_text or not best_text.strip():
+        return {
+            "status": "empty_text",
+            "error": "No text extracted from PDF",
+            "document": {},
+            "rooms": [],
+            "heights_and_levels": {},
+            "execution_notes": {},
+            "limitations": ["No text found in PDF file"],
+            "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
+        }
+    
+    # Try to call brain extraction
     try:
         from brain import process_plan_metadata
-        return process_plan_metadata(raw_text)
+        result = process_plan_metadata(best_text)
+        
+        # Legacy wrapper - if result is flat (old format), wrap it
+        if isinstance(result, dict):
+            # Check if it's the new format (has "document" key)
+            if "document" in result:
+                return result
+            else:
+                # Old format - wrap it
+                return _wrap_legacy_format(result)
+        
+        return result
+        
     except (ImportError, Exception) as e:
         return {
             "status": "error",
@@ -19,9 +76,51 @@ def safe_process_metadata(raw_text):
             "rooms": [],
             "heights_and_levels": {},
             "execution_notes": {},
-            "limitations": [f"שגיאה בעיבוד: {str(e)}"],
+            "limitations": [f"Processing error: {str(e)}"],
             "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
         }
+
+
+def _wrap_legacy_format(old_data):
+    """
+    Wraps old flat format into new schema
+    Old: {plan_name, scale, plan_type, ...}
+    New: {document: {...}, rooms: [], ...}
+    """
+    document = {}
+    
+    # Map old keys to new document structure
+    if "plan_name" in old_data:
+        document["plan_title"] = {
+            "value": old_data["plan_name"],
+            "confidence": 50,
+            "evidence": ["legacy data"]
+        }
+    
+    if "scale" in old_data:
+        document["scale"] = {
+            "value": old_data["scale"],
+            "confidence": 50,
+            "evidence": ["legacy data"]
+        }
+    
+    if "plan_type" in old_data:
+        document["plan_type"] = {
+            "value": old_data["plan_type"],
+            "confidence": 50,
+            "evidence": ["legacy data"]
+        }
+    
+    return {
+        "status": "success_legacy",
+        "document": document,
+        "rooms": [],
+        "heights_and_levels": {},
+        "execution_notes": {},
+        "limitations": ["Converted from legacy format"],
+        "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
+    }
+
 
 def safe_analyze_legend(image_bytes):
     """

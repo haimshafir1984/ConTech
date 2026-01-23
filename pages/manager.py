@@ -32,6 +32,13 @@ from utils import (
     load_stats_df,
     create_colored_overlay,
 )
+from utils import (
+    safe_process_metadata,
+    safe_analyze_legend,
+    load_stats_df,
+    create_colored_overlay,
+    get_simple_metadata_values,  # ← הוסף שורה זו
+)
 
 # ייבוא פונקציות preprocessing לגזירה
 from preprocessing import get_crop_bbox_from_canvas_data
@@ -195,10 +202,13 @@ def render_workshop_tab():
                                     llm_data = {}
                                     if meta.get("raw_text"):
                                         llm_data = safe_process_metadata(
-                                            meta["raw_text"]
+                                            raw_text=meta.get("raw_text"),
+                                            raw_text_full=meta.get("raw_text_full"),
+                                            normalized_text=meta.get("normalized_text"),
+                                            raw_blocks=meta.get("raw_blocks"),
                                         )
                                         meta.update(
-                                            {k: v for k, v in llm_data.items() if v}
+                                            get_simple_metadata_values(llm_data)
                                         )
 
                                     st.session_state.projects[file_key] = {
@@ -212,6 +222,7 @@ def render_workshop_tab():
                                         "blocks_mask": blok,
                                         "flooring_mask": floor,
                                         "total_length": pix / 200.0,
+                                        "llm_data": llm_data,  # ← חדש
                                         "llm_suggestions": (
                                             llm_data if meta.get("raw_text") else {}
                                         ),
@@ -300,8 +311,13 @@ def render_workshop_tab():
 
                         llm_data = {}
                         if meta.get("raw_text"):
-                            llm_data = safe_process_metadata(meta["raw_text"])
-                            meta.update({k: v for k, v in llm_data.items() if v})
+                            llm_data = safe_process_metadata(
+                                raw_text=meta.get("raw_text"),
+                                raw_text_full=meta.get("raw_text_full"),
+                                normalized_text=meta.get("normalized_text"),
+                                raw_blocks=meta.get("raw_blocks"),
+                            )
+                            meta.update(get_simple_metadata_values(llm_data))
 
                         st.session_state.projects[f.name] = {
                             "skeleton": skel,
@@ -314,6 +330,7 @@ def render_workshop_tab():
                             "blocks_mask": blok,
                             "flooring_mask": floor,
                             "total_length": pix / 200.0,
+                            "llm_data": llm_data,  # ← חדש
                             "llm_suggestions": (
                                 llm_data if meta.get("raw_text") else {}
                             ),
@@ -971,3 +988,294 @@ def render_invoices_tab():
     from pages.invoices import render_invoices
 
     render_invoices()
+
+
+def render_plan_data_tab():
+    """טאב חדש: נתונים מהשרטוט - הצגת חדרים ושטחים"""
+
+    st.markdown("## 📄 נתונים מהשרטוט")
+    st.caption("מידע שחולץ מהטקסט בתוכנית באמצעות AI")
+
+    if not st.session_state.projects:
+        st.info("📂 אין תוכניות במערכת. העלה תוכנית בטאב 'סדנת עבודה'")
+        return
+
+    # בחירת תוכנית
+    selected_plan = st.selectbox(
+        "בחר תוכנית:", list(st.session_state.projects.keys()), key="plan_data_select"
+    )
+
+    if not selected_plan:
+        return
+
+    proj = st.session_state.projects[selected_plan]
+
+    # Load LLM data from multiple possible locations
+    llm_data = None
+
+    # Priority 1: Direct llm_data key
+    if "llm_data" in proj:
+        llm_data = proj["llm_data"]
+    # Priority 2: llm_suggestions key (legacy)
+    elif "llm_suggestions" in proj:
+        llm_data = proj["llm_suggestions"]
+    # Priority 3: Nested in metadata
+    elif "metadata" in proj and isinstance(proj["metadata"], dict):
+        if "llm_data" in proj["metadata"]:
+            llm_data = proj["metadata"]["llm_data"]
+
+    # If no data, offer to extract
+    if not llm_data or llm_data.get("status") in ["error", "empty_text", "no_api_key"]:
+        st.warning("⚠️ לא נמצא מידע מחולץ לתוכנית זו")
+
+        # Show reason
+        if llm_data:
+            if llm_data.get("error"):
+                st.error(f"שגיאה: {llm_data['error']}")
+            if llm_data.get("limitations"):
+                st.info("מגבלות:")
+                for limit in llm_data["limitations"]:
+                    st.markdown(f"- {limit}")
+
+        # Offer re-extraction
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("**האם לנסות לחלץ שוב?**")
+            st.caption("המערכת תנסה לחלץ מידע מהטקסט של התוכנית")
+
+        with col2:
+            if st.button("🔄 חלץ מחדש", type="primary", use_container_width=True):
+                with st.spinner("מחלץ נתונים..."):
+                    try:
+                        from utils import safe_process_metadata
+
+                        # Get best text source
+                        meta = proj.get("metadata", {})
+                        llm_data = safe_process_metadata(
+                            raw_text=meta.get("raw_text"),
+                            raw_text_full=meta.get("raw_text_full"),
+                            normalized_text=meta.get("normalized_text"),
+                            raw_blocks=meta.get("raw_blocks"),
+                        )
+
+                        # Store in all locations for compatibility
+                        proj["llm_data"] = llm_data
+                        proj["llm_suggestions"] = llm_data  # Backward compat
+
+                        st.success("✅ חילוץ הושלם!")
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"❌ שגיאה: {str(e)}")
+
+        st.markdown("---")
+
+    # Display extracted data
+    if llm_data and llm_data.get("status") != "error":
+
+        # Status badge
+        status = llm_data.get("status", "unknown")
+        if status == "success":
+            st.success(f"✅ סטטוס: הופק בהצלחה")
+        elif status == "success_legacy":
+            st.info(f"ℹ️ סטטוס: הומר מפורמט ישן")
+
+        if llm_data.get("model_used"):
+            st.caption(f"🤖 מודל: {llm_data['model_used']}")
+
+        st.markdown("---")
+
+        # === 1. Document Information ===
+        st.markdown("### 📋 פרטי מסמך")
+
+        document = llm_data.get("document", {})
+        if document:
+            doc_data = []
+
+            field_labels = {
+                "plan_title": "שם תוכנית",
+                "plan_type": "סוג תוכנית",
+                "scale": "סקלה",
+                "date": "תאריך",
+                "floor_or_level": "קומה/מפלס",
+                "project_name": "שם פרויקט",
+                "project_address": "כתובת",
+                "architect_name": "אדריכל",
+                "drawing_number": "מספר שרטוט",
+            }
+
+            for field_key, field_label in field_labels.items():
+                if field_key in document:
+                    field_obj = document[field_key]
+
+                    # Extract value
+                    if isinstance(field_obj, dict):
+                        value = field_obj.get("value")
+                        confidence = field_obj.get("confidence", 0)
+
+                        if value:
+                            doc_data.append(
+                                {
+                                    "שדה": field_label,
+                                    "ערך": str(value),
+                                    "ביטחון": f"{confidence}%",
+                                }
+                            )
+                    elif field_obj:  # Simple value
+                        doc_data.append(
+                            {"שדה": field_label, "ערך": str(field_obj), "ביטחון": "N/A"}
+                        )
+
+            if doc_data:
+                df_doc = pd.DataFrame(doc_data)
+                st.dataframe(df_doc, use_container_width=True, hide_index=True)
+            else:
+                st.info("לא נמצאו פרטי מסמך")
+        else:
+            st.info("לא נמצאו פרטי מסמך")
+
+        st.markdown("---")
+
+        # === 2. Rooms Table ===
+        st.markdown("### 🏠 חדרים ושטחים")
+
+        rooms = llm_data.get("rooms", [])
+        if rooms:
+            st.success(f"✅ נמצאו {len(rooms)} חדרים")
+
+            rooms_data = []
+            for idx, room in enumerate(rooms, 1):
+                # Extract values from each field
+                def get_val(field_obj, default=""):
+                    if isinstance(field_obj, dict):
+                        return field_obj.get("value", default)
+                    return field_obj if field_obj else default
+
+                def get_conf(field_obj):
+                    if isinstance(field_obj, dict):
+                        return field_obj.get("confidence", 0)
+                    return 0
+
+                room_row = {
+                    "#": idx,
+                    "שם חדר": get_val(room.get("name", {})),
+                    'שטח (מ"ר)': get_val(room.get("area_m2", {}), 0),
+                    "גובה תקרה (מ')": get_val(room.get("ceiling_height_m", {}), ""),
+                    "ריצוף": get_val(room.get("flooring_notes", {})),
+                    "תקרה": get_val(room.get("ceiling_notes", {})),
+                    "הערות": get_val(room.get("other_notes", {})),
+                }
+
+                # Add confidence for area (most important)
+                area_conf = get_conf(room.get("area_m2", {}))
+                if area_conf > 0:
+                    room_row["ביטחון שטח"] = f"{area_conf}%"
+
+                rooms_data.append(room_row)
+
+            df_rooms = pd.DataFrame(rooms_data)
+            st.dataframe(df_rooms, use_container_width=True, hide_index=True)
+
+            # Total area
+            total_area = sum(
+                [
+                    float(r['שטח (מ"ר)'])
+                    for r in rooms_data
+                    if r['שטח (מ"ר)'] and str(r['שטח (מ"ר)']).replace(".", "").isdigit()
+                ]
+            )
+
+            if total_area > 0:
+                st.metric("סך כל שטח החדרים", f'{total_area:.2f} מ"ר')
+        else:
+            st.warning("⚠️ לא נמצאו חדרים בטקסט")
+            st.caption("💡 ייתכן שהתוכנית לא כוללת טבלת חדרים או שהטקסט לא חולץ כראוי")
+
+        st.markdown("---")
+
+        # === 3. Heights and Levels ===
+        heights = llm_data.get("heights_and_levels", {})
+        if heights:
+            st.markdown("### 📏 גבהים ומפלסים")
+
+            height_data = []
+            height_labels = {
+                "default_ceiling_height_m": "גובה תקרה סטנדרטי (מ')",
+                "default_floor_height_m": "גובה רצפה ממפלס 0 (מ')",
+                "construction_level_m": "מפלס בנייה (מ')",
+            }
+
+            for key, label in height_labels.items():
+                if key in heights:
+                    field_obj = heights[key]
+                    value = (
+                        field_obj.get("value")
+                        if isinstance(field_obj, dict)
+                        else field_obj
+                    )
+
+                    if value:
+                        height_data.append({"פרמטר": label, "ערך": value})
+
+            if height_data:
+                df_heights = pd.DataFrame(height_data)
+                st.dataframe(df_heights, use_container_width=True, hide_index=True)
+            else:
+                st.info("לא נמצאו נתוני גבהים")
+
+        # === 4. Execution Notes ===
+        notes = llm_data.get("execution_notes", {})
+        if notes and any(notes.values()):
+            st.markdown("### 📝 הערות ביצוע")
+
+            note_labels = {
+                "general_notes": "הערות כלליות",
+                "structural_notes": "הערות קונסטרוקציה",
+                "hvac_notes": "מיזוג אוויר",
+                "electrical_notes": "חשמל",
+                "plumbing_notes": "אינסטלציה",
+            }
+
+            for key, label in note_labels.items():
+                if key in notes:
+                    field_obj = notes[key]
+                    value = (
+                        field_obj.get("value")
+                        if isinstance(field_obj, dict)
+                        else field_obj
+                    )
+
+                    if value:
+                        st.markdown(f"**{label}:** {value}")
+
+        # === 5. Quantities Hint ===
+        quantities = llm_data.get("quantities_hint", {})
+        if quantities:
+            wall_types = quantities.get("wall_types_mentioned", [])
+            materials = quantities.get("material_hints", [])
+
+            if wall_types or materials:
+                st.markdown("### 🔨 רמזים לכמויות")
+
+                if wall_types:
+                    st.markdown("**סוגי קירות שהוזכרו:**")
+                    for wt in wall_types:
+                        st.markdown(f"- {wt}")
+
+                if materials:
+                    st.markdown("**חומרי גמר שהוזכרו:**")
+                    for mat in materials:
+                        st.markdown(f"- {mat}")
+
+        # === 6. Limitations ===
+        limitations = llm_data.get("limitations", [])
+        if limitations:
+            st.markdown("---")
+            st.markdown("### ⚠️ מגבלות וזיהוי בעיות")
+            for limit in limitations:
+                st.warning(limit)
+
+        # === 7. Raw JSON Debug ===
+        st.markdown("---")
+        with st.expander("🔍 JSON מלא (Debug)", expanded=False):
+            st.json(llm_data)

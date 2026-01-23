@@ -16,7 +16,8 @@ from pages.manager import (
     render_corrections_tab,
     render_dashboard_tab,
     render_invoices_tab,
-    render_plan_data_tab,  # ← הוסף שורה זו
+    render_plan_data_tab,
+    render_floor_analysis_tab  # ← הוסף את זה
 )
 from pages.worker import render_worker_page
 
@@ -70,30 +71,32 @@ with st.sidebar:
 # ==========================================
 if mode == "🏢 מנהל פרויקט":
     st.title("ניהול פרויקטים")
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        [
-            "📂 סדנת עבודה",
-            "🎨 תיקונים ידניים",
-            "📄 נתונים מהשרטוט",  # ← טאב חדש
-            "📊 דשבורד",
-            "💰 חשבונות",
-        ]
-    )
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📂 סדנת עבודה", 
+    "🎨 תיקונים ידניים", 
+    "📄 נתונים מהשרטוט",
+    "📐 ניתוח שטחים",  # ← טאב חדש
+    "📊 דשבורד", 
+    "💰 חשבונות"
+])
 
-    with tab1:
-        render_workshop_tab()
+with tab1:
+    render_workshop_tab()
 
-    with tab2:
-        render_corrections_tab()
+with tab2:
+    render_corrections_tab()
 
-    with tab3:
-        render_plan_data_tab()  # ← קריאה לטאב החדש
+with tab3:
+    render_plan_data_tab()
 
-    with tab4:
-        render_dashboard_tab()
+with tab4:
+    render_floor_analysis_tab()  # ← הוסף את זה
 
-    with tab5:
-        render_invoices_tab()
+with tab5:
+    render_dashboard_tab()
+
+with tab6:
+    render_invoices_tab()
 
 # ==========================================
 # 👷 מצב דיווח

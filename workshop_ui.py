@@ -49,7 +49,7 @@ def _ui_header_and_upload():
             st.info("👈 התחל בהעלאת תוכנית חדשה")
 
     with col_upload:
-        # תיקון תאימות לגרסה 1.28: שימוש ב-expander במקום popover
+        # תיקון תאימות: שימוש ב-expander במקום popover
         with st.expander("➕ תוכנית חדשה", expanded=False):
             st.markdown("### העלאת תוכנית")
             files = st.file_uploader(
@@ -110,7 +110,7 @@ def _ui_header_and_upload():
                                     "flooring_mask": floor,
                                     "total_length": pix / 200.0,
                                     "llm_data": llm_data,
-                                    "floor_analysis": None,  # מקום לתוצאות ניתוח עתידי
+                                    "floor_analysis": None,
                                 }
                                 os.unlink(path)
                                 st.session_state.ws_active_plan = f.name
@@ -133,7 +133,7 @@ def _ui_control_panel(plan_key, proj):
         )
         proj["metadata"]["plan_name"] = new_name
 
-        # --- מדידות מתקדמות (החלק החשוב שהוחזר) ---
+        # --- מדידות מתקדמות ---
         with st.expander("📐 מדידות מתקדמות (נייר/סקלה)", expanded=False):
             meta = proj.get("metadata", {})
 
@@ -154,7 +154,7 @@ def _ui_control_panel(plan_key, proj):
                 key=f"paper_select_{plan_key}",
             )
 
-            # לוגיקת עדכון גודל נייר (נלקח מ-manager.py)
+            # לוגיקת עדכון גודל נייר
             if selected_paper != "זיהוי אוטומטי" and selected_paper != current_detected:
                 ISO_SIZES = {
                     "A0": (841, 1189),
@@ -186,9 +186,9 @@ def _ui_control_panel(plan_key, proj):
                         meta["meters_per_pixel"] = float(
                             (mm_per_pixel * meta["scale_denominator"]) / 1000.0
                         )
-                        proj["scale"] = 1.0 / meta["meters_per_pixel"]  # סנכרון הפוך
+                        proj["scale"] = 1.0 / meta["meters_per_pixel"]
 
-            # 2. תצוגת נתונים טכניים (החישוב)
+            # 2. תצוגת נתונים טכניים
             if all(k in meta for k in ["paper_mm", "image_size_px", "mm_per_pixel"]):
                 st.markdown("---")
                 st.caption("נתוני חישוב:")
@@ -226,11 +226,10 @@ def _ui_control_panel(plan_key, proj):
                             proj["scale"] = 1.0 / meta["meters_per_pixel"]
                         st.success("עודכן!")
 
-        # סליידר סקלה (ויזואלי ומהיר)
+        # סליידר סקלה
         st.markdown("---")
         st.caption("כיוונון עדין (פיקסלים למטר)")
 
-        # הגנה מפני ערך 0 או None
         current_scale = float(proj["scale"]) if proj.get("scale") else 200.0
 
         scale_val = st.slider(
@@ -243,7 +242,6 @@ def _ui_control_panel(plan_key, proj):
         )
         proj["scale"] = scale_val
 
-        # חישוב אורך מהיר
         pixels = proj.get("raw_pixels", 0)
         total_m = pixels / scale_val
 
@@ -253,7 +251,7 @@ def _ui_control_panel(plan_key, proj):
         with col_px:
             st.metric("פיקסלים", f"{pixels:,}")
 
-    # כפתור פעולה ראשי - ניתוח חדרים
+    # כפתור ניתוח חדרים
     st.markdown("### 🧠 פעולות חכמות")
     if st.button("🔍 נתח חדרים ושטחים", use_container_width=True, type="primary"):
         with st.spinner("מבצע סגמנטציה וניתוח גיאומטרי..."):
@@ -268,15 +266,13 @@ def _ui_control_panel(plan_key, proj):
 def _ui_visualization_area(plan_key, proj):
     """איזור ויזואליזציה מרכזי + טאבים של נתונים"""
 
-    # --- שכבות תצוגה ---
     col_vis_toggles = st.columns([1, 1, 1, 3])
     with col_vis_toggles[0]:
         show_flooring = st.toggle("ריצוף", value=True)
     with col_vis_toggles[1]:
-        show_rooms = st.toggle("חדרים", value=True)  # יופיע רק אם יש ניתוח
+        show_rooms = st.toggle("חדרים", value=True)
 
     # יצירת התמונה להצגה
-    # 1. בסיס (קירות)
     overlay = create_colored_overlay(
         proj["original"],
         proj["concrete_mask"],
@@ -284,7 +280,6 @@ def _ui_visualization_area(plan_key, proj):
         proj["flooring_mask"] if show_flooring else None,
     )
 
-    # 2. שכבת חדרים (אם בוצע ניתוח וביקשו להציג)
     if (
         show_rooms
         and proj.get("floor_analysis")
@@ -292,12 +287,12 @@ def _ui_visualization_area(plan_key, proj):
     ):
         viz_overlay = proj["floor_analysis"]["visualizations"].get("overlay")
         if viz_overlay is not None:
-            # שילוב עדין בין הויזואליזציות
             overlay = cv2.addWeighted(overlay, 0.4, viz_overlay, 0.6, 0)
 
-    st.image(overlay, use_container_width=True, channels="BGR")
+    # תיקון קריטי: use_column_width במקום use_container_width לגרסאות ישנות
+    st.image(overlay, use_column_width=True, channels="BGR")
 
-    # --- טאבים תחתונים לנתונים (במקום לעבור עמודים) ---
+    # טאבים תחתונים
     st.markdown("---")
     tab_ai, tab_rooms, tab_calc = st.tabs(
         ["🤖 נתוני AI (טקסט)", "📐 טבלת חדרים", "💰 מחשבון"]
@@ -314,7 +309,7 @@ def _ui_visualization_area(plan_key, proj):
 
 
 # ==========================================
-# לוגיקה פנימית ופונקציות עזר (Logic Helpers)
+# לוגיקה פנימית ופונקציות עזר
 # ==========================================
 
 
@@ -325,17 +320,13 @@ def _run_floor_analysis(plan_key, proj):
         st.error("חסרה מסכת קירות")
         return
 
-    # חילוץ נתונים
     meta = proj.get("metadata", {})
-    meters_per_pixel = meta.get(
-        "meters_per_pixel", 1.0 / proj["scale"]
-    )  # Fallback to manual scale
+    meters_per_pixel = meta.get("meters_per_pixel", 1.0 / proj["scale"])
 
     llm_rooms = None
     if proj.get("llm_data") and "rooms" in proj["llm_data"]:
         llm_rooms = proj["llm_data"]["rooms"]
 
-    # הפעלת הפונקציה מהקובץ הקיים
     result = analyze_floor_and_rooms(
         walls_mask=walls_mask,
         original_image=proj["original"],
@@ -345,7 +336,6 @@ def _run_floor_analysis(plan_key, proj):
         min_room_area_px=500,
     )
 
-    # שמירת תוצאה
     proj["floor_analysis"] = result
 
     if result["success"]:
@@ -355,7 +345,7 @@ def _run_floor_analysis(plan_key, proj):
 
 
 def _render_ai_data_tab(proj):
-    """מציג את הנתונים מ-Utils בצורה נקייה"""
+    """מציג את הנתונים מ-Utils"""
     llm = proj.get("llm_data", {})
     if not llm or llm.get("status") == "error":
         st.caption("לא נמצא מידע טקסטואלי")
@@ -379,7 +369,7 @@ def _render_ai_data_tab(proj):
 
 
 def _render_rooms_table(proj):
-    """מציג טבלת חדרים מהניתוח הגאומטרי"""
+    """מציג טבלת חדרים"""
     analysis = proj.get("floor_analysis")
     if not analysis or not analysis.get("success"):
         st.info("לחץ על 'נתח חדרים ושטחים' בפאנל הצדדי כדי לראות נתונים כאן.")
@@ -390,7 +380,6 @@ def _render_rooms_table(proj):
         st.write("לא זוהו חדרים.")
         return
 
-    # הכנת דאטה לטבלה
     data = []
     for r in rooms:
         data.append(
@@ -404,7 +393,6 @@ def _render_rooms_table(proj):
 
     st.dataframe(pd.DataFrame(data), hide_index=True, use_container_width=True)
 
-    # סיכומים
     tot = analysis["totals"]
     st.caption(
         f"סה\"כ שטח: {tot['total_area_m2']:.1f} מ\"ר | סה\"כ היקף: {tot['total_perimeter_m']:.1f} מ'"
@@ -412,22 +400,18 @@ def _render_rooms_table(proj):
 
 
 def _render_calculator(proj):
-    """מחשבון הצעת מחיר פשוט"""
-    # חישוב כמויות (לוגיקה בסיסית)
+    """מחשבון הצעת מחיר"""
     scale = proj["scale"]
     pixels = proj.get("raw_pixels", 0)
 
-    # אם יש ניתוח חדרים מדויק, נשתמש בו לריצוף
     floor_area = 0
     if proj.get("floor_analysis") and proj["floor_analysis"].get("success"):
         floor_area = proj["floor_analysis"]["totals"]["total_area_m2"] or 0
     else:
-        # Fallback לחישוב פיקסלים גס
         floor_area = proj["metadata"].get("pixels_flooring_area", 0) / (scale**2)
 
     total_len_m = pixels / scale
 
-    # UI
     c1, c2, c3 = st.columns(3)
     p_wall = c1.number_input("מחיר קיר (₪/מ')", value=1200)
     p_floor = c2.number_input('מחיר ריצוף (₪/מ"ר)', value=250)
@@ -441,16 +425,15 @@ def _render_calculator(proj):
 
 
 def _save_project_logic(plan_key, proj):
-    """לוגיקת שמירה למסד הנתונים"""
+    """לוגיקת שמירה"""
     try:
         meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
-        # חישוב חומרים בסיסי
-        conc_len = proj.get("total_length", 0)  # פישוט
+        conc_len = proj.get("total_length", 0)
 
         save_plan(
             plan_key,
             proj["metadata"].get("plan_name", "ללא שם"),
-            "1:50",  # Placeholder
+            "1:50",
             float(proj["scale"]),
             int(proj["raw_pixels"]),
             meta_json,
@@ -472,23 +455,19 @@ def _save_project_logic(plan_key, proj):
 def render_modern_workshop():
     """זו הפונקציה היחידה שתקרא לה מ-manager.py"""
 
-    # אתחול Session State אם לא קיים
     if "projects" not in st.session_state:
         st.session_state.projects = {}
 
     st.markdown("## 🛠️ סדנת עבודה")
 
-    # 1. חלק עליון - בחירה והעלאה
     _ui_header_and_upload()
     st.divider()
 
-    # 2. אזור עבודה ראשי (רק אם יש פרויקט)
     if st.session_state.get("ws_active_plan") and st.session_state.projects:
         active_key = st.session_state.ws_active_plan
         if active_key in st.session_state.projects:
             proj = st.session_state.projects[active_key]
 
-            # פריסת מסך: צד שמאל צר (פקדים), צד ימין רחב (תצוגה)
             col_ctrl, col_view = st.columns([1, 2.5], gap="medium")
 
             with col_ctrl:

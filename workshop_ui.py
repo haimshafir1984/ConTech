@@ -16,6 +16,7 @@ from utils import (
     create_colored_overlay,
     get_simple_metadata_values,
     calculate_area_m2,
+    refine_flooring_mask_with_rooms,
 )
 from floor_extractor import analyze_floor_and_rooms
 from preprocessing import get_crop_bbox_from_canvas_data
@@ -201,6 +202,9 @@ def _ui_control_panel(plan_key, proj):
                  """,
                     language="text",
                 )
+            floor_conf = meta.get("flooring_confidence")
+            if floor_conf is not None:
+                st.caption(f"🔎 ביטחון ריצוף: {floor_conf * 100:.0f}%")
 
             # 3. הזנה ידנית של קנה מידה (Fallback)
             st.markdown("---")
@@ -274,11 +278,14 @@ def _ui_visualization_area(plan_key, proj):
         show_rooms = st.toggle("חדרים", value=True)
 
     # יצירת התמונה להצגה
+    floor_mask = None
+    if show_flooring:
+        floor_mask = proj.get("flooring_mask_refined") or proj.get("flooring_mask")
     overlay = create_colored_overlay(
         proj["original"],
         proj["concrete_mask"],
         proj["blocks_mask"],
-        proj["flooring_mask"] if show_flooring else None,
+        floor_mask,
     )
 
     if (
@@ -342,6 +349,21 @@ def _run_floor_analysis(plan_key, proj):
     )
 
     proj["floor_analysis"] = result
+
+    # שיפור מסכת ריצוף לפי מסכות חדרים (אם קיימות)
+    try:
+        refined_flooring = refine_flooring_mask_with_rooms(
+            proj.get("flooring_mask"),
+            result.get("visualizations", {}).get("masks"),
+        )
+        if refined_flooring is not None:
+            proj["flooring_mask_refined"] = refined_flooring
+            meta = proj.get("metadata", {})
+            meta["pixels_flooring_area_refined"] = int(
+                np.count_nonzero(refined_flooring)
+            )
+    except Exception:
+        pass
 
     if result["success"]:
         st.success(f"נמצאו {result['totals']['num_rooms']} חדרים")
@@ -414,8 +436,12 @@ def _render_calculator(proj):
         floor_area = proj["floor_analysis"]["totals"]["total_area_m2"] or 0
     else:
         meta = proj.get("metadata", {})
-        floor_area = calculate_area_m2(
+        flooring_pixels = meta.get(
+            "pixels_flooring_area_refined",
             proj["metadata"].get("pixels_flooring_area", 0),
+        )
+        floor_area = calculate_area_m2(
+            flooring_pixels,
             meters_per_pixel=meta.get("meters_per_pixel"),
             meters_per_pixel_x=meta.get("meters_per_pixel_x"),
             meters_per_pixel_y=meta.get("meters_per_pixel_y"),

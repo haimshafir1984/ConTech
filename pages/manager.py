@@ -34,6 +34,7 @@ from utils import (
     create_colored_overlay,
     get_simple_metadata_values,
     calculate_area_m2,
+    refine_flooring_mask_with_rooms,
 )
 
 # ייבוא פונקציות preprocessing לגזירה
@@ -455,8 +456,12 @@ def render_workshop_tab():
             conc_len = float(np.count_nonzero(conc_corrected) / scale_val)
             block_len = float(np.count_nonzero(block_corrected) / scale_val)
             meta = proj.get("metadata", {})
-            floor_area = calculate_area_m2(
+            flooring_pixels = meta.get(
+                "pixels_flooring_area_refined",
                 proj["metadata"].get("pixels_flooring_area", 0),
+            )
+            floor_area = calculate_area_m2(
+                flooring_pixels,
                 meters_per_pixel=meta.get("meters_per_pixel"),
                 meters_per_pixel_x=meta.get("meters_per_pixel_x"),
                 meters_per_pixel_y=meta.get("meters_per_pixel_y"),
@@ -486,6 +491,10 @@ def render_workshop_tab():
                     st.metric(
                         "קנה מידה", f"1:{scale_denom}" if scale_denom else "לא זוהה"
                     )
+
+                floor_conf = meta.get("flooring_confidence")
+                if floor_conf is not None:
+                    st.caption(f"🔎 ביטחון ריצוף: {floor_conf * 100:.0f}%")
 
                 st.markdown("---")
                 st.markdown("#### 📄 Override גודל נייר")
@@ -798,7 +807,9 @@ def render_workshop_tab():
             )
             blocks_corrected = cv2.subtract(corrected_walls_display, concrete_corrected)
 
-            floor_mask = proj["flooring_mask"] if show_flooring else None
+            floor_mask = None
+            if show_flooring:
+                floor_mask = proj.get("flooring_mask_refined") or proj.get("flooring_mask")
             overlay = create_colored_overlay(
                 proj["original"], concrete_corrected, blocks_corrected, floor_mask
             )
@@ -1377,6 +1388,21 @@ def render_floor_analysis_tab():
 
                 # שמור בפרויקט
                 proj["floor_analysis"] = result
+
+                # שיפור מסכת ריצוף לפי מסכות חדרים (אם קיימות)
+                try:
+                    refined_flooring = refine_flooring_mask_with_rooms(
+                        proj.get("flooring_mask"),
+                        result.get("visualizations", {}).get("masks"),
+                    )
+                    if refined_flooring is not None:
+                        proj["flooring_mask_refined"] = refined_flooring
+                        meta = proj.get("metadata", {})
+                        meta["pixels_flooring_area_refined"] = int(
+                            np.count_nonzero(refined_flooring)
+                        )
+                except Exception:
+                    pass
 
                 # שלב 5: הצג תוצאות
                 if not result["success"]:

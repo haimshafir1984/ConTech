@@ -433,6 +433,53 @@ def match_rooms_to_text(
 
 
 # ==========================================
+# שלב 5.5: ולידציה של קנה מידה מול טקסט
+# ==========================================
+
+def validate_scale_with_text_areas(
+    room_metrics: List[Dict],
+    min_samples: int = 3,
+    tolerance_ratio: float = 0.25,
+) -> Dict:
+    """
+    בודק סטייה של שטחי חדרים מול שטחים מהטקסט.
+    מחזיר מידע סטטיסטי והמלצת תיקון אפשרית לסקלה.
+    """
+    ratios = []
+    for room in room_metrics:
+        text_area = room.get("area_text_m2")
+        geom_area = room.get("area_m2")
+        if text_area and geom_area and geom_area > 0 and text_area > 0:
+            ratios.append(float(text_area) / float(geom_area))
+
+    result = {
+        "status": "insufficient_data",
+        "samples": len(ratios),
+        "median_ratio": None,
+        "suggested_scale_factor": None,
+        "warning": False,
+    }
+
+    if len(ratios) < min_samples:
+        return result
+
+    median_ratio = float(np.median(ratios))
+    # יחס שטחים = (יחס סקלה)^2
+    suggested_scale_factor = float(np.sqrt(median_ratio))
+    deviation = abs(1.0 - median_ratio)
+
+    result.update(
+        {
+            "status": "ok",
+            "median_ratio": median_ratio,
+            "suggested_scale_factor": suggested_scale_factor,
+            "warning": deviation > tolerance_ratio,
+        }
+    )
+    return result
+
+
+# ==========================================
 # שלב 6: פונקציה מאחדת (High-level API)
 # ==========================================
 
@@ -520,6 +567,12 @@ def analyze_floor_and_rooms(
         # 5. התאמה לטקסט (אם יש)
         if llm_rooms:
             room_metrics = match_rooms_to_text(room_metrics, llm_rooms)
+            scale_validation = validate_scale_with_text_areas(room_metrics)
+            result["debug"]["scale_validation"] = scale_validation
+            if scale_validation.get("warning"):
+                result["limitations"].append(
+                    "סטייה אפשרית בקנה המידה לפי שטחים מהטקסט"
+                )
         
         # 6. חישוב סיכומים
         total_area_m2 = sum([r['area_m2'] for r in room_metrics if r['area_m2'] is not None])

@@ -43,6 +43,63 @@ def parse_scale(text: str) -> Optional[int]:
     return None
 
 
+def evaluate_flooring_mask_quality(mask: Optional[np.ndarray]) -> Dict:
+    """
+    מחשב מדד איכות בסיסי למסכת ריצוף (רעש/דלילות).
+    """
+    if mask is None or mask.size == 0:
+        return {
+            "quality_score": 0.0,
+            "coverage_ratio": 0.0,
+            "small_component_ratio": 1.0,
+            "component_count": 0,
+            "small_component_threshold_px": 0,
+            "status": "empty",
+        }
+
+    area = int(cv2.countNonZero(mask))
+    if area == 0:
+        return {
+            "quality_score": 0.0,
+            "coverage_ratio": 0.0,
+            "small_component_ratio": 1.0,
+            "component_count": 0,
+            "small_component_threshold_px": 0,
+            "status": "empty",
+        }
+
+    h, w = mask.shape[:2]
+    total_px = float(h * w)
+    coverage_ratio = area / total_px
+
+    mask_bin = (mask > 0).astype(np.uint8)
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(mask_bin, connectivity=8)
+    component_count = max(0, num_labels - 1)
+    small_threshold = max(20, int(0.0002 * total_px))
+    small_area_total = 0
+    for idx in range(1, num_labels):
+        comp_area = stats[idx, cv2.CC_STAT_AREA]
+        if comp_area < small_threshold:
+            small_area_total += comp_area
+
+    small_component_ratio = small_area_total / float(area) if area else 1.0
+
+    quality_score = 1.0 - min(1.0, small_component_ratio * 1.2)
+    if coverage_ratio < 0.001:
+        quality_score *= 0.6
+    if coverage_ratio > 0.6:
+        quality_score *= 0.7
+
+    return {
+        "quality_score": float(max(0.0, min(1.0, quality_score))),
+        "coverage_ratio": float(coverage_ratio),
+        "small_component_ratio": float(small_component_ratio),
+        "component_count": int(component_count),
+        "small_component_threshold_px": int(small_threshold),
+        "status": "ok",
+    }
+
+
 def detect_paper_size_mm(doc_page) -> Dict:
     """
     מזהה גודל נייר ISO (A0-A4) על בסיס גודל עמוד PDF
@@ -712,11 +769,15 @@ class FloorPlanAnalyzer:
                 f"concrete must be numpy array, got {type(concrete).__name__}"
             )
 
+        flooring_quality = evaluate_flooring_mask_quality(flooring)
+
         meta.update(
             {
                 "pixels_concrete": cv2.countNonZero(self._skeletonize(concrete)),
                 "pixels_blocks": cv2.countNonZero(self._skeletonize(blocks_mask)),
                 "pixels_flooring_area": cv2.countNonZero(flooring),
+                "flooring_quality": flooring_quality,
+                "flooring_confidence": flooring_quality.get("quality_score", 0.0),
                 "confidence_avg": (
                     float(np.mean(confidence_map[final_walls > 0]))
                     if np.any(final_walls > 0)

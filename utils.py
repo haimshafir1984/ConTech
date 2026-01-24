@@ -209,6 +209,43 @@ def calculate_area_m2(
     return None
 
 
+def refine_flooring_mask_with_rooms(
+    flooring_mask: Optional[np.ndarray],
+    room_masks: Optional[dict],
+) -> Optional[np.ndarray]:
+    """
+    מצמצם מסכת ריצוף לאזורים שמוגדרים כחדרים (איחוד מסכות).
+    מחזיר None אם אין נתונים מספקים.
+    """
+    if flooring_mask is None or room_masks is None:
+        return None
+
+    if not room_masks:
+        return None
+
+    union_mask = None
+    for mask in room_masks.values():
+        if mask is None:
+            continue
+        if union_mask is None:
+            union_mask = mask.copy()
+        else:
+            union_mask = cv2.bitwise_or(union_mask, mask)
+
+    if union_mask is None:
+        return None
+
+    # התאמת גדלים במקרה של mismatch
+    if union_mask.shape[:2] != flooring_mask.shape[:2]:
+        union_mask = cv2.resize(
+            union_mask,
+            (flooring_mask.shape[1], flooring_mask.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+    return cv2.bitwise_and(flooring_mask, union_mask)
+
+
 def format_llm_metadata(llm_data):
     """
     ממיר את המטא-דאטה המלא למבנה פשוט יותר לתצוגה

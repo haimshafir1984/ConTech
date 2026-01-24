@@ -274,6 +274,21 @@ def _segment_connected_components(inside_mask: np.ndarray, min_area: int) -> Lis
 # שלב 4: חישוב מדדים לכל חדר
 # ==========================================
 
+def compute_dynamic_min_room_area_px(
+    inside_mask: np.ndarray,
+    ratio: float = 0.0008,
+    min_px: int = 300,
+    max_px: int = 8000,
+) -> int:
+    """
+    מחשב סף מינימום דינאמי לחדר לפי גודל השטח הפנימי.
+    """
+    if inside_mask is None or inside_mask.size == 0:
+        return min_px
+    total_inside = int(np.count_nonzero(inside_mask))
+    dynamic_px = int(total_inside * ratio)
+    return int(max(min_px, min(max_px, dynamic_px)))
+
 def compute_room_metrics(
     room_regions: List[Dict],
     meters_per_pixel: Optional[float] = None,
@@ -548,7 +563,18 @@ def analyze_floor_and_rooms(
             return result
         
         # 3. פירוק לחדרים
-        room_regions = segment_rooms(inside_mask, method=segmentation_method, min_room_area_px=min_room_area_px)
+        if min_room_area_px is None or min_room_area_px <= 0:
+            min_room_area_px = compute_dynamic_min_room_area_px(inside_mask)
+            result['debug']['min_room_area_px_auto'] = True
+        else:
+            result['debug']['min_room_area_px_auto'] = False
+        result['debug']['min_room_area_px_used'] = int(min_room_area_px)
+
+        room_regions = segment_rooms(
+            inside_mask,
+            method=segmentation_method,
+            min_room_area_px=min_room_area_px,
+        )
         
         if not room_regions:
             result['limitations'].append("לא נמצאו חדרים - נסה להוריד את min_room_area_px")

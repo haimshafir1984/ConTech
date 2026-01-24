@@ -205,6 +205,8 @@ def _ui_control_panel(plan_key, proj):
             floor_conf = meta.get("flooring_confidence")
             if floor_conf is not None:
                 st.caption(f"🔎 ביטחון ריצוף: {floor_conf * 100:.0f}%")
+                if floor_conf < 0.3:
+                    st.warning("⚠️ איכות ריצוף נמוכה - ייתכן דיוק נמוך בשטח")
 
             # 3. הזנה ידנית של קנה מידה (Fallback)
             st.markdown("---")
@@ -345,7 +347,7 @@ def _run_floor_analysis(plan_key, proj):
         meters_per_pixel_y=meters_per_pixel_y,
         llm_rooms=llm_rooms,
         segmentation_method="watershed",
-        min_room_area_px=500,
+        min_room_area_px=0,
     )
 
     proj["floor_analysis"] = result

@@ -495,6 +495,8 @@ def render_workshop_tab():
                 floor_conf = meta.get("flooring_confidence")
                 if floor_conf is not None:
                     st.caption(f"🔎 ביטחון ריצוף: {floor_conf * 100:.0f}%")
+                    if floor_conf < 0.3:
+                        st.warning("⚠️ איכות ריצוף נמוכה - ייתכן דיוק נמוך בשטח")
 
                 st.markdown("---")
                 st.markdown("#### 📄 Override גודל נייר")
@@ -1335,6 +1337,11 @@ def render_floor_analysis_tab():
             )
 
         with col_set2:
+            auto_min_area = st.checkbox(
+                "סף חדרים אוטומטי",
+                value=True,
+                help="מחשב סף דינאמי לפי גודל השטח הפנימי",
+            )
             min_area = st.number_input(
                 "שטח מינימלי לחדר (פיקסלים):",
                 min_value=100,
@@ -1342,6 +1349,7 @@ def render_floor_analysis_tab():
                 value=500,
                 step=100,
                 help="חדרים קטנים מזה יתעלמו",
+                disabled=auto_min_area,
             )
 
     # כפתור ניתוח
@@ -1383,7 +1391,7 @@ def render_floor_analysis_tab():
                     meters_per_pixel_y=meters_per_pixel_y,
                     llm_rooms=llm_rooms,
                     segmentation_method=seg_method,
-                    min_room_area_px=int(min_area),
+                    min_room_area_px=0 if auto_min_area else int(min_area),
                 )
 
                 # שמור בפרויקט

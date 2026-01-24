@@ -50,7 +50,7 @@ def _ui_header_and_upload():
 
     with col_upload:
         # כפתור POP-OVER להעלאה (חוסך מקום במסך)
-        with st.popover("➕ תוכנית חדשה", use_container_width=True):
+        with st.expander("➕ תוכנית חדשה", use_container_width=True):
             st.markdown("### העלאת תוכנית")
             files = st.file_uploader(
                 "", type="pdf", accept_multiple_files=True, key="ws_modern_upload"

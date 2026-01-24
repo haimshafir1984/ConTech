@@ -276,14 +276,18 @@ def _segment_connected_components(inside_mask: np.ndarray, min_area: int) -> Lis
 
 def compute_room_metrics(
     room_regions: List[Dict],
-    meters_per_pixel: Optional[float] = None
+    meters_per_pixel: Optional[float] = None,
+    meters_per_pixel_x: Optional[float] = None,
+    meters_per_pixel_y: Optional[float] = None,
 ) -> List[Dict]:
     """
     מחשב מדדים מפורטים לכל חדר
     
     Args:
         room_regions: רשימת חדרים מ-segment_rooms
-        meters_per_pixel: יחס המרה (אם None, רק פיקסלים)
+        meters_per_pixel: יחס המרה איזוטרופי (אם None, רק פיקסלים)
+        meters_per_pixel_x: יחס המרה בציר X (אופציונלי)
+        meters_per_pixel_y: יחס המרה בציר Y (אופציונלי)
     
     Returns:
         list[room_metrics] עם שדות:
@@ -303,7 +307,18 @@ def compute_room_metrics(
         }
         
         # המרה למטרים (אם אפשר)
-        if meters_per_pixel is not None and meters_per_pixel > 0:
+        if (
+            meters_per_pixel_x is not None
+            and meters_per_pixel_y is not None
+            and meters_per_pixel_x > 0
+            and meters_per_pixel_y > 0
+        ):
+            metrics['area_m2'] = room['area_px'] * meters_per_pixel_x * meters_per_pixel_y
+            meters_per_pixel_eff = (meters_per_pixel_x + meters_per_pixel_y) / 2
+            metrics['perimeter_m'] = room['perimeter_px'] * meters_per_pixel_eff
+            metrics['baseboard_m'] = metrics['perimeter_m']  # MVP
+            metrics['confidence'] = 0.85  # סבירות בסיסית
+        elif meters_per_pixel is not None and meters_per_pixel > 0:
             metrics['area_m2'] = room['area_px'] * (meters_per_pixel ** 2)
             metrics['perimeter_m'] = room['perimeter_px'] * meters_per_pixel
             metrics['baseboard_m'] = metrics['perimeter_m']  # MVP
@@ -425,6 +440,8 @@ def analyze_floor_and_rooms(
     walls_mask: np.ndarray,
     original_image: np.ndarray,
     meters_per_pixel: Optional[float] = None,
+    meters_per_pixel_x: Optional[float] = None,
+    meters_per_pixel_y: Optional[float] = None,
     llm_rooms: Optional[List[Dict]] = None,
     segmentation_method: str = "watershed",
     min_room_area_px: int = 500
@@ -435,7 +452,9 @@ def analyze_floor_and_rooms(
     Args:
         walls_mask: מסכת קירות (0/255)
         original_image: תמונה מקורית (לויזואליזציה)
-        meters_per_pixel: יחס המרה (optional)
+        meters_per_pixel: יחס המרה איזוטרופי (optional)
+        meters_per_pixel_x: יחס המרה בציר X (optional)
+        meters_per_pixel_y: יחס המרה בציר Y (optional)
         llm_rooms: חדרים מהטקסט (optional)
         segmentation_method: "watershed" או "cc"
         min_room_area_px: שטח מינימלי לחדר
@@ -491,7 +510,12 @@ def analyze_floor_and_rooms(
         result['debug']['num_regions_found'] = len(room_regions)
         
         # 4. חישוב מדדים
-        room_metrics = compute_room_metrics(room_regions, meters_per_pixel)
+        room_metrics = compute_room_metrics(
+            room_regions,
+            meters_per_pixel=meters_per_pixel,
+            meters_per_pixel_x=meters_per_pixel_x,
+            meters_per_pixel_y=meters_per_pixel_y,
+        )
         
         # 5. התאמה לטקסט (אם יש)
         if llm_rooms:

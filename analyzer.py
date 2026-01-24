@@ -762,6 +762,8 @@ class FloorPlanAnalyzer:
                 mm_per_pixel = (mm_per_pixel_x + mm_per_pixel_y) / 2
 
                 meta["mm_per_pixel"] = mm_per_pixel
+                meta["mm_per_pixel_x"] = mm_per_pixel_x
+                meta["mm_per_pixel_y"] = mm_per_pixel_y
                 meta["image_size_px"] = {"width": full_w, "height": full_h}
 
                 # מידע על אזור הניתוח (אם יש crop)
@@ -772,9 +774,13 @@ class FloorPlanAnalyzer:
                 if scale_denom:
                     meters_per_pixel = (mm_per_pixel * scale_denom) / 1000
                     meta["meters_per_pixel"] = meters_per_pixel
+                    meta["meters_per_pixel_x"] = (mm_per_pixel_x * scale_denom) / 1000
+                    meta["meters_per_pixel_y"] = (mm_per_pixel_y * scale_denom) / 1000
                     meta["measurement_confidence"] = paper_info["confidence"]
                 else:
                     meta["meters_per_pixel"] = None
+                    meta["meters_per_pixel_x"] = None
+                    meta["meters_per_pixel_y"] = None
                     meta["measurement_confidence"] = 0.0
 
             # Stage 2: מדידת אורך skeleton

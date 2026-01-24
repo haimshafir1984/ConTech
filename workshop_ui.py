@@ -15,6 +15,7 @@ from utils import (
     safe_process_metadata,
     create_colored_overlay,
     get_simple_metadata_values,
+    calculate_area_m2,
 )
 from floor_extractor import analyze_floor_and_rooms
 from preprocessing import get_crop_bbox_from_canvas_data
@@ -322,6 +323,8 @@ def _run_floor_analysis(plan_key, proj):
 
     meta = proj.get("metadata", {})
     meters_per_pixel = meta.get("meters_per_pixel", 1.0 / proj["scale"])
+    meters_per_pixel_x = meta.get("meters_per_pixel_x")
+    meters_per_pixel_y = meta.get("meters_per_pixel_y")
 
     llm_rooms = None
     if proj.get("llm_data") and "rooms" in proj["llm_data"]:
@@ -331,6 +334,8 @@ def _run_floor_analysis(plan_key, proj):
         walls_mask=walls_mask,
         original_image=proj["original"],
         meters_per_pixel=meters_per_pixel,
+        meters_per_pixel_x=meters_per_pixel_x,
+        meters_per_pixel_y=meters_per_pixel_y,
         llm_rooms=llm_rooms,
         segmentation_method="watershed",
         min_room_area_px=500,
@@ -408,7 +413,14 @@ def _render_calculator(proj):
     if proj.get("floor_analysis") and proj["floor_analysis"].get("success"):
         floor_area = proj["floor_analysis"]["totals"]["total_area_m2"] or 0
     else:
-        floor_area = proj["metadata"].get("pixels_flooring_area", 0) / (scale**2)
+        meta = proj.get("metadata", {})
+        floor_area = calculate_area_m2(
+            proj["metadata"].get("pixels_flooring_area", 0),
+            meters_per_pixel=meta.get("meters_per_pixel"),
+            meters_per_pixel_x=meta.get("meters_per_pixel_x"),
+            meters_per_pixel_y=meta.get("meters_per_pixel_y"),
+            pixels_per_meter=scale,
+        ) or 0
 
     total_len_m = pixels / scale
 

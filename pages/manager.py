@@ -33,6 +33,7 @@ from utils import (
     load_stats_df,
     create_colored_overlay,
     get_simple_metadata_values,
+    calculate_area_m2,
 )
 
 # ייבוא פונקציות preprocessing לגזירה
@@ -453,9 +454,15 @@ def render_workshop_tab():
 
             conc_len = float(np.count_nonzero(conc_corrected) / scale_val)
             block_len = float(np.count_nonzero(block_corrected) / scale_val)
-            floor_area = float(
-                proj["metadata"].get("pixels_flooring_area", 0) / (scale_val**2)
+            meta = proj.get("metadata", {})
+            floor_area = calculate_area_m2(
+                proj["metadata"].get("pixels_flooring_area", 0),
+                meters_per_pixel=meta.get("meters_per_pixel"),
+                meters_per_pixel_x=meta.get("meters_per_pixel_x"),
+                meters_per_pixel_y=meta.get("meters_per_pixel_y"),
+                pixels_per_meter=scale_val,
             )
+            floor_area = float(floor_area or 0)
 
             proj["total_length"] = total_len
 
@@ -1344,6 +1351,8 @@ def render_floor_analysis_tab():
                 # שלב 2: חלץ meters_per_pixel
                 meta = proj.get("metadata", {})
                 meters_per_pixel = meta.get("meters_per_pixel")
+                meters_per_pixel_x = meta.get("meters_per_pixel_x")
+                meters_per_pixel_y = meta.get("meters_per_pixel_y")
 
                 if meters_per_pixel is None:
                     st.warning("⚠️ אין קנה מידה מוגדר - התוצאות יהיו בפיקסלים בלבד")
@@ -1359,6 +1368,8 @@ def render_floor_analysis_tab():
                     walls_mask=walls_mask,
                     original_image=original_img,
                     meters_per_pixel=meters_per_pixel,
+                    meters_per_pixel_x=meters_per_pixel_x,
+                    meters_per_pixel_y=meters_per_pixel_y,
                     llm_rooms=llm_rooms,
                     segmentation_method=seg_method,
                     min_room_area_px=int(min_area),

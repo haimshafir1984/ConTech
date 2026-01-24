@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import pandas as pd
+from typing import Optional
 from database import get_progress_reports
 
 def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=None, raw_blocks=None, candidates=None):
@@ -174,6 +175,38 @@ def create_colored_overlay(original, concrete_mask, blocks_mask, flooring_mask=N
     # שילוב עם שקיפות
     cv2.addWeighted(overlay, 0.6, img_vis, 0.4, 0, img_vis)
     return img_vis.astype(np.uint8)
+
+
+def calculate_area_m2(
+    area_px: int,
+    meters_per_pixel: Optional[float] = None,
+    meters_per_pixel_x: Optional[float] = None,
+    meters_per_pixel_y: Optional[float] = None,
+    pixels_per_meter: Optional[float] = None,
+) -> Optional[float]:
+    """
+    מחשב שטח במ"ר מפיקסלים עם עדיפות להמרה אניזוטרופית.
+    מחזיר None אם אין קנה מידה תקין.
+    """
+    if area_px is None:
+        return None
+
+    if (
+        meters_per_pixel_x is not None
+        and meters_per_pixel_y is not None
+        and meters_per_pixel_x > 0
+        and meters_per_pixel_y > 0
+    ):
+        return area_px * meters_per_pixel_x * meters_per_pixel_y
+
+    if meters_per_pixel is not None and meters_per_pixel > 0:
+        return area_px * (meters_per_pixel ** 2)
+
+    if pixels_per_meter is not None and pixels_per_meter > 0:
+        meters_per_pixel_fallback = 1.0 / pixels_per_meter
+        return area_px * (meters_per_pixel_fallback ** 2)
+
+    return None
 
 
 def format_llm_metadata(llm_data):

@@ -49,8 +49,8 @@ def _ui_header_and_upload():
             st.info("👈 התחל בהעלאת תוכנית חדשה")
 
     with col_upload:
-        # כפתור POP-OVER להעלאה (חוסך מקום במסך)
-        with st.expander("➕ תוכנית חדשה", use_container_width=True):
+        # תיקון תאימות לגרסה 1.28: שימוש ב-expander במקום popover
+        with st.expander("➕ תוכנית חדשה", expanded=False):
             st.markdown("### העלאת תוכנית")
             files = st.file_uploader(
                 "", type="pdf", accept_multiple_files=True, key="ws_modern_upload"

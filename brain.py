@@ -20,7 +20,7 @@ def get_anthropic_client():
         try:
             api_key = st.secrets.get("ANTHROPIC_API_KEY")
         except Exception:
-            pass # התעלמות אם הקובץ לא קיים
+            pass
     
     if not api_key:
         return None, "חסר מפתח API"
@@ -29,9 +29,21 @@ def get_anthropic_client():
 
 
 def process_plan_metadata(raw_text):
-    """מעבד מטא-דאטה של תוכנית עם ניסיון מרובה מודלים"""
+    """
+    ✨ משולב: מחלץ מטא-דאטה מלאה עם פרומפט מקיף
+    """
     client, error = get_anthropic_client()
-    if error: return {}
+    if error: 
+        return {
+            "status": "no_api_key",
+            "error": error,
+            "document": {},
+            "rooms": [],
+            "heights_and_levels": {},
+            "execution_notes": {},
+            "limitations": [error],
+            "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
+        }
 
     # רשימת מודלים לניסיון (מהחדש לישן)
     models = [
@@ -42,56 +54,146 @@ def process_plan_metadata(raw_text):
         "claude-3-haiku-20240307"
     ]
 
+    # ===== הפרומפט המלא =====
     prompt = f"""
-    Analyze construction plan text.
-    Input: '''{raw_text[:2000]}'''
-    Return JSON with: plan_name, scale (e.g. 1:50), plan_type (construction/demolition/other).
-    """
+אתה מומחה בחילוץ מידע מתוכניות בניה ישראליות.
+המשימה: לחלץ **כל** המידע הזמין מהטקסט ולארגן אותו ב-JSON מובנה.
+
+**חשוב מאוד:**
+- החזר **רק** JSON תקין, ללא טקסט נוסף
+- ודא שאין פסיקים מיותרים לפני ] או }}
+- חלץ **כל** מידע זמין, במיוחד **מידות חדרים** ו**שטחים**
+- אם יש טקסט חוזר או OCR לא מושלם - נסה להבין את הכוונה
+
+**טקסט מהתוכנית:**
+{raw_text[:3500]}
+
+**מבנה JSON נדרש:**
+
+{{
+  "document": {{
+    "plan_title": {{"value": "שם התוכנית", "confidence": 0-100, "evidence": ["ציטוט"]}},
+    "plan_type": {{"value": "קירות/תקרה/ריצוף/חשמל", "confidence": 0-100, "evidence": []}},
+    "scale": {{"value": "1:50", "confidence": 0-100, "evidence": []}},
+    "date": {{"value": "2024-01-15", "confidence": 0-100, "evidence": []}},
+    "floor_or_level": {{"value": "קומה א'", "confidence": 0-100, "evidence": []}},
+    "project_name": {{"value": null, "confidence": 0, "evidence": []}},
+    "project_address": {{"value": null, "confidence": 0, "evidence": []}},
+    "architect_name": {{"value": null, "confidence": 0, "evidence": []}},
+    "drawing_number": {{"value": null, "confidence": 0, "evidence": []}}
+  }},
+  "rooms": [
+    {{
+      "name": {{"value": "חדר שינה 1", "confidence": 95, "evidence": ["חדר שינה 1"]}},
+      "area_m2": {{"value": 15.5, "confidence": 90, "evidence": ["15.5 מ\\"ר"]}},
+      "ceiling_height_m": {{"value": 2.70, "confidence": 85, "evidence": ["H=2.70"]}},
+      "flooring_notes": {{"value": "פרקט", "confidence": 80, "evidence": ["פרקט"]}},
+      "ceiling_notes": {{"value": null, "confidence": 0, "evidence": []}},
+      "other_notes": {{"value": null, "confidence": 0, "evidence": []}}
+    }}
+  ],
+  "heights_and_levels": {{
+    "default_ceiling_height_m": {{"value": 2.80, "confidence": 70, "evidence": ["H=2.80"]}},
+    "default_floor_height_m": {{"value": null, "confidence": 0, "evidence": []}},
+    "construction_level_m": {{"value": null, "confidence": 0, "evidence": []}}
+  }},
+  "execution_notes": {{
+    "general_notes": {{"value": null, "confidence": 0, "evidence": []}},
+    "structural_notes": {{"value": null, "confidence": 0, "evidence": []}},
+    "hvac_notes": {{"value": null, "confidence": 0, "evidence": []}},
+    "electrical_notes": {{"value": null, "confidence": 0, "evidence": []}},
+    "plumbing_notes": {{"value": null, "confidence": 0, "evidence": []}}
+  }},
+  "limitations": ["רשום כאן בעיות/מגבלות אם יש"],
+  "quantities_hint": {{
+    "wall_types_mentioned": ["קיר בטון 20 ס\\"מ"],
+    "material_hints": ["גרניט פורצלן"]
+  }}
+}}
+
+**חיפוש חדרים:**
+- שמות: "חדר שינה", "סלון", "מטבח", "שירותים"
+- שטחים: "15 מ\\"ר", "15.5 m²", "15 sqm", או מספר ליד שם חדר
+- גבהים: "H=2.80", "גובה 2.70", "ceiling height 2.80m"
+- ריצוף: "קרמיקה", "פרקט", "שיש", "גרניט"
+- תקרה: "גבס", "טרוול", "תקרה אקוסטית"
+
+**התחל - החזר רק JSON:**
+"""
 
     for model in models:
         try:
             message = client.messages.create(
                 model=model,
-                max_tokens=500,
+                max_tokens=6000,
                 messages=[{"role": "user", "content": prompt}]
             )
-            response_text = message.content[0].text
-            if "{" in response_text: 
-                response_text = "{" + response_text.split("{", 1)[1].rsplit("}", 1)[0] + "}"
-            return json.loads(response_text)
+            
+            response_text = message.content[0].text.strip()
+            
+            # ניקוי
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+            # חילוץ JSON
+            if "{" in response_text and "}" in response_text:
+                start = response_text.find("{")
+                end = response_text.rfind("}") + 1
+                response_text = response_text[start:end]
+            
+            # פרסור
+            try:
+                result = json.loads(response_text)
+                result["status"] = "success"
+                result["_model_used"] = model
+                return result
+            except json.JSONDecodeError:
+                # תיקון אוטומטי
+                fixed = response_text.replace(",]", "]").replace(",}", "}")
+                result = json.loads(fixed)
+                result["status"] = "success"
+                result["_model_used"] = model
+                result["_auto_fixed"] = True
+                return result
+            
         except Exception as e:
-            # אם המודל לא זמין, נסה את הבא
-            if "not_found_error" in str(e):
+            if "not_found_error" in str(e) or "404" in str(e):
                 continue
-            else:
-                # שגיאה אחרת - עצור
-                return {}
+            continue
     
-    return {}
+    # כשלון בכל המודלים
+    return {
+        "status": "extraction_failed",
+        "error": "כל המודלים נכשלו",
+        "document": {},
+        "rooms": [],
+        "heights_and_levels": {},
+        "execution_notes": {},
+        "limitations": ["Failed to extract data with all models"],
+        "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
+    }
 
 
 def analyze_legend_image(image_bytes):
     """
-    מנתח תמונה של מקרא תוכנית בניה ומזהה סוג תוכנית וחומרים
-    מנסה מספר מודלים עד שאחד עובד
-    
-    ✨ משופר: Few-shot learning + דוגמאות
+    ✨ משופר: מנתח תמונה של מקרא תוכנית בניה
+    עם few-shot learning
     """
     client, error = get_anthropic_client()
     if error: return {"error": error}
 
-    # רשימת מודלים לניסיון (מהחדש לישן)
     models = [
-        "claude-3-5-sonnet-20241022",  # הכי חדש
-        "claude-3-5-sonnet-20240620",  # גרסה קודמת
-        "claude-3-opus-20240229",      # Opus (יקר יותר אבל טוב)
-        "claude-3-sonnet-20240229",    # Sonnet ישן
-        "claude-3-haiku-20240307"      # Haiku (זול וחלש)
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-20240620",
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229",
+        "claude-3-haiku-20240307"
     ]
 
     encoded_image = base64.b64encode(image_bytes).decode('utf-8')
     
-    # ✨ שיפור: Few-shot learning עם דוגמאות
     prompt = """
 אתה מומחה בניתוח תוכניות בניה ישראליות.
 נתח את המקרא (Legend) בתמונה זו.
@@ -109,24 +211,15 @@ def analyze_legend_image(image_bytes):
     "confidence": 98,
     "legend_title": "מקרא תקרה - קומה ב'",
     "materials_found": ["לוחות מינרלים", "גבס", "ארקליט"],
-    "ceiling_types": [
-        {
-            "code": "E Advantage",
-            "description": "תקרה חצי שקועה",
-            "dimensions": "60X60"
-        }
-    ],
-    "symbols": [
-        {"symbol": "H=2.80", "meaning": "גובה תקרה 2.80 מטר"}
-    ],
+    "ceiling_types": [{"code": "E Advantage", "description": "תקרה חצי שקועה", "dimensions": "60X60"}],
+    "symbols": [{"symbol": "H=2.80", "meaning": "גובה תקרה 2.80 מטר"}],
     "notes": "תכנית תקרה קומה ב'"
 }
 ```
 
 **דוגמה 2 - קירות:**
 ```
-תמונה: מקרא עם "קיר בטון", "קיר בלוקים", "C11, C12, C13"
-תוכן: "קיר בטון 20 ס\"מ", "קיר בלוקים 10 ס\"מ", "D14 - דלת"
+תמונה: מקרא עם "קיר בטון", "קיר בלוקים", "C11, C12"
 
 תשובה נכונה:
 {
@@ -134,18 +227,14 @@ def analyze_legend_image(image_bytes):
     "confidence": 95,
     "legend_title": "מקרא קירות",
     "materials_found": ["בטון", "בלוקים"],
-    "symbols": [
-        {"symbol": "C11", "meaning": "קורה סוג 11"},
-        {"symbol": "D14", "meaning": "דלת 80 ס\"מ"}
-    ],
+    "symbols": [{"symbol": "C11", "meaning": "קורה סוג 11"}],
     "notes": "תכנית קירות וחלוקה"
 }
 ```
 
 **דוגמה 3 - ריצוף:**
 ```
-תמונה: מקרא עם "גרניט פורצלן 60X60", "מפלס גמר", "שיפוע"
-תוכן: "אריח קרמי", "גרניט פורצלן", "F.F.L +0.00"
+תמונה: מקרא עם "גרניט פורצלן 60X60", "מפלס גמר"
 
 תשובה נכונה:
 {
@@ -153,77 +242,12 @@ def analyze_legend_image(image_bytes):
     "confidence": 92,
     "legend_title": "מקרא ריצוף",
     "materials_found": ["גרניט פורצלן", "קרמיקה"],
-    "symbols": [
-        {"symbol": "F.F.L", "meaning": "Finished Floor Level"}
-    ],
+    "symbols": [{"symbol": "F.F.L", "meaning": "Finished Floor Level"}],
     "notes": "תכנית ריצוף וגמרים"
 }
 ```
 
----
-
-🎯 **עכשיו נתח את התמונה הזו:**
-
-**צעדים לזיהוי:**
-
-1️⃣ **קרא את הכותרת המרכזית במקרא**
-   - חפש: "מקרא תקרה" / "מקרא קירות" / "מקרא ריצוף"
-   - זו ההוכחה החזקה ביותר לסוג התוכנית!
-
-2️⃣ **חפש מילות מפתח ספציפיות:**
-   
-   **תקרה →**
-   - "תקרה אקוסטית" / "תקרת גבס" / "תקרה פריקה"
-   - "לוחות מינרלים" / "ארקליט" 
-   - מידות: "60X60" / "60X120" (אריחי תקרה)
-   - "תליית תקרות" / "פרופילים נושאים"
-   
-   **קירות →**
-   - "קיר בטון" / "קיר בלוקים" / "קיר קל משקל"
-   - "עובי קיר" / "בידוד אקוסטי"
-   - סימונים: C11, C12, C13 (קורות)
-   
-   **ריצוף →**
-   - "אריח קרמי" / "גרניט פורצלן" / "פרקט"
-   - "מפלס גמר" / "שיפוע"
-   - מידות: "30X30" / "60X60" (אריחים)
-
-3️⃣ **בדוק סמלים וקודים:**
-   - C11/C12/C13 → קורות (תקרה)
-   - D14/D17/D18 → דלתות (קירות)
-   - H= → גובה (תקרה/קירות)
-
-**פורמט תשובה - JSON בלבד:**
-{
-    "plan_type": "תקרה",
-    "confidence": 95,
-    "materials_found": ["לוחות מינרלים", "גבס", "ארקליט"],
-    "ceiling_types": [
-        {
-            "code": "E Advantage",
-            "description": "תקרה חצי שקועה",
-            "dimensions": "60X60"
-        }
-    ],
-    "symbols": [
-        {"symbol": "C11", "meaning": "קורה סוג 11"},
-        {"symbol": "H=2.80", "meaning": "גובה תקרה 2.80 מטר"}
-    ],
-    "notes": "תכנית תקרה קומה ב'",
-    "legend_title": "מקרא תקרה"
-}
-
-**חשוב מאוד:**
-- אם רואה "מקרא תקרה" → plan_type חייב להיות "תקרה" (ביטחון 98%)
-- אם רואה "לוחות מינרלים" → זו בוודאות תקרה
-- קרא את כל הטקסט בעברית בקפידה
-- החזר **רק** JSON, אין טקסט נוסף
-- אם לא בטוח ב-100%, כתב confidence נמוך (60-70)
-- השתמש בדוגמאות למעלה כמדריך!
-
-**דוגמאות:**
-✅ נכון: {"plan_type": "תקרה", "confidence": 98, "legend_title": "מקרא תקרה"}
-❌ שגוי: {"plan_type": "אחר", "confidence": 80}  ← אם יש "מקרא תקרה"!
+עכשיו נתח את התמונה הזו והחזר JSON בלבד.
 """
 
     last_error = None
@@ -232,19 +256,12 @@ def analyze_legend_image(image_bytes):
         try:
             message = client.messages.create(
                 model=model,
-                max_tokens=1000,  # ← הגדלתי ל-1000 (יותר מקום לדוגמאות)
-                temperature=0.3,  # ← הורדתי temperature לדיוק
+                max_tokens=1000,
+                temperature=0.3,
                 messages=[{
                     "role": "user",
                     "content": [
-                        {
-                            "type": "image", 
-                            "source": {
-                                "type": "base64", 
-                                "media_type": "image/png", 
-                                "data": encoded_image
-                            }
-                        },
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": encoded_image}},
                         {"type": "text", "text": prompt}
                     ]
                 }]
@@ -252,55 +269,36 @@ def analyze_legend_image(image_bytes):
             
             response_text = message.content[0].text.strip()
             
-            # ניקוי התשובה אם יש markdown
             if "```json" in response_text:
                 response_text = response_text.split("```json")[1].split("```")[0].strip()
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
             
-            # ניקוי נוסף - חילוץ רק ה-JSON
             if "{" in response_text and "}" in response_text:
                 start = response_text.find("{")
                 end = response_text.rfind("}") + 1
                 response_text = response_text[start:end]
             
-            # ניסיון ראשון לפרסור
             try:
                 result = json.loads(response_text)
                 result["_model_used"] = model
-                result["_method"] = "few_shot_learning"  # ✨ סימון שזו גרסה משופרת
+                result["_method"] = "few_shot_learning"
                 return result
-            except json.JSONDecodeError as json_err:
-                # ניסיון לתקן שגיאות נפוצות
-                fixed_text = response_text
-                fixed_text = fixed_text.replace(",]", "]")  # פסיק מיותר לפני ]
-                fixed_text = fixed_text.replace(",}", "}")  # פסיק מיותר לפני }
-                
-                try:
-                    result = json.loads(fixed_text)
-                    result["_model_used"] = model
-                    result["_auto_fixed"] = True
-                    result["_method"] = "few_shot_learning"
-                    return result
-                except:
-                    # נכשל - נשמור את השגיאה ונמשיך למודל הבא
-                    last_error = f"JSON Error: {str(json_err)} | Response: {response_text[:200]}"
-                    continue
+            except json.JSONDecodeError:
+                fixed_text = response_text.replace(",]", "]").replace(",}", "}")
+                result = json.loads(fixed_text)
+                result["_model_used"] = model
+                result["_auto_fixed"] = True
+                result["_method"] = "few_shot_learning"
+                return result
             
         except Exception as e:
-            error_str = str(e)
-            last_error = error_str
-            
-            # אם המודל לא נמצא (404), נסה את הבא
-            if "not_found_error" in error_str or "404" in error_str:
+            last_error = str(e)
+            if "not_found_error" in last_error or "404" in last_error:
                 continue
-            
-            # שגיאה אחרת - נסה את המודל הבא
             continue
     
-    # אם הגענו לכאן - כל המודלים נכשלו
     return {
-        "error": f"כל המודלים נכשלו. שגיאה אחרונה: {last_error}",
-        "tried_models": models,
-        "_fallback_suggestion": "נסה לחתוך את המקרא ידנית ולנסות שוב"
+        "error": f"כל המודלים נכשלו. שגיאה: {last_error}",
+        "tried_models": models
     }

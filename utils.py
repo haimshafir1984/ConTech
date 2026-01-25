@@ -1,377 +1,308 @@
 import cv2
 import numpy as np
 import pandas as pd
-from typing import Optional
 from database import get_progress_reports
+import streamlit as st
+import traceback
 
-def safe_process_metadata(raw_text=None, raw_text_full=None, normalized_text=None, raw_blocks=None, candidates=None):
+# ==========================================
+# Metadata Processing עם Error Handling מקיף
+# ==========================================
+
+def safe_process_metadata(raw_text=None, meta=None):
     """
-    Enhanced wrapper for brain.process_plan_metadata
-    Accepts multiple text sources and chooses the best one
-    Always returns full schema structure
+    ✨ משופר: Error handling מקיף + fallback mechanisms
     
-    Args:
-        raw_text: Original text (legacy, 3000 chars)
-        raw_text_full: Full text extraction
-        normalized_text: Cleaned/normalized text
-        raw_blocks: List of text blocks with metadata
-        candidates: Alternative text candidates
-    
-    Returns:
-        Dict with full schema: status, document, rooms, heights_and_levels, etc.
+    מעבד מטא-דאטה מתוכנית בניה עם 3 שכבות הגנה:
+    1. ניסיון עם קונטקסט מלא (20K chars)
+    2. Fallback לטקסט בסיסי (3K chars)
+    3. Fallback לערכים ברירת מחדל
     """
-    # Choose best available text source
-    best_text = None
     
-    # Priority order (best to worst)
-    if normalized_text and normalized_text.strip():
-        best_text = normalized_text
-    elif raw_text_full and raw_text_full.strip():
-        best_text = raw_text_full
-    elif raw_text and raw_text.strip():
-        best_text = raw_text
-    elif raw_blocks and isinstance(raw_blocks, list):
-        # Join text from blocks
-        best_text = "\n".join([
-            block.get("text", "") for block in raw_blocks 
-            if isinstance(block, dict) and block.get("text")
-        ])
-    elif candidates and isinstance(candidates, list):
-        # Join candidates
-        best_text = "\n".join([str(c) for c in candidates if c])
-    
-    # If no text available, return empty schema
-    if not best_text or not best_text.strip():
-        return {
-            "status": "empty_text",
-            "error": "No text extracted from PDF",
-            "document": {},
-            "rooms": [],
-            "heights_and_levels": {},
-            "execution_notes": {},
-            "limitations": ["No text found in PDF file"],
-            "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
-        }
-    
-    # Try to call brain extraction
+    # שכבה 1: בדיקת imports
     try:
-        from brain import process_plan_metadata
-        result = process_plan_metadata(best_text)
+        from brain_improved import process_plan_metadata, analyze_legend_image
+    except ImportError:
+        try:
+            from brain import process_plan_metadata, analyze_legend_image
+        except ImportError:
+            st.error("❌ שגיאה קריטית: brain.py חסר!")
+            return {
+                "plan_name": "Unknown",
+                "scale": None,
+                "error": "Brain module not found"
+            }
+    
+    # שכבה 2: ניסיון עיבוד
+    try:
+        # אם יש meta dict מלא - נסה עם קונטקסט מלא
+        if meta and isinstance(meta, dict):
+            
+            # בדיקת זמינות נתונים
+            has_full_text = meta.get("raw_text_full") and len(meta.get("raw_text_full", "")) > 100
+            has_basic_text = meta.get("raw_text") and len(meta.get("raw_text", "")) > 50
+            
+            if not has_full_text and not has_basic_text:
+                return {
+                    "plan_name": meta.get("plan_name", "Unknown"),
+                    "scale": None,
+                    "error": "אין טקסט זמין לניתוח",
+                    "warning": "ה-PDF לא הכיל טקסט קריא"
+                }
+            
+            # ניסיון 1: עם קונטקסט מלא
+            if has_full_text:
+                try:
+                    with st.spinner("🧠 מנתח מטא-דאטה עם AI..."):
+                        result = process_plan_metadata(meta["raw_text_full"])
+                        
+                        # בדיקת תקינות התוצאה
+                        if result and isinstance(result, dict) and not result.get("error"):
+                            result["_processing_method"] = "full_context"
+                            result["_text_length"] = len(meta["raw_text_full"])
+                            return result
+                        else:
+                            # התוצאה לא תקינה - נסה fallback
+                            st.warning("⚠️ ניתוח מלא נכשל, מנסה גרסה בסיסית...")
+                            raise ValueError("Invalid result from full context")
+                            
+                except Exception as e:
+                    st.warning(f"⚠️ ניתוח מלא נכשל: {str(e)[:100]}")
+                    # ממשיכים ל-fallback למטה
+            
+            # ניסיון 2 (Fallback): עם טקסט בסיסי
+            if has_basic_text:
+                try:
+                    with st.spinner("🔄 מנסה ניתוח בסיסי..."):
+                        result = process_plan_metadata(meta["raw_text"])
+                        
+                        if result and isinstance(result, dict):
+                            result["_processing_method"] = "basic_context"
+                            result["_text_length"] = len(meta["raw_text"])
+                            result["_warning"] = "נותח עם טקסט חלקי בלבד"
+                            return result
+                        else:
+                            raise ValueError("Invalid result from basic context")
+                            
+                except Exception as e:
+                    st.warning(f"⚠️ גם ניתוח בסיסי נכשל: {str(e)[:100]}")
+                    # ממשיכים ל-fallback סופי למטה
         
-        # Legacy wrapper - if result is flat (old format), wrap it
-        if isinstance(result, dict):
-            # Check if it's the new format (has "document" key)
-            if "document" in result:
-                return result
-            else:
-                # Old format - wrap it
-                return _wrap_legacy_format(result)
+        # אם הגענו לכאן עם meta - ניסינו הכל ונכשלנו
+        # או שקיבלנו raw_text ישירות (legacy mode)
+        elif raw_text and isinstance(raw_text, str) and len(raw_text) > 50:
+            try:
+                with st.spinner("🔄 מנתח טקסט..."):
+                    result = process_plan_metadata(raw_text)
+                    
+                    if result and isinstance(result, dict):
+                        result["_processing_method"] = "legacy"
+                        return result
+                    else:
+                        raise ValueError("Invalid result")
+                        
+            except Exception as e:
+                st.error(f"❌ ניתוח נכשל: {str(e)[:150]}")
+                # ממשיכים ל-fallback למטה
         
-        return result
+        # אם הגענו לכאן - כל הניסיונות נכשלו
+        st.error("❌ כל שיטות הניתוח נכשלו")
         
-    except (ImportError, Exception) as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "document": {},
-            "rooms": [],
-            "heights_and_levels": {},
-            "execution_notes": {},
-            "limitations": [f"Processing error: {str(e)}"],
-            "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
-        }
-
-
-def _wrap_legacy_format(old_data):
-    """
-    Wraps old flat format into new schema
-    Old: {plan_name, scale, plan_type, ...}
-    New: {document: {...}, rooms: [], ...}
-    """
-    document = {}
+    except Exception as e:
+        # שגיאה לא צפויה
+        st.error(f"❌ שגיאה לא צפויה: {str(e)}")
+        with st.expander("🔍 פרטי שגיאה מלאים"):
+            st.code(traceback.format_exc())
     
-    # Map old keys to new document structure
-    if "plan_name" in old_data:
-        document["plan_title"] = {
-            "value": old_data["plan_name"],
-            "confidence": 50,
-            "evidence": ["legacy data"]
-        }
+    # שכבה 3: Fallback סופי - ערכים ברירת מחדל
+    st.warning("⚠️ משתמש בערכי ברירת מחדל")
     
-    if "scale" in old_data:
-        document["scale"] = {
-            "value": old_data["scale"],
-            "confidence": 50,
-            "evidence": ["legacy data"]
-        }
-    
-    if "plan_type" in old_data:
-        document["plan_type"] = {
-            "value": old_data["plan_type"],
-            "confidence": 50,
-            "evidence": ["legacy data"]
-        }
-    
-    return {
-        "status": "success_legacy",
-        "document": document,
-        "rooms": [],
-        "heights_and_levels": {},
-        "execution_notes": {},
-        "limitations": ["Converted from legacy format"],
-        "quantities_hint": {"wall_types_mentioned": [], "material_hints": []}
+    fallback_result = {
+        "plan_name": "Unknown Plan",
+        "scale": None,
+        "plan_type": "unknown",
+        "_processing_method": "fallback",
+        "_error": "כל שיטות הניתוח נכשלו",
+        "_suggestion": "נסה להעלות תוכנית עם טקסט ברור יותר"
     }
+    
+    # נסה לחלץ שם מה-meta אם יש
+    if meta and isinstance(meta, dict):
+        if meta.get("plan_name"):
+            fallback_result["plan_name"] = meta["plan_name"]
+    
+    return fallback_result
 
 
 def safe_analyze_legend(image_bytes):
     """
-    Wrapper function for brain.analyze_legend_image
-    Handles import errors gracefully
+    ✨ משופר: ניתוח מקרא עם Error Handling + Retry logic
     """
+    
+    # בדיקות קלט
+    if not image_bytes:
+        return {"error": "לא התקבלה תמונה"}
+    
+    if len(image_bytes) < 1000:
+        return {"error": "התמונה קטנה מדי (פחות מ-1KB)"}
+    
+    if len(image_bytes) > 10 * 1024 * 1024:  # 10MB
+        return {"error": "התמונה גדולה מדי (מעל 10MB)"}
+    
+    # ניסיון טעינת המודול
     try:
-        from brain import analyze_legend_image
-        return analyze_legend_image(image_bytes)
+        from brain_improved import analyze_legend_image
+    except ImportError:
+        try:
+            from brain import analyze_legend_image
+        except ImportError:
+            return {"error": "Brain module not found"}
+    
+    # ניסיון ראשון
+    try:
+        with st.spinner("🔍 מנתח מקרא עם AI..."):
+            result = analyze_legend_image(image_bytes)
+            
+            # בדיקת תקינות
+            if result and isinstance(result, dict):
+                if result.get("error"):
+                    # יש שגיאה - נסה retry
+                    st.warning("⚠️ ניסיון ראשון נכשל, מנסה שוב...")
+                    raise ValueError(result["error"])
+                else:
+                    # הצלחה!
+                    st.success("✅ ניתוח הושלם בהצלחה")
+                    return result
+            else:
+                raise ValueError("Invalid result format")
+                
     except Exception as e:
-        return {"error": f"Error: {str(e)}"}
+        st.warning(f"⚠️ ניסיון ראשון נכשל: {str(e)[:100]}")
+        
+        # ניסיון שני (Retry)
+        try:
+            with st.spinner("🔄 מנסה שוב..."):
+                import time
+                time.sleep(1)  # המתנה קצרה
+                
+                result = analyze_legend_image(image_bytes)
+                
+                if result and isinstance(result, dict) and not result.get("error"):
+                    st.success("✅ ניתוח הושלם בניסיון השני")
+                    result["_retry_count"] = 1
+                    return result
+                else:
+                    raise ValueError("Second attempt failed")
+                    
+        except Exception as e2:
+            st.error(f"❌ גם ניסיון שני נכשל: {str(e2)[:100]}")
+            
+            # החזרת שגיאה מפורטת
+            return {
+                "error": "ניתוח נכשל פעמיים",
+                "first_error": str(e)[:200],
+                "second_error": str(e2)[:200],
+                "_suggestion": "נסה:\n1. לחתוך את המקרא ידנית\n2. להעלות תמונה באיכות גבוהה יותר\n3. לבדוק שהמקרא כולל טקסט ברור בעברית",
+                "_fallback_action": "ניתן למלא את הנתונים ידנית"
+            }
+
+
+# ==========================================
+# Utility Functions
+# ==========================================
 
 def load_stats_df():
-    """Load progress reports as DataFrame"""
-    reports = get_progress_reports()
-    if reports:
-        df = pd.DataFrame(reports)
-        return df.rename(columns={
-            'date': 'תאריך', 'plan_name': 'שם תוכנית',
-            'meters_built': 'כמות שבוצעה', 'note': 'הערה'
-        })
-    return pd.DataFrame()
+    """טוען סטטיסטיקות עם Error Handling"""
+    try:
+        reports = get_progress_reports()
+        if reports and len(reports) > 0:
+            df = pd.DataFrame(reports)
+            return df.rename(columns={
+                'date': 'תאריך', 
+                'plan_name': 'שם תוכנית',
+                'meters_built': 'כמות שבוצעה', 
+                'note': 'הערה'
+            })
+        else:
+            return pd.DataFrame()
+    except Exception as e:
+        st.warning(f"⚠️ שגיאה בטעינת סטטיסטיקות: {str(e)}")
+        return pd.DataFrame()
+
 
 def create_colored_overlay(original, concrete_mask, blocks_mask, flooring_mask=None):
     """
     יוצר תמונה צבעונית המשלבת את התוכנית המקורית עם השכבות שזוהו
-    """
-    # המרה ל-RGB
-    img_vis = cv2.cvtColor(original, cv2.COLOR_BGR2RGB).astype(float)
-    overlay = img_vis.copy()
     
-    # ===== תיקון קריטי: התאמת גדלים =====
-    h, w = original.shape[:2]
-    
-    # וידוא שכל המסכות באותו גודל
-    if concrete_mask is not None:
-        if concrete_mask.shape[:2] != (h, w):
-            concrete_mask = cv2.resize(concrete_mask, (w, h), interpolation=cv2.INTER_NEAREST)
-        overlay[concrete_mask > 0] = [30, 144, 255]
-    
-    if blocks_mask is not None:
-        if blocks_mask.shape[:2] != (h, w):
-            blocks_mask = cv2.resize(blocks_mask, (w, h), interpolation=cv2.INTER_NEAREST)
-        overlay[blocks_mask > 0] = [255, 165, 0]
-    
-    if flooring_mask is not None:
-        if flooring_mask.shape[:2] != (h, w):
-            flooring_mask = cv2.resize(flooring_mask, (w, h), interpolation=cv2.INTER_NEAREST)
-        overlay[flooring_mask > 0] = [200, 100, 255]
-    
-    # שילוב עם שקיפות
-    cv2.addWeighted(overlay, 0.6, img_vis, 0.4, 0, img_vis)
-    return img_vis.astype(np.uint8)
-
-
-def calculate_area_m2(
-    area_px: int,
-    meters_per_pixel: Optional[float] = None,
-    meters_per_pixel_x: Optional[float] = None,
-    meters_per_pixel_y: Optional[float] = None,
-    pixels_per_meter: Optional[float] = None,
-) -> Optional[float]:
+    ✨ משופר: Error Handling + validation
     """
-    מחשב שטח במ"ר מפיקסלים עם עדיפות להמרה אניזוטרופית.
-    מחזיר None אם אין קנה מידה תקין.
-    """
-    if area_px is None:
-        return None
-
-    if (
-        meters_per_pixel_x is not None
-        and meters_per_pixel_y is not None
-        and meters_per_pixel_x > 0
-        and meters_per_pixel_y > 0
-    ):
-        return area_px * meters_per_pixel_x * meters_per_pixel_y
-
-    if meters_per_pixel is not None and meters_per_pixel > 0:
-        return area_px * (meters_per_pixel ** 2)
-
-    if pixels_per_meter is not None and pixels_per_meter > 0:
-        meters_per_pixel_fallback = 1.0 / pixels_per_meter
-        return area_px * (meters_per_pixel_fallback ** 2)
-
-    return None
-
-
-def refine_flooring_mask_with_rooms(
-    flooring_mask: Optional[np.ndarray],
-    room_masks: Optional[dict],
-) -> Optional[np.ndarray]:
-    """
-    מצמצם מסכת ריצוף לאזורים שמוגדרים כחדרים (איחוד מסכות).
-    מחזיר None אם אין נתונים מספקים.
-    """
-    if flooring_mask is None or room_masks is None:
-        return None
-
-    if not room_masks:
-        return None
-
-    union_mask = None
-    for mask in room_masks.values():
-        if mask is None:
-            continue
-        if union_mask is None:
-            union_mask = mask.copy()
+    
+    # בדיקות קלט
+    if original is None or original.size == 0:
+        st.error("❌ תמונה מקורית חסרה")
+        return np.zeros((500, 500, 3), dtype=np.uint8)
+    
+    try:
+        # המרה ל-RGB (פורמט שהמסך יודע להציג)
+        if len(original.shape) == 2:
+            img_vis = cv2.cvtColor(original, cv2.COLOR_GRAY2RGB).astype(float)
+        elif original.shape[2] == 4:
+            img_vis = cv2.cvtColor(original, cv2.COLOR_BGRA2RGB).astype(float)
         else:
-            union_mask = cv2.bitwise_or(union_mask, mask)
-
-    if union_mask is None:
-        return None
-
-    # התאמת גדלים במקרה של mismatch
-    if union_mask.shape[:2] != flooring_mask.shape[:2]:
-        union_mask = cv2.resize(
-            union_mask,
-            (flooring_mask.shape[1], flooring_mask.shape[0]),
-            interpolation=cv2.INTER_NEAREST,
-        )
-
-    return cv2.bitwise_and(flooring_mask, union_mask)
-
-
-def format_llm_metadata(llm_data):
-    """
-    ממיר את המטא-דאטה המלא למבנה פשוט יותר לתצוגה
-    
-    Args:
-        llm_data: המילון המלא עם value/confidence/evidence
-    
-    Returns:
-        מילון פשוט עם ערכים נקיים
-    """
-    if not llm_data or llm_data.get("status") in ["error", "no_api_key", "empty_text", "extraction_failed"]:
-        return {
-            "document": {},
-            "rooms": [],
-            "heights_and_levels": {},
-            "execution_notes": {},
-            "limitations": llm_data.get("limitations", []) if llm_data else [],
-            "quantities_hint": llm_data.get("quantities_hint", {}) if llm_data else {}
-        }
-    
-    def extract_value(field_obj):
-        """חילוץ הערך מתוך אובייקט {value, confidence, evidence}"""
-        if isinstance(field_obj, dict) and "value" in field_obj:
-            return field_obj["value"]
-        return field_obj  # אם זה כבר ערך פשוט
-    
-    # Document fields
-    document = {}
-    if "document" in llm_data and isinstance(llm_data["document"], dict):
-        for key, field in llm_data["document"].items():
-            document[key] = extract_value(field)
-    
-    # Rooms
-    rooms = []
-    if "rooms" in llm_data and isinstance(llm_data["rooms"], list):
-        for room in llm_data["rooms"]:
-            if isinstance(room, dict):
-                simple_room = {}
-                for key, field in room.items():
-                    simple_room[key] = extract_value(field)
-                rooms.append(simple_room)
-    
-    # Heights and levels
-    heights_and_levels = {}
-    if "heights_and_levels" in llm_data and isinstance(llm_data["heights_and_levels"], dict):
-        for key, field in llm_data["heights_and_levels"].items():
-            heights_and_levels[key] = extract_value(field)
-    
-    # Execution notes
-    execution_notes = {}
-    if "execution_notes" in llm_data and isinstance(llm_data["execution_notes"], dict):
-        for key, field in llm_data["execution_notes"].items():
-            execution_notes[key] = extract_value(field)
-    
-    # Limitations (already simple array)
-    limitations = llm_data.get("limitations", [])
-    
-    # Quantities hint (already simple)
-    quantities_hint = llm_data.get("quantities_hint", {
-        "wall_types_mentioned": [],
-        "material_hints": []
-    })
-    
-    return {
-        "document": document,
-        "rooms": rooms,
-        "heights_and_levels": heights_and_levels,
-        "execution_notes": execution_notes,
-        "limitations": limitations,
-        "quantities_hint": quantities_hint
-    }
-
-
-def get_simple_metadata_values(llm_data):
-    """
-    מחלץ ערכים פשוטים למטא-דאטה הישנה (backward compatibility)
-    
-    Args:
-        llm_data: המטא-דאטה המלא עם confidence
-    
-    Returns:
-        מילון עם plan_name, scale וכו' כערכים פשוטים
-    """
-    if not llm_data or llm_data.get("status") in ["error", "no_api_key", "empty_text", "extraction_failed"]:
-        return {}
-    
-    simple = {}
-    
-    # Extract from document
-    if "document" in llm_data and isinstance(llm_data["document"], dict):
-        doc = llm_data["document"]
+            img_vis = cv2.cvtColor(original, cv2.COLOR_BGR2RGB).astype(float)
         
-        # plan_name
-        if "plan_title" in doc and isinstance(doc["plan_title"], dict):
-            title = doc["plan_title"].get("value")
-            if title:
-                simple["plan_name"] = title
+        overlay = img_vis.copy()
         
-        # scale
-        if "scale" in doc and isinstance(doc["scale"], dict):
-            scale = doc["scale"].get("value")
-            if scale:
-                simple["scale"] = scale
+        # צביעת בטון (כחול) - רק אם יש מסכה תקינה
+        if concrete_mask is not None and concrete_mask.size > 0:
+            try:
+                # ודא שהגדלים תואמים
+                if concrete_mask.shape[:2] == img_vis.shape[:2]:
+                    overlay[concrete_mask > 0] = [30, 144, 255]
+                else:
+                    concrete_mask_resized = cv2.resize(concrete_mask, 
+                                                       (img_vis.shape[1], img_vis.shape[0]))
+                    overlay[concrete_mask_resized > 0] = [30, 144, 255]
+            except Exception as e:
+                st.warning(f"⚠️ שגיאה בצביעת בטון: {str(e)}")
         
-        # plan_type
-        if "plan_type" in doc and isinstance(doc["plan_type"], dict):
-            ptype = doc["plan_type"].get("value")
-            if ptype:
-                simple["plan_type"] = ptype
+        # צביעת בלוקים (כתום)
+        if blocks_mask is not None and blocks_mask.size > 0:
+            try:
+                if blocks_mask.shape[:2] == img_vis.shape[:2]:
+                    overlay[blocks_mask > 0] = [255, 165, 0]
+                else:
+                    blocks_mask_resized = cv2.resize(blocks_mask, 
+                                                     (img_vis.shape[1], img_vis.shape[0]))
+                    overlay[blocks_mask_resized > 0] = [255, 165, 0]
+            except Exception as e:
+                st.warning(f"⚠️ שגיאה בצביעת בלוקים: {str(e)}")
         
-        # date
-        if "date" in doc and isinstance(doc["date"], dict):
-            date = doc["date"].get("value")
-            if date:
-                simple["date"] = date
+        # צביעת ריצוף (סגול בהיר) - אם נבחר להציג
+        if flooring_mask is not None and flooring_mask.size > 0:
+            try:
+                if flooring_mask.shape[:2] == img_vis.shape[:2]:
+                    overlay[flooring_mask > 0] = [200, 100, 255]
+                else:
+                    flooring_mask_resized = cv2.resize(flooring_mask, 
+                                                       (img_vis.shape[1], img_vis.shape[0]))
+                    overlay[flooring_mask_resized > 0] = [200, 100, 255]
+            except Exception as e:
+                st.warning(f"⚠️ שגיאה בצביעת ריצוף: {str(e)}")
         
-        # floor_or_level
-        if "floor_or_level" in doc and isinstance(doc["floor_or_level"], dict):
-            floor = doc["floor_or_level"].get("value")
-            if floor:
-                simple["floor_or_level"] = floor
+        # שילוב עם שקיפות (60% מקור, 40% צבע)
+        result = img_vis.copy()
+        cv2.addWeighted(overlay, 0.6, img_vis, 0.4, 0, result)
         
-        # project_name
-        if "project_name" in doc and isinstance(doc["project_name"], dict):
-            proj = doc["project_name"].get("value")
-            if proj:
-                simple["project_name"] = proj
-    
-    return simple
+        return result.astype(np.uint8)
+        
+    except Exception as e:
+        st.error(f"❌ שגיאה ביצירת overlay: {str(e)}")
+        with st.expander("🔍 פרטי שגיאה"):
+            st.code(traceback.format_exc())
+        
+        # fallback - החזר תמונה מקורית
+        if len(original.shape) == 3:
+            return cv2.cvtColor(original, cv2.COLOR_BGR2RGB)
+        else:
+            return cv2.cvtColor(original, cv2.COLOR_GRAY2RGB)

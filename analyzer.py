@@ -12,34 +12,85 @@ import re
 # ==========================================
 
 
-def parse_scale(text: str) -> Optional[int]:
+def parse_scale(scale_input) -> Optional[int]:
     """
-    מנתח טקסט ומחלץ קנה מידה (1:50 -> 50)
+    מנתח קנה מידה ומחזיר denominator (1:50 -> 50)
+
+    🆕 v2.2: תמיכה מלאה במספרים, dict, וstrings
+
+    Args:
+        scale_input: יכול להיות:
+            - str: "1:50", "קנ\\"מ 1:100", "SCALE 1:200"
+            - int: 50, 100, 200
+            - float: 50.0, 100.5
+            - dict: {"value": 50} או {"value": "1:50"}
+            - None
+
+    Returns:
+        int: denominator (10-500), או None אם לא תקין
 
     Examples:
-        "1:50" -> 50
-        "קנ\"מ 1 : 100" -> 100
+        parse_scale("1:50") -> 50
+        parse_scale(100) -> 100
+        parse_scale({"value": 200}) -> 200
+        parse_scale({"value": "1:75"}) -> 75
+        parse_scale(0) -> None
+        parse_scale("invalid") -> None
     """
-    if not text:
+    # Case 1: None או ערך ריק
+    if scale_input is None:
         return None
 
-    patterns = [
-        r"1\s*:\s*(\d+)",  # 1:50
-        r'קנ["\']מ\s*1\s*:\s*(\d+)',  # קנ"מ 1:50
-        r"SCALE\s*1\s*:\s*(\d+)",  # SCALE 1:50
-        r"(?:^|\s)1/(\d+)(?:\s|$)",  # 1/50
-    ]
+    # Case 2: dict עם "value"
+    if isinstance(scale_input, dict):
+        if "value" in scale_input:
+            # רקורסיה על הערך שבפנים
+            return parse_scale(scale_input["value"])
+        else:
+            return None
 
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                denominator = int(match.group(1))
-                if 10 <= denominator <= 500:
-                    return denominator
-            except (ValueError, IndexError):
-                continue
+    # Case 3: int או float
+    if isinstance(scale_input, (int, float)):
+        # בדיקת תקינות
+        if scale_input <= 0:
+            return None
 
+        # המרה ל-int עם עיגול
+        scale_int = int(round(scale_input))
+
+        # בדיקת טווח סביר
+        if 10 <= scale_int <= 500:
+            return scale_int
+        else:
+            return None
+
+    # Case 4: string - ניתוח עם regex
+    if isinstance(scale_input, str):
+        text = str(scale_input).strip()
+
+        if not text:
+            return None
+
+        patterns = [
+            r"1\s*:\s*(\d+)",  # 1:50
+            r'קנ["\']מ\s*1\s*:\s*(\d+)',  # קנ"מ 1:50
+            r"SCALE\s*1\s*:\s*(\d+)",  # SCALE 1:50
+            r"(?:^|\s)1/(\d+)(?:\s|$)",  # 1/50
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    denominator = int(match.group(1))
+                    if 10 <= denominator <= 500:
+                        return denominator
+                except (ValueError, IndexError):
+                    continue
+
+        return None
+
+    # Case 5: טיפוס לא נתמך
     return None
 
 
@@ -151,24 +202,59 @@ def detect_paper_size_mm(doc_page) -> Dict:
 
 def compute_skeleton_length_px(skeleton: np.ndarray) -> float:
     """
-    מחשב אורך skeleton בפיקסלים עם תיקון אלכסונים
+    🆕 v2.2: חישוב גיאומטרי מדויק של אורך skeleton
+
+    שיטה: ספירת חיבורים לשכנים (neighbor-based)
+    - חיבור אופקי/אנכי = 1.0 פיקסל
+    - חיבור אלכסוני = √2 ≈ 1.414 פיקסלים
+
+    בדיקה חד-כיוונית (ימין, למטה, אלכסונים למטה) כדי למנוע ספירה כפולה.
+
+    Args:
+        skeleton: תמונה בינארית של skeleton (grayscale או binary)
+
+    Returns:
+        float: אורך ב-פיקסלים (geometric)
+
+    Note:
+        גרסה קודמת (v2.1) השתמשה ב: count × 1.12
+        גרסה זו (v2.2) מדויקת יותר לקירות אלכסוניים
     """
     if skeleton is None or skeleton.size == 0:
         return 0.0
 
+    # המרה ל-grayscale אם צריך
     if len(skeleton.shape) == 3:
         skeleton = cv2.cvtColor(skeleton, cv2.COLOR_BGR2GRAY)
 
+    # המרה לבינארי
     skeleton_binary = (skeleton > 127).astype(np.uint8)
-    white_pixels = np.count_nonzero(skeleton_binary)
 
-    if white_pixels == 0:
-        return 0.0
+    h, w = skeleton_binary.shape
 
-    # תיקון אלכסוני: הוסף ~41% * 30% = 12% בממוצע
-    diagonal_correction = 1.12
+    # אופטימיזציה: NumPy vectorization במקום לולאה
+    # זה פי 100 יותר מהיר מאשר לולאה ב-Python!
 
-    return float(white_pixels * diagonal_correction)
+    # חיבורים אופקיים: (x, y) → (x+1, y)
+    horizontal = np.sum(skeleton_binary[:, :-1] & skeleton_binary[:, 1:])
+
+    # חיבורים אנכיים: (x, y) → (x, y+1)
+    vertical = np.sum(skeleton_binary[:-1, :] & skeleton_binary[1:, :])
+
+    # חיבורים אלכסוניים ימין-למטה: (x, y) → (x+1, y+1)
+    diag_rd = np.sum(skeleton_binary[:-1, :-1] & skeleton_binary[1:, 1:])
+
+    # חיבורים אלכסוניים שמאל-למטה: (x, y) → (x-1, y+1)
+    # זה בעצם: (x+1, y) → (x, y+1) בכיוון הפוך
+    diag_ld = np.sum(skeleton_binary[:-1, 1:] & skeleton_binary[1:, :-1])
+
+    # חישוב אורך כולל
+    import math
+
+    sqrt_2 = math.sqrt(2)
+    total_length = float(horizontal + vertical + (diag_rd + diag_ld) * sqrt_2)
+
+    return total_length
 
 
 class FloorPlanAnalyzer:
@@ -837,7 +923,60 @@ class FloorPlanAnalyzer:
                     meta["meters_per_pixel"] = meters_per_pixel
                     meta["meters_per_pixel_x"] = (mm_per_pixel_x * scale_denom) / 1000
                     meta["meters_per_pixel_y"] = (mm_per_pixel_y * scale_denom) / 1000
-                    meta["measurement_confidence"] = paper_info["confidence"]
+                    # 🆕 v2.2: Logical measurement confidence
+                    # מבוסס על scale validity + aspect ratio (לא רק paper size!)
+
+                    aspect_ratio = (
+                        mm_per_pixel_x / mm_per_pixel_y if mm_per_pixel_y > 0 else 1.0
+                    )
+
+                    # aspect_ratio_ok: בטווח 0.95-1.05 (כמעט ריבועי)
+                    aspect_ratio_ok = 0.95 <= aspect_ratio <= 1.05
+
+                    # aspect_ratio_bad: מחוץ ל-0.90-1.10 (מעוות מאוד)
+                    aspect_ratio_bad = aspect_ratio < 0.90 or aspect_ratio > 1.10
+
+                    # scale_ok: יש denominator תקין
+                    scale_ok = scale_denom is not None and scale_denom > 0
+
+                    # חישוב confidence לוגי
+                    if not scale_ok:
+                        # אין scale → אי אפשר למדוד
+                        measurement_confidence = 0.0
+                    elif aspect_ratio_ok:
+                        # aspect מעולה → confidence גבוה (גם ללא paper size)
+                        measurement_confidence = 0.88
+                        # modifier קטן מ-paper confidence (±0.02)
+                        paper_modifier = (paper_info["confidence"] - 0.5) * 0.04
+                        measurement_confidence += paper_modifier
+                        measurement_confidence = max(
+                            0.85, min(0.92, measurement_confidence)
+                        )
+                    elif aspect_ratio_bad:
+                        # aspect גרוע → confidence נמוך
+                        measurement_confidence = 0.30
+                        paper_modifier = (paper_info["confidence"] - 0.5) * 0.02
+                        measurement_confidence += paper_modifier
+                        measurement_confidence = max(
+                            0.20, min(0.40, measurement_confidence)
+                        )
+                    else:
+                        # aspect בינוני → confidence בינוני
+                        measurement_confidence = 0.60
+                        paper_modifier = (paper_info["confidence"] - 0.5) * 0.03
+                        measurement_confidence += paper_modifier
+                        measurement_confidence = max(
+                            0.50, min(0.70, measurement_confidence)
+                        )
+
+                    meta["measurement_confidence"] = measurement_confidence
+                    meta["measurement_confidence_factors"] = {
+                        "scale_ok": scale_ok,
+                        "aspect_ratio": round(aspect_ratio, 3),
+                        "aspect_ratio_ok": aspect_ratio_ok,
+                        "aspect_ratio_bad": aspect_ratio_bad,
+                        "paper_confidence": paper_info["confidence"],
+                    }
                 else:
                     meta["meters_per_pixel"] = None
                     meta["meters_per_pixel_x"] = None

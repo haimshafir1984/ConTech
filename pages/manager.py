@@ -811,7 +811,9 @@ def render_workshop_tab():
 
             floor_mask = None
             if show_flooring:
-                floor_mask = proj.get("flooring_mask_refined") or proj.get("flooring_mask")
+                floor_mask = proj.get("flooring_mask_refined")
+            if floor_mask is None:
+                floor_mask = proj.get("flooring_mask")
             overlay = create_colored_overlay(
                 proj["original"], concrete_corrected, blocks_corrected, floor_mask
             )

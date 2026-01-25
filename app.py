@@ -9,6 +9,7 @@ from PIL import Image
 # ייבוא סגנונות ואתחול
 from styles import apply_all_styles
 from database import init_database, reset_all_data
+from db_monitor import show_db_widget_sidebar
 
 # ייבוא דפים
 from pages.manager import (
@@ -44,6 +45,7 @@ with st.sidebar:
         "ניווט", ["🏢 מנהל פרויקט", "👷 דיווח שטח"], label_visibility="collapsed"
     )
     st.markdown("---")
+    show_db_widget_sidebar()
 
     with st.expander("⚙️ הגדרות גלובליות"):
         st.session_state.wall_height = st.number_input(

@@ -1090,7 +1090,7 @@ def render_plan_data_tab():
         # Status badge
         status = llm_data.get("status", "unknown")
         if status == "success":
-            st.success(f"✅ סטטוס: הופק בהצלחה")
+            st.markdown("✅ **סטטוס:** הופק בהצלחה")
         elif status == "success_legacy":
             st.info(f"ℹ️ סטטוס: הומר מפורמט ישן")
 
@@ -1142,7 +1142,9 @@ def render_plan_data_tab():
 
             if doc_data:
                 df_doc = pd.DataFrame(doc_data)
-                st.dataframe(df_doc, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    df_doc, use_container_width=True, hide_index=True, height=220
+                )
             else:
                 st.info("לא נמצאו פרטי מסמך")
         else:
@@ -1155,7 +1157,7 @@ def render_plan_data_tab():
 
         rooms = llm_data.get("rooms", [])
         if rooms:
-            st.success(f"✅ נמצאו {len(rooms)} חדרים")
+            st.caption(f"✅ נמצאו {len(rooms)} חדרים")
 
             rooms_data = []
             for idx, room in enumerate(rooms, 1):
@@ -1188,7 +1190,9 @@ def render_plan_data_tab():
                 rooms_data.append(room_row)
 
             df_rooms = pd.DataFrame(rooms_data)
-            st.dataframe(df_rooms, use_container_width=True, hide_index=True)
+            st.dataframe(
+                df_rooms, use_container_width=True, hide_index=True, height=360
+            )
 
             # Total area
             total_area = sum(
@@ -1233,7 +1237,9 @@ def render_plan_data_tab():
 
             if height_data:
                 df_heights = pd.DataFrame(height_data)
-                st.dataframe(df_heights, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    df_heights, use_container_width=True, hide_index=True, height=240
+                )
             else:
                 st.info("לא נמצאו נתוני גבהים")
 

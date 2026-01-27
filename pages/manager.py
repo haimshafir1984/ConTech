@@ -1142,7 +1142,7 @@ def render_plan_data_tab():
 
             if doc_data:
                 df_doc = pd.DataFrame(doc_data)
-                st.dataframe(df_doc, use_container_width=True, hide_index=True)
+                st.table(df_doc, use_container_width=True, hide_index=True)
             else:
                 st.info("לא נמצאו פרטי מסמך")
         else:
@@ -1188,7 +1188,7 @@ def render_plan_data_tab():
                 rooms_data.append(room_row)
 
             df_rooms = pd.DataFrame(rooms_data)
-            st.dataframe(df_rooms, use_container_width=True, hide_index=True)
+            st.table(df_rooms, use_container_width=True, hide_index=True)
 
             # Total area
             total_area = sum(
@@ -1233,7 +1233,7 @@ def render_plan_data_tab():
 
             if height_data:
                 df_heights = pd.DataFrame(height_data)
-                st.dataframe(df_heights, use_container_width=True, hide_index=True)
+                st.table(df_heights, use_container_width=True, hide_index=True)
             else:
                 st.info("לא נמצאו נתוני גבהים")
 

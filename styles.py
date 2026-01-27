@@ -12,50 +12,43 @@ from datetime import datetime
 
 COLORS = {
     # Primary (כחול בנייה - כמו הישן!)
-    'primary': '#0F62FE',
-    'primary_dark': '#0043CE',
-    'primary_light': '#4589FF',
-    
+    "primary": "#0F62FE",
+    "primary_dark": "#0043CE",
+    "primary_light": "#4589FF",
     # Secondary (ירוק הצלחה)
-    'secondary': '#10B981',
-    'secondary_dark': '#059669',
-    'secondary_light': '#34D399',
-    
+    "secondary": "#10B981",
+    "secondary_dark": "#059669",
+    "secondary_light": "#34D399",
     # Accent (כתום)
-    'accent': '#F59E0B',
-    'accent_dark': '#D97706',
-    'accent_light': '#FBBF24',
-    
+    "accent": "#F59E0B",
+    "accent_dark": "#D97706",
+    "accent_light": "#FBBF24",
     # Status
-    'success': '#10B981',
-    'warning': '#F59E0B',
-    'error': '#EF4444',
-    'info': '#3B82F6',
-    
+    "success": "#10B981",
+    "warning": "#F59E0B",
+    "error": "#EF4444",
+    "info": "#3B82F6",
     # Neutrals
-    'gray_50': '#F9FAFB',
-    'gray_100': '#F3F4F6',
-    'gray_200': '#E5E7EB',
-    'gray_300': '#D1D5DB',
-    'gray_400': '#9CA3AF',
-    'gray_500': '#6B7280',
-    'gray_600': '#4B5563',
-    'gray_700': '#374151',
-    'gray_800': '#1F2937',
-    'gray_900': '#111827',
-    
+    "gray_50": "#F9FAFB",
+    "gray_100": "#F3F4F6",
+    "gray_200": "#E5E7EB",
+    "gray_300": "#D1D5DB",
+    "gray_400": "#9CA3AF",
+    "gray_500": "#6B7280",
+    "gray_600": "#4B5563",
+    "gray_700": "#374151",
+    "gray_800": "#1F2937",
+    "gray_900": "#111827",
     # Background
-    'bg_primary': '#FFFFFF',
-    'bg_secondary': '#F4F7F6',  # ← כמו הישן!
-    'bg_tertiary': '#F3F4F6',
-    
+    "bg_primary": "#FFFFFF",
+    "bg_secondary": "#F4F7F6",  # ← כמו הישן!
+    "bg_tertiary": "#F3F4F6",
     # Text
-    'text_primary': '#111827',
-    'text_secondary': '#6B7280',
-    'text_tertiary': '#9CA3AF',
-    
+    "text_primary": "#111827",
+    "text_secondary": "#6B7280",
+    "text_tertiary": "#9CA3AF",
     # Borders
-    'border': '#E0E0E0',  # ← כמו הישן!
+    "border": "#E0E0E0",  # ← כמו הישן!
 }
 
 
@@ -63,16 +56,13 @@ COLORS = {
 # פונקציות ישנות - תאימות מלאה! ✅
 # ==========================================
 
+
 def setup_page():
     """
     הגדרת עמוד - פונקציה מקורית
     עובדת בדיוק כמו קודם! ✅
     """
-    st.set_page_config(
-        page_title="ConTech Pro", 
-        layout="wide", 
-        page_icon="🏗️"
-    )
+    st.set_page_config(page_title="ConTech Pro", layout="wide", page_icon="🏗️")
 
 
 def apply_css():
@@ -80,7 +70,8 @@ def apply_css():
     CSS מקורי + שיפורים
     שומר על כל הקלאסים הישנים + מוסיף חדשים!
     """
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <style>
         /* =============================================== */
         /* CSS מקורי - עובד בדיוק כמו קודם! ✅ */
@@ -352,7 +343,9 @@ def apply_css():
             border-color: {COLORS['primary']} transparent {COLORS['primary']} transparent;
         }}
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def apply_all_styles():
@@ -368,12 +361,14 @@ def apply_all_styles():
 # רכיבים חדשים - תוספות! 🆕
 # ==========================================
 
+
 def render_header(user_name="מנהל פרויקט", show_date=True):
     """Header מקצועי חדש - אופציונלי!"""
-    
-    date_str = datetime.now().strftime('%d/%m/%Y') if show_date else ""
-    
-    st.markdown(f"""
+
+    date_str = datetime.now().strftime("%d/%m/%Y") if show_date else ""
+
+    st.markdown(
+        f"""
         <style>
         .contech-header {{
             background: linear-gradient(135deg, {COLORS['primary']} 0%, {COLORS['primary_dark']} 100%);
@@ -463,42 +458,45 @@ def render_header(user_name="מנהל פרויקט", show_date=True):
                 </div>
             </div>
         </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_alert(message, variant="info", icon=None):
     """התראה מעוצבת"""
-    
+
     variants = {
-        'success': {
-            'bg': '#F0FDF4', 
-            'border': COLORS['success'], 
-            'icon': icon or '✅', 
-            'text': '#065F46'
+        "success": {
+            "bg": "#F0FDF4",
+            "border": COLORS["success"],
+            "icon": icon or "✅",
+            "text": "#065F46",
         },
-        'warning': {
-            'bg': '#FFFBEB', 
-            'border': COLORS['warning'], 
-            'icon': icon or '⚠️', 
-            'text': '#92400E'
+        "warning": {
+            "bg": "#FFFBEB",
+            "border": COLORS["warning"],
+            "icon": icon or "⚠️",
+            "text": "#92400E",
         },
-        'error': {
-            'bg': '#FEF2F2', 
-            'border': COLORS['error'], 
-            'icon': icon or '❌', 
-            'text': '#991B1B'
+        "error": {
+            "bg": "#FEF2F2",
+            "border": COLORS["error"],
+            "icon": icon or "❌",
+            "text": "#991B1B",
         },
-        'info': {
-            'bg': '#EFF6FF', 
-            'border': COLORS['info'], 
-            'icon': icon or 'ℹ️', 
-            'text': '#1E40AF'
-        }
+        "info": {
+            "bg": "#EFF6FF",
+            "border": COLORS["info"],
+            "icon": icon or "ℹ️",
+            "text": "#1E40AF",
+        },
     }
-    
-    style = variants.get(variant, variants['info'])
-    
-    st.markdown(f"""
+
+    style = variants.get(variant, variants["info"])
+
+    st.markdown(
+        f"""
         <div style="
             background: {style['bg']};
             border-right: 4px solid {style['border']};
@@ -513,23 +511,26 @@ def render_alert(message, variant="info", icon=None):
             <div style="font-size: 1.5rem; flex-shrink: 0;">{style['icon']}</div>
             <div style="color: {style['text']}; font-weight: 500; flex: 1;">{message}</div>
         </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_progress(value, max_value=100, label="", show_percentage=True, height=24):
     """Progress bar מעוצב"""
-    
+
     percentage = (value / max_value) * 100
-    
+
     # בחירת צבע לפי אחוז
     if percentage < 30:
-        color = COLORS['error']
+        color = COLORS["error"]
     elif percentage < 70:
-        color = COLORS['warning']
+        color = COLORS["warning"]
     else:
-        color = COLORS['success']
-    
-    st.markdown(f"""
+        color = COLORS["success"]
+
+    st.markdown(
+        f"""
         <div style="width: 100%; margin: 1rem 0;">
             {f'''<div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.875rem; color: {COLORS['text_secondary']}; font-weight: 500;">
                 <span>{label}</span>
@@ -561,21 +562,24 @@ def render_progress(value, max_value=100, label="", show_percentage=True, height
                 </div>
             </div>
         </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_stat_card(title, value, change=None, icon="", trend="neutral"):
     """KPI Card מעוצב - שם חדש כדי לא להתנגש עם הישן"""
-    
+
     trend_colors = {
-        'up': {'color': COLORS['success'], 'icon': '↗'},
-        'down': {'color': COLORS['error'], 'icon': '↘'},
-        'neutral': {'color': COLORS['text_secondary'], 'icon': '→'}
+        "up": {"color": COLORS["success"], "icon": "↗"},
+        "down": {"color": COLORS["error"], "icon": "↘"},
+        "neutral": {"color": COLORS["text_secondary"], "icon": "→"},
     }
-    
-    trend_style = trend_colors.get(trend, trend_colors['neutral'])
-    
-    st.markdown(f"""
+
+    trend_style = trend_colors.get(trend, trend_colors["neutral"])
+
+    st.markdown(
+        f"""
         <div style="
             background: white;
             border: 1px solid {COLORS['gray_200']};
@@ -604,13 +608,16 @@ def render_stat_card(title, value, change=None, icon="", trend="neutral"):
                 {trend_style['icon']} {change}
             </div>''' if change else ''}
         </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_empty_state(title, message, icon="📭"):
     """Empty state מעוצב"""
-    
-    st.markdown(f"""
+
+    st.markdown(
+        f"""
         <div style="
             display: flex;
             flex-direction: column;
@@ -638,13 +645,16 @@ def render_empty_state(title, message, icon="📭"):
             50% {{ opacity: 0.8; }}
         }}
         </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_loading(message="טוען..."):
     """Loading spinner מעוצב"""
-    
-    st.markdown(f"""
+
+    st.markdown(
+        f"""
         <div style="
             display: flex;
             flex-direction: column;
@@ -672,24 +682,41 @@ def render_loading(message="טוען..."):
             0% {{ transform: rotate(0deg); }}
             100% {{ transform: rotate(360deg); }}
         }}
+        /* תיקון טבלאות רועדות */
+[data-testid="stDataFrame"] {
+    min-height: 150px;
+    transition: none !important;
+}
+
+[data-testid="stDataFrame"] > div {
+    animation: none !important;
+    transition: none !important;
+}
+
+[data-testid="stDataFrame"] table {
+    table-layout: fixed !important;
+}
         </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_card(title, content, icon="", variant="default"):
     """Card מעוצב"""
-    
+
     variants = {
-        'default': {'border': COLORS['gray_200'], 'bg': 'white'},
-        'success': {'border': COLORS['success'], 'bg': '#F0FDF4'},
-        'warning': {'border': COLORS['warning'], 'bg': '#FFFBEB'},
-        'error': {'border': COLORS['error'], 'bg': '#FEF2F2'},
-        'info': {'border': COLORS['info'], 'bg': '#EFF6FF'}
+        "default": {"border": COLORS["gray_200"], "bg": "white"},
+        "success": {"border": COLORS["success"], "bg": "#F0FDF4"},
+        "warning": {"border": COLORS["warning"], "bg": "#FFFBEB"},
+        "error": {"border": COLORS["error"], "bg": "#FEF2F2"},
+        "info": {"border": COLORS["info"], "bg": "#EFF6FF"},
     }
-    
-    style = variants.get(variant, variants['default'])
-    
-    st.markdown(f"""
+
+    style = variants.get(variant, variants["default"])
+
+    st.markdown(
+        f"""
         <div style="
             background: {style['bg']};
             border: 2px solid {style['border']};
@@ -710,13 +737,16 @@ def render_card(title, content, icon="", variant="default"):
                 {content}
             </div>
         </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_divider(text=""):
     """מפריד עם טקסט אופציונלי"""
-    
-    st.markdown(f"""
+
+    st.markdown(
+        f"""
         <div style="
             display: flex;
             align-items: center;
@@ -727,24 +757,27 @@ def render_divider(text=""):
             {f'<span style="padding: 0 1rem; color: {COLORS["text_secondary"]}; font-weight: 500; font-size: 0.875rem;">{text}</span>' if text else ''}
             <div style="flex: 1; border-bottom: 1px solid {COLORS['gray_300']};"></div>
         </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_badge(text, variant="default"):
     """תג/badge קטן"""
-    
+
     variants = {
-        'default': {'bg': COLORS['gray_200'], 'text': COLORS['text_primary']},
-        'success': {'bg': COLORS['success'], 'text': 'white'},
-        'warning': {'bg': COLORS['warning'], 'text': 'white'},
-        'error': {'bg': COLORS['error'], 'text': 'white'},
-        'info': {'bg': COLORS['info'], 'text': 'white'},
-        'primary': {'bg': COLORS['primary'], 'text': 'white'}
+        "default": {"bg": COLORS["gray_200"], "text": COLORS["text_primary"]},
+        "success": {"bg": COLORS["success"], "text": "white"},
+        "warning": {"bg": COLORS["warning"], "text": "white"},
+        "error": {"bg": COLORS["error"], "text": "white"},
+        "info": {"bg": COLORS["info"], "text": "white"},
+        "primary": {"bg": COLORS["primary"], "text": "white"},
     }
-    
-    style = variants.get(variant, variants['default'])
-    
-    st.markdown(f"""
+
+    style = variants.get(variant, variants["default"])
+
+    st.markdown(
+        f"""
         <span style="
             display: inline-block;
             background: {style['bg']};
@@ -755,24 +788,30 @@ def render_badge(text, variant="default"):
             font-weight: 500;
             box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         ">{text}</span>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 # ==========================================
 # Helper Functions
 # ==========================================
 
+
 def show_success(message):
     """Shortcut for success alert"""
     render_alert(message, "success")
+
 
 def show_error(message):
     """Shortcut for error alert"""
     render_alert(message, "error")
 
+
 def show_warning(message):
     """Shortcut for warning alert"""
     render_alert(message, "warning")
+
 
 def show_info(message):
     """Shortcut for info alert"""

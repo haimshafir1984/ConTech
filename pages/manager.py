@@ -254,24 +254,24 @@ def render_workshop_tab():
     # העלאה רגילה (ללא Crop)
     # ==========================================
 
-    with st.expander(
-        "העלאת קבצים (מצב רגיל)",
-        expanded=not st.session_state.projects and not enable_crop,
-    ):
-        if enable_crop:
-            st.warning("⚠️ מצב גזירה פעיל - השתמש בהעלאה למעלה")
+    with st.form("upload_form", clear_on_submit=False):
+    files = st.file_uploader(
+        "גרור PDF או לחץ לבחירה",
+        type="pdf",
+        accept_multiple_files=True,
+        key="main_file_uploader",
+    )
 
-        files = st.file_uploader(
-            "גרור PDF או לחץ לבחירה",
-            type="pdf",
-            accept_multiple_files=True,
-            key="main_file_uploader",
-        )
-        debug_mode = st.selectbox(
-            "מצב Debug", ["בסיסי", "מפורט - שכבות", "מלא - עם confidence"], index=0
-        )
-        show_debug = debug_mode != "בסיסי"
+    debug_mode = st.selectbox(
+        "מצב Debug",
+        ["בסיסי", "מפורט - שכבות", "מלא - עם confidence"],
+        index=0,
+        key="debug_mode_select",
+    )
 
+    submitted = st.form_submit_button("🚀 עבד קבצים", type="primary")
+
+        show_debug = st.session_state.get("debug_mode_select", "בסיסי") != "בסיסי"
         if submitted and files:
             for f in files:
                 if f.name in st.session_state.projects:

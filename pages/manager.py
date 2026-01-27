@@ -272,7 +272,7 @@ def render_workshop_tab():
         )
         show_debug = debug_mode != "בסיסי"
 
-        if files:
+        if submitted and files:
             for f in files:
                 if f.name in st.session_state.projects:
                     continue
@@ -333,7 +333,7 @@ def render_workshop_tab():
 
                         # תצוגת Debug משופרת
                         if show_debug and debug_img is not None:
-                            st.markdown("### 🔍 ניתוח Multi-Pass")
+                            with st.expander("🔍 Debug: ניתוח Multi-Pass", expanded=False):
 
                             if debug_mode == "מפורט - שכבות":
                                 col1, col2, col3 = st.columns(3)

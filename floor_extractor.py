@@ -492,6 +492,7 @@ def match_rooms_to_text(
         if best_match:
             rm["matched_name"] = best_match["name"]
             rm["area_text_m2"] = best_match["area_m2"]
+            rm["diff_m2"] = rm["area_m2"] - best_match["area_m2"]  # 🆕
             rm["matched_confidence"] = max(0.5, 1.0 - (best_diff / max_area_diff_m2))
             used_text_indices.add(best_idx)
 

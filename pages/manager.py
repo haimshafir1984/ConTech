@@ -1484,7 +1484,7 @@ def render_floor_analysis_tab():
 
                             if room.get("area_text_m2"):
                                 row["שטח מטקסט"] = f"{room['area_text_m2']:.2f}"
-                                row["הפרש"] = f"{room['diff_m2']:+.2f}"
+                                row["הפרש"] = f"{room.get('diff_m2', 0):+.2f}"
                             else:
                                 row["שטח מטקסט"] = "-"
                                 row["הפרש"] = "-"

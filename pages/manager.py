@@ -271,7 +271,8 @@ def render_workshop_tab():
 
     submitted = st.form_submit_button("🚀 עבד קבצים", type="primary")
 
-        show_debug = st.session_state.get("debug_mode_select", "בסיסי") != "בסיסי"
+show_debug = st.session_state.get("debug_mode_select", "בסיסי") != "בסיסי"
+
         if submitted and files:
             for f in files:
                 if f.name in st.session_state.projects:
@@ -335,46 +336,46 @@ def render_workshop_tab():
                         if show_debug and debug_img is not None:
                             with st.expander("🔍 Debug: ניתוח Multi-Pass", expanded=False):
 
-                            if debug_mode == "מפורט - שכבות":
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.image(
-                                        debug_img,
-                                        caption="תוצאה משולבת",
-                                        use_column_width=True,
-                                    )
-                                with col2:
-                                    if (
-                                        hasattr(analyzer, "debug_layers")
-                                        and "text_combined" in analyzer.debug_layers
-                                    ):
+                                if debug_mode == "מפורט - שכבות":
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
                                         st.image(
-                                            analyzer.debug_layers["text_combined"],
-                                            caption="🔴 טקסט שהוסר",
+                                            debug_img,
+                                            caption="תוצאה משולבת",
                                             use_column_width=True,
                                         )
-                                with col3:
-                                    if (
-                                        hasattr(analyzer, "debug_layers")
-                                        and "walls" in analyzer.debug_layers
-                                    ):
-                                        st.image(
-                                            analyzer.debug_layers["walls"],
-                                            caption="🟢 קירות שזוהו",
-                                            use_column_width=True,
-                                        )
+                                    with col2:
+                                        if (
+                                            hasattr(analyzer, "debug_layers")
+                                            and "text_combined" in analyzer.debug_layers
+                                        ):
+                                            st.image(
+                                                analyzer.debug_layers["text_combined"],
+                                                caption="🔴 טקסט שהוסר",
+                                                use_column_width=True,
+                                            )
+                                    with col3:
+                                        if (
+                                            hasattr(analyzer, "debug_layers")
+                                            and "walls" in analyzer.debug_layers
+                                        ):
+                                            st.image(
+                                                analyzer.debug_layers["walls"],
+                                                caption="🟢 קירות שזוהו",
+                                                use_column_width=True,
+                                            )
 
-                            elif debug_mode == "מלא - עם confidence":
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.image(
-                                        debug_img,
-                                        caption="תוצאה משולבת",
-                                        use_column_width=True,
-                                    )
-                                with col2:
-                                    st.markdown(
-                                        """
+                                elif debug_mode == "מלא - עם confidence":
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        st.image(
+                                            debug_img,
+                                            caption="תוצאה משולבת",
+                                            use_column_width=True,
+                                        )
+                                    with col2:
+                                        st.markdown(
+                                            """
     **מקרא צבעים:**
     - 🟠 כתום = טקסט ברור
     - 🟡 צהוב = סמלים וכותרות

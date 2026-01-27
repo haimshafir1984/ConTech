@@ -682,19 +682,41 @@ def render_loading(message="טוען..."):
             0% {{ transform: rotate(0deg); }}
             100% {{ transform: rotate(360deg); }}
         }}
-        /* תיקון טבלאות רועדות */
+   /* תיקון טבלאות - גרסה חזקה */
+* {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+}
+
 [data-testid="stDataFrame"] {
-    min-height: 150px;
-    transition: none !important;
+    min-height: 200px !important;
+    max-height: 600px !important;
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
 }
 
 [data-testid="stDataFrame"] > div {
-    animation: none !important;
-    transition: none !important;
+    will-change: unset !important;
+    transform: translateZ(0) !important;
 }
 
 [data-testid="stDataFrame"] table {
     table-layout: fixed !important;
+    width: 100% !important;
+}
+
+[data-testid="stDataFrame"] th,
+[data-testid="stDataFrame"] td {
+    padding: 8px 12px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+}
+
+[data-testid="stDataFrame"] thead th {
+    position: sticky !important;
+    top: 0 !important;
+    background: white !important;
+    z-index: 10 !important;
 }
         </style>
     """,

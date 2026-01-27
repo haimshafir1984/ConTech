@@ -255,28 +255,28 @@ def render_workshop_tab():
     # ==========================================
 
     with st.form("upload_form", clear_on_submit=False):
-    files = st.file_uploader(
-        "גרור PDF או לחץ לבחירה",
-        type="pdf",
-        accept_multiple_files=True,
-        key="main_file_uploader",
-    )
+        files = st.file_uploader(
+            "גרור PDF או לחץ לבחירה",
+            type="pdf",
+            accept_multiple_files=True,
+            key="main_file_uploader",
+        )
 
-    debug_mode = st.selectbox(
-        "מצב Debug",
-        ["בסיסי", "מפורט - שכבות", "מלא - עם confidence"],
-        index=0,
-        key="debug_mode_select",
-    )
+        debug_mode = st.selectbox(
+            "מצב Debug",
+            ["בסיסי", "מפורט - שכבות", "מלא - עם confidence"],
+            index=0,
+            key="debug_mode_select",
+        )
 
-    submitted = st.form_submit_button("🚀 עבד קבצים", type="primary")
+        submitted = st.form_submit_button("🚀 עבד קבצים", type="primary")
 
-show_debug = st.session_state.get("debug_mode_select", "בסיסי") != "בסיסי"
+    show_debug = st.session_state.get("debug_mode_select", "בסיסי") != "בסיסי"
 
-        if submitted and files:
-            for f in files:
-                if f.name in st.session_state.projects:
-                    continue
+    if submitted and files:
+        for f in files:
+            if f.name in st.session_state.projects:
+                continue
 
                 with st.spinner(f"מעבד {f.name} עם Multi-Pass Detection..."):
                     try:
@@ -334,7 +334,9 @@ show_debug = st.session_state.get("debug_mode_select", "בסיסי") != "בסי�
 
                         # תצוגת Debug משופרת
                         if show_debug and debug_img is not None:
-                            with st.expander("🔍 Debug: ניתוח Multi-Pass", expanded=False):
+                            with st.expander(
+                                "🔍 Debug: ניתוח Multi-Pass", expanded=False
+                            ):
 
                                 if debug_mode == "מפורט - שכבות":
                                     col1, col2, col3 = st.columns(3)
@@ -384,7 +386,7 @@ show_debug = st.session_state.get("debug_mode_select", "בסיסי") != "בסי�
     - 🔥 אדום-צהוב = confidence גבוה
     - 🔵 כחול-שחור = confidence נמוך
     """
-                                    )
+                                        )
                                     st.metric(
                                         "Confidence ממוצע",
                                         f"{meta.get('confidence_avg', 0):.2f}",

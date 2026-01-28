@@ -368,12 +368,16 @@ def render_worker_page():
                         )
 
                     with col2:
+                        materials_list = ["בטון", "בלוקים", "גבס", "אחר"]
+                        current_material = item.get("material", "בטון")
+                        # אם החומר לא ברשימה, השתמש ב-"בטון"
+                        if current_material not in materials_list:
+                            current_material = "בטון"
+
                         item["material"] = st.selectbox(
                             "חומר:",
-                            ["בטון", "בלוקים", "גבס", "אחר"],
-                            index=["בטון", "בלוקים", "גבס", "אחר"].index(
-                                item.get("material", "בטון")
-                            ),
+                            materials_list,
+                            index=materials_list.index(current_material),
                             key=f"material_{item_id}",
                         )
 

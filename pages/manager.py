@@ -225,7 +225,7 @@ def render_workshop_tab():
 
                                     profile_data = {
                                         "project_name": meta.get("plan_name"),
-                                        "filename": f.name,
+                                        "filename": file_key,
                                         "page_width_px": signature["page_w"],
                                         "page_height_px": signature["page_h"],
                                         "aspect_ratio": signature["aspect_ratio"],
@@ -904,7 +904,9 @@ def render_workshop_tab():
                 proj["metadata"]["plan_name"] = p_name
                 proj["metadata"]["scale"] = p_scale_text
 
-                meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
+                import json as jsonlib
+
+                meta_json = jsonlib.dumps(proj["metadata"], ensure_ascii=False)
                 materials = json.dumps(
                     {
                         "concrete_length": conc_len,
@@ -1110,7 +1112,9 @@ def render_corrections_tab():
                     proj["raw_pixels"] = int(corrected_pixels)
                     proj["total_length"] = float(corrected_length)
 
-                    meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
+                    import json as jsonlib
+
+                    meta_json = jsonlib.dumps(proj["metadata"], ensure_ascii=False)
                     save_plan(
                         selected_plan,
                         proj["metadata"].get("plan_name"),

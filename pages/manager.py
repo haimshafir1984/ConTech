@@ -184,7 +184,7 @@ def render_workshop_tab():
                             type="primary",
                             key=f"analyze_crop_{file_key}",
                         ):
-                        with st.spinner(f"מנתח {file_key} עם Crop ROI..."):
+                             with st.spinner(f"מנתח {file_key} עם Crop ROI..."):
                                 try:
                                     with tempfile.NamedTemporaryFile(
                                         delete=False, suffix=".pdf"

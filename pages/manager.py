@@ -481,14 +481,14 @@ def render_workshop_tab():
                         st.success(f"✅ {f.name} נותח בהצלחה!")
 
                     except Exception as e:
-                        st.error(f"שגיאה: {str(e)}")
-                        import traceback
+                            st.error(f"שגיאה: {str(e)}")
+                            import traceback
 
-                        show_trace = st.checkbox(
-                            "פרטי שגיאה (Traceback)", value=False, key=f"trace_{f.name}"
-                        )
-                        if show_trace:
-                            st.code(traceback.format_exc())
+                            show_trace = st.checkbox(
+                                "פרטי שגיאה (Traceback)", value=False, key=f"trace_{f.name}"
+                            )
+                            if show_trace:
+                                st.code(traceback.format_exc())
 
     if st.session_state.projects:
         st.markdown("---")

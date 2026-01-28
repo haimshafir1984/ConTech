@@ -71,14 +71,14 @@ def render_workshop_tab():
         "🎓 למידה אוטומטית מתוכניות דומות",
         value=True,
         help="המערכת תשתמש בתיקונים קודמים (קנה מידה, מיקום מקרא) כדי לשפר את הזיהוי האוטומטי",
-        key="learning_enabled_checkbox"
+        key="learning_enabled_checkbox",
     )
-    
+
     if learn_enabled:
         st.caption("✅ המערכת תלמד מהתיקונים שלך ותשפר את הזיהוי בקבצים הבאים")
     else:
         st.caption("⚠️ למידה מושבתת - כל תוכנית תנותח מחדש")
-    
+
     st.markdown("---")
     # ==========================================
     # שלב 0: Crop ROI (אופציונלי)
@@ -184,7 +184,7 @@ def render_workshop_tab():
                             type="primary",
                             key=f"analyze_crop_{file_key}",
                         ):
-                             with st.spinner(f"מנתח {file_key} עם Crop ROI..."):
+                            with st.spinner(f"מנתח {file_key} עם Crop ROI..."):
                                 try:
                                     with tempfile.NamedTemporaryFile(
                                         delete=False, suffix=".pdf"
@@ -241,29 +241,56 @@ def render_workshop_tab():
                                     proj["profile_id"] = profile_id
 
                                     # 🧠 החלת למידה מתוכניות דומות
-                                    if st.session_state.get("learning_enabled_checkbox", True):
+                                    if st.session_state.get(
+                                        "learning_enabled_checkbox", True
+                                    ):
                                         try:
-                                            overrides = get_learning_overrides_by_aspect(signature["aspect_ratio"])
-                                            
+                                            overrides = (
+                                                get_learning_overrides_by_aspect(
+                                                    signature["aspect_ratio"]
+                                                )
+                                            )
+
                                             if overrides:
                                                 # סינון overrides לפי סוג
-                                                scale_overrides = [o for o in overrides if o.get("event_type") == "scale_override"]
-                                                
+                                                scale_overrides = [
+                                                    o
+                                                    for o in overrides
+                                                    if o.get("event_type")
+                                                    == "scale_override"
+                                                ]
+
                                                 # אם יש override של scale וה-scale הנוכחי חלש/לא קיים
-                                                if scale_overrides and not meta.get("scale_denominator"):
+                                                if scale_overrides and not meta.get(
+                                                    "scale_denominator"
+                                                ):
                                                     try:
-                                                        latest_scale = json.loads(scale_overrides[0]["payload"])
-                                                        new_scale = latest_scale.get("new")
-                                                        
+                                                        latest_scale = json.loads(
+                                                            scale_overrides[0][
+                                                                "payload"
+                                                            ]
+                                                        )
+                                                        new_scale = latest_scale.get(
+                                                            "new"
+                                                        )
+
                                                         if new_scale and new_scale > 0:
-                                                            meta["scale_denominator"] = new_scale
-                                                            meta["scale_confidence"] = 0.85
-                                                            meta["_scale_source"] = "learned_prior"
-                                                            st.info(f"🧠 שימוש בקנה מידה נלמד: 1:{new_scale} (מתוכניות דומות)")
-                                                            
+                                                            meta[
+                                                                "scale_denominator"
+                                                            ] = new_scale
+                                                            meta["scale_confidence"] = (
+                                                                0.85
+                                                            )
+                                                            meta["_scale_source"] = (
+                                                                "learned_prior"
+                                                            )
+                                                            st.info(
+                                                                f"🧠 שימוש בקנה מידה נלמד: 1:{new_scale} (מתוכניות דומות)"
+                                                            )
+
                                                     except Exception as e:
                                                         pass  # כשלון שקט
-                                                        
+
                                         except Exception as e:
                                             pass  # כשלון שקט - לא לשבור את הזרימה
 
@@ -377,8 +404,7 @@ def render_workshop_tab():
                         blok,
                         floor,
                         debug_img,
-                    )
-                    analyzer.process_file(path, save_debug=show_debug)
+                    ) = analyzer.process_file(path, save_debug=show_debug)
 
                     if not meta.get("plan_name"):
                         meta["plan_name"] = (
@@ -407,18 +433,13 @@ def render_workshop_tab():
                         "flooring_mask": floor,
                         "total_length": pix / 200.0,
                         "llm_data": llm_data,
-                        "llm_suggestions": (
-                            llm_data if meta.get("raw_text") else {}
-                        ),
+                        "llm_suggestions": (llm_data if meta.get("raw_text") else {}),
                         "debug_layers": getattr(analyzer, "debug_layers", {}),
                     }
 
                     # תצוגת Debug משופרת
                     if show_debug and debug_img is not None:
-                        with st.expander(
-                            "🔍 Debug: ניתוח Multi-Pass", expanded=False
-                        ):
-
+                        with st.expander("🔍 Debug: ניתוח Multi-Pass", expanded=False):
                             if debug_mode == "מפורט - שכבות":
                                 col1, col2, col3 = st.columns(3)
                                 with col1:
@@ -459,15 +480,15 @@ def render_workshop_tab():
                                 with col2:
                                     st.markdown(
                                         """
-    **מקרא צבעים:**
-    - 🟠 כתום = טקסט ברור
-    - 🟡 צהוב = סמלים וכותרות
-    - 🟣 סגול = מספרי חדרים
-    - 🟢 ירוק = קירות
-    - 🔥 אדום-צהוב = confidence גבוה
-    - 🔵 כחול-שחור = confidence נמוך
-    """
-                                        )
+                **מקרא צבעים:**
+                - 🟠 כתום = טקסט ברור
+                - 🟡 צהוב = סמלים וכותרות
+                - 🟣 סגול = מספרי חדרים
+                - 🟢 ירוק = קירות
+                - 🔥 אדום-צהוב = confidence גבוה
+                - 🔵 כחול-שחור = confidence נמוך
+                """
+                                    )
                                     st.metric(
                                         "Confidence ממוצע",
                                         f"{meta.get('confidence_avg', 0):.2f}",
@@ -477,19 +498,26 @@ def render_workshop_tab():
                                         f"{meta.get('text_removed_pixels', 0):,}",
                                     )
 
+                    try:
                         os.unlink(path)
-                        st.success(f"✅ {f.name} נותח בהצלחה!")
+                    except Exception:
+                        pass
+                    st.success(f"✅ {f.name} נותח בהצלחה!")
 
-                    except Exception as e:
-                            st.error(f"שגיאה: {str(e)}")
-                            import traceback
+                except Exception as e:
+                    st.error(f"שגיאה: {str(e)}")
+                    import traceback
 
-                            show_trace = st.checkbox(
-                                "פרטי שגיאה (Traceback)", value=False, key=f"trace_{f.name}"
-                            )
-                            if show_trace:
-                                st.code(traceback.format_exc())
-
+                    show_trace = st.checkbox(
+                        "פרטי שגיאה (Traceback)", value=False, key=f"trace_{f.name}"
+                    )
+                    if show_trace:
+                        st.code(traceback.format_exc())
+                    try:
+                        if "path" in locals() and path and os.path.exists(path):
+                            os.unlink(path)
+                    except Exception:
+                        pass
     if st.session_state.projects:
         st.markdown("---")
         selected = st.selectbox(
@@ -555,7 +583,7 @@ def render_workshop_tab():
 
             proj["total_length"] = total_len
             st.info(
-                 f"📏 קירות: {total_len:.1f}מ' | בטון: {conc_len:.1f}מ' | בלוקים: {block_len:.1f}מ' | ריצוף: {floor_area:.1f}מ\"ר"
+                f"📏 קירות: {total_len:.1f}מ' | בטון: {conc_len:.1f}מ' | בלוקים: {block_len:.1f}מ' | ריצוף: {floor_area:.1f}מ\"ר"
             )
             # 🧠 כפתור שמירה ללמידה
             col_save_learn, col_spacer = st.columns([1, 2])
@@ -563,25 +591,25 @@ def render_workshop_tab():
                 if st.button(
                     "💾 שמור קנה מידה ללמידה",
                     key=f"save_scale_learning_{selected}",
-                    help="שמירת התיקון הזה תעזור למערכת לזהות טוב יותר תוכניות דומות בעתיד"
+                    help="שמירת התיקון הזה תעזור למערכת לזהות טוב יותר תוכניות דומות בעתיד",
                 ):
                     profile_id = proj.get("profile_id")
-                    
+
                     if profile_id:
                         try:
                             from database import insert_learning_event
                             import json
-                            
+
                             insert_learning_event(
                                 profile_id=profile_id,
                                 event_type="scale_override",
                                 payload={"new": float(scale_val)},
-                                confidence=1.0
+                                confidence=1.0,
                             )
-                            
+
                             st.success("✅ קנה המידה נשמר ללמידה!")
                             st.balloons()
-                            
+
                         except Exception as e:
                             st.error(f"❌ שגיאה בשמירה: {str(e)}")
                     else:
@@ -1171,7 +1199,7 @@ def render_plan_data_tab():
 
         with col2:
             if st.button("🔄 חלץ מחדש", type="primary", use_container_width=True):
-            with st.spinner("מחלץ נתונים..."):
+                with st.spinner("מחלץ נתונים..."):
                     try:
                         from utils import safe_process_metadata
 
@@ -1712,4 +1740,3 @@ def render_floor_analysis_tab():
                     st.caption(
                         f"מציג 5 מתוך {len(result['rooms'])} חדרים. לחץ 'חשב מחדש' לתצוגה מלאה."
                     )
-

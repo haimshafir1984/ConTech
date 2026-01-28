@@ -238,8 +238,6 @@ def render_workshop_tab():
                                         "signature": signature,
                                     }
                                     profile_id = upsert_document_profile(profile_data)
-                                    proj["profile_id"] = profile_id
-                                    profile_id = upsert_document_profile(profile_data)
                                     # ודא שיש proj לפני שימוש בו (במיוחד במסלול Crop ROI)
                                     if "proj" not in locals() or proj is None:
                                         proj = {"metadata": meta, "file_key": file_key}

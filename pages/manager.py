@@ -114,28 +114,28 @@ def render_workshop_tab():
             # אם זה קובץ חדש, נאתחל
             if file_key not in st.session_state.crop_mode_data:
             with st.spinner("טוען תצוגה מקדימה..."):
-                    try:
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=".pdf"
-                        ) as tmp:
-                            tmp.write(crop_file.getvalue())
-                            temp_path = tmp.name
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".pdf"
+                    ) as tmp:
+                        tmp.write(crop_file.getvalue())
+                        temp_path = tmp.name
 
-                        analyzer = FloorPlanAnalyzer()
-                        preview_img = analyzer.pdf_to_image(temp_path)
+                    analyzer = FloorPlanAnalyzer()
+                    preview_img = analyzer.pdf_to_image(temp_path)
 
-                        st.session_state.crop_mode_data[file_key] = {
-                            "preview_img": preview_img,
-                            "pdf_path": temp_path,
-                            "crop_bbox": None,
-                            "processed": False,
-                        }
+                    st.session_state.crop_mode_data[file_key] = {
+                        "preview_img": preview_img,
+                        "pdf_path": temp_path,
+                        "crop_bbox": None,
+                        "processed": False,
+                    }
 
-                        os.unlink(temp_path)
+                    os.unlink(temp_path)
 
-                    except Exception as e:
-                        st.error(f"❌ שגיאה בטעינת PDF: {str(e)}")
-                        crop_file = None
+                except Exception as e:
+                    st.error(f"❌ שגיאה בטעינת PDF: {str(e)}")
+                    crop_file = None
 
             # הצגת Canvas לציור ROI
             if file_key in st.session_state.crop_mode_data:

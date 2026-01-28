@@ -791,3 +791,65 @@ def get_simple_metadata_values(llm_data):
                 simple["project_name"] = proj
 
     return simple
+
+
+def build_document_signature(meta, image_shape, text_tokens):
+    h, w = image_shape[:2]
+    return {
+        "page_w": w,
+        "page_h": h,
+        "aspect_ratio": round(w / h, 3),
+        "has_grid": meta.get("has_grid", False),
+        "avg_wall_thickness": meta.get("avg_wall_thickness"),
+        "scale_candidate": meta.get("scale_denominator"),
+        "keywords": list(set(text_tokens))[:30],
+    }
+
+
+def crop_relative(image, bbox_rel):
+    """
+    🆕 חיתוך תמונה לפי bounding box יחסי (0-1)
+
+    Args:
+        image: תמונה (numpy array)
+        bbox_rel: [x1, y1, x2, y2] בערכים יחסיים (0.0-1.0)
+
+    Returns:
+        תמונה חתוכה או None אם נכשל
+
+    דוגמה:
+        # חיתוך פינה ימנית תחתונה (25% מהתמונה)
+        cropped = crop_relative(image, [0.75, 0.75, 1.0, 1.0])
+    """
+    if image is None or image.size == 0:
+        return None
+
+    try:
+        h, w = image.shape[:2]
+        x1, y1, x2, y2 = bbox_rel
+
+        # המרה לפיקסלים
+        x1_px = int(x1 * w)
+        y1_px = int(y1 * h)
+        x2_px = int(x2 * w)
+        y2_px = int(y2 * h)
+
+        # וולידציה
+        x1_px = max(0, min(x1_px, w - 1))
+        y1_px = max(0, min(y1_px, h - 1))
+        x2_px = max(0, min(x2_px, w))
+        y2_px = max(0, min(y2_px, h))
+
+        # חיתוך
+        if x2_px > x1_px and y2_px > y1_px:
+            cropped = image[y1_px:y2_px, x1_px:x2_px]
+
+            # בדיקה שהתוצאה לא ריקה
+            if cropped.size > 0:
+                return cropped
+
+        return None
+
+    except Exception as e:
+        print(f"שגיאה ב-crop_relative: {e}")
+        return None

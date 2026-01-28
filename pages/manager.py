@@ -26,6 +26,9 @@ from database import (
     get_all_work_types_for_plan,
     get_progress_summary_by_date_range,
     get_all_plans,
+    upsert_document_profile,
+    insert_learning_event,
+    get_learning_overrides_by_aspect,
 )
 from utils import (
     safe_process_metadata,
@@ -35,6 +38,7 @@ from utils import (
     get_simple_metadata_values,
     calculate_area_m2,
     refine_flooring_mask_with_rooms,
+    build_document_signature,
 )
 
 # ייבוא פונקציות preprocessing לגזירה
@@ -59,7 +63,23 @@ def get_corrected_walls(selected_plan, proj):
 
 def render_workshop_tab():
     """טאב 1: סדנת עבודה - העלאה ועריכה (עם תמיכה ב-Crop ROI)"""
-
+    # ==========================================
+    # 🧠 הגדרות למידה
+    # ==========================================
+    st.markdown("### 🧠 הגדרות למידה")
+    learn_enabled = st.checkbox(
+        "🎓 למידה אוטומטית מתוכניות דומות",
+        value=True,
+        help="המערכת תשתמש בתיקונים קודמים (קנה מידה, מיקום מקרא) כדי לשפר את הזיהוי האוטומטי",
+        key="learning_enabled_checkbox"
+    )
+    
+    if learn_enabled:
+        st.caption("✅ המערכת תלמד מהתיקונים שלך ותשפר את הזיהוי בקבצים הבאים")
+    else:
+        st.caption("⚠️ למידה מושבתת - כל תוכנית תנותח מחדש")
+    
+    st.markdown("---")
     # ==========================================
     # שלב 0: Crop ROI (אופציונלי)
     # ==========================================
@@ -186,6 +206,66 @@ def render_workshop_tab():
                                     ) = analyzer.process_file(
                                         path, save_debug=False, crop_bbox=bbox
                                     )
+                                    from utils import build_document_signature
+                                    from database import (
+                                        upsert_document_profile,
+                                        get_learning_overrides_by_aspect,
+                                    )
+
+                                    # --- בניית Signature ---
+                                    text_tokens = []
+                                    if meta.get("normalized_text"):
+                                        text_tokens = meta["normalized_text"].split()
+
+                                    signature = build_document_signature(
+                                        meta,
+                                        orig.shape,
+                                        text_tokens,
+                                    )
+
+                                    profile_data = {
+                                        "project_name": meta.get("plan_name"),
+                                        "filename": f.name,
+                                        "page_width_px": signature["page_w"],
+                                        "page_height_px": signature["page_h"],
+                                        "aspect_ratio": signature["aspect_ratio"],
+                                        "has_grid": signature["has_grid"],
+                                        "avg_wall_thickness": signature[
+                                            "avg_wall_thickness"
+                                        ],
+                                        "detected_scale": meta.get("scale_denominator"),
+                                        "final_scale": meta.get("scale_denominator"),
+                                        "signature": signature,
+                                    }
+                                    profile_id = upsert_document_profile(profile_data)
+                                    proj["profile_id"] = profile_id
+
+                                    # 🧠 החלת למידה מתוכניות דומות
+                                    if st.session_state.get("learning_enabled_checkbox", True):
+                                        try:
+                                            overrides = get_learning_overrides_by_aspect(signature["aspect_ratio"])
+                                            
+                                            if overrides:
+                                                # סינון overrides לפי סוג
+                                                scale_overrides = [o for o in overrides if o.get("event_type") == "scale_override"]
+                                                
+                                                # אם יש override של scale וה-scale הנוכחי חלש/לא קיים
+                                                if scale_overrides and not meta.get("scale_denominator"):
+                                                    try:
+                                                        latest_scale = json.loads(scale_overrides[0]["payload"])
+                                                        new_scale = latest_scale.get("new")
+                                                        
+                                                        if new_scale and new_scale > 0:
+                                                            meta["scale_denominator"] = new_scale
+                                                            meta["scale_confidence"] = 0.85
+                                                            meta["_scale_source"] = "learned_prior"
+                                                            st.info(f"🧠 שימוש בקנה מידה נלמד: 1:{new_scale} (מתוכניות דומות)")
+                                                            
+                                                    except Exception as e:
+                                                        pass  # כשלון שקט
+                                                        
+                                        except Exception as e:
+                                            pass  # כשלון שקט - לא לשבור את הזרימה
 
                                     if not meta.get("plan_name"):
                                         meta["plan_name"] = (
@@ -297,7 +377,8 @@ def render_workshop_tab():
                             blok,
                             floor,
                             debug_img,
-                        ) = analyzer.process_file(path, save_debug=show_debug)
+                        )
+                        = analyzer.process_file(path, save_debug=show_debug)
 
                         if not meta.get("plan_name"):
                             meta["plan_name"] = (
@@ -473,10 +554,38 @@ def render_workshop_tab():
             floor_area = float(floor_area or 0)
 
             proj["total_length"] = total_len
-
             st.info(
-                f"📏 קירות: {total_len:.1f}מ' | בטון: {conc_len:.1f}מ' | בלוקים: {block_len:.1f}מ' | ריצוף: {floor_area:.1f}מ\"ר"
+                 f"📏 קירות: {total_len:.1f}מ' | בטון: {conc_len:.1f}מ' | בלוקים: {block_len:.1f}מ' | ריצוף: {floor_area:.1f}מ\"ר"
             )
+            # 🧠 כפתור שמירה ללמידה
+            col_save_learn, col_spacer = st.columns([1, 2])
+            with col_save_learn:
+                if st.button(
+                    "💾 שמור קנה מידה ללמידה",
+                    key=f"save_scale_learning_{selected}",
+                    help="שמירת התיקון הזה תעזור למערכת לזהות טוב יותר תוכניות דומות בעתיד"
+                ):
+                    profile_id = proj.get("profile_id")
+                    
+                    if profile_id:
+                        try:
+                            from database import insert_learning_event
+                            import json
+                            
+                            insert_learning_event(
+                                profile_id=profile_id,
+                                event_type="scale_override",
+                                payload={"new": float(scale_val)},
+                                confidence=1.0
+                            )
+                            
+                            st.success("✅ קנה המידה נשמר ללמידה!")
+                            st.balloons()
+                            
+                        except Exception as e:
+                            st.error(f"❌ שגיאה בשמירה: {str(e)}")
+                    else:
+                        st.warning("⚠️ לא נמצא profile_id - לא ניתן לשמור ללמידה")
 
             # מדידות מתקדמות
             with st.expander("📐 מדידות מתקדמות (Stage 1+2)", expanded=False):

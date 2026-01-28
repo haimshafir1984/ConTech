@@ -206,6 +206,13 @@ def save_plan(
             )
 
 
+def update_plan_metadata(plan_id, metadata_json_str):
+    """עדכון metadata של תוכנית"""
+    query = "UPDATE plans SET metadata = ? WHERE id = ?"
+    run_query(query, (metadata_json_str, plan_id), fetch="commit")
+    return True
+
+
 def save_progress_report(plan_id, meters, note):
     query = (
         "INSERT INTO progress_reports (plan_id, meters_built, note) VALUES (?, ?, ?)"

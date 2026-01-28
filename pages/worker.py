@@ -274,85 +274,91 @@ def render_schema_editor(plan_name, proj):
 
     schema = load_form_schema(plan_name, proj)
 
-    # UI לעריכת schema
+    # UI לעריכת schema - ללא expanders מקוננים!
     new_schema = []
 
+    st.markdown("---")
+
     for idx, field in enumerate(schema):
-        with st.expander(
-            f"שדה #{idx+1}: {field.get('label', 'ללא שם')}", expanded=False
-        ):
-            col1, col2 = st.columns(2)
+        # Card פשוט במקום expander
+        st.markdown(f"#### שדה #{idx+1}: {field.get('label', 'ללא שם')}")
 
-            with col1:
-                field_type = st.selectbox(
-                    "סוג שדה:",
-                    ["checkbox", "select", "number", "text"],
-                    index=["checkbox", "select", "number", "text"].index(
-                        field.get("type", "text")
-                    ),
-                    key=f"schema_type_{idx}",
+        col1, col2 = st.columns(2)
+
+        with col1:
+            field_type = st.selectbox(
+                "סוג שדה:",
+                ["checkbox", "select", "number", "text"],
+                index=["checkbox", "select", "number", "text"].index(
+                    field.get("type", "text")
+                ),
+                key=f"schema_type_{idx}",
+            )
+
+            field_label = st.text_input(
+                "תווית:", value=field.get("label", ""), key=f"schema_label_{idx}"
+            )
+
+        with col2:
+            field_key = st.text_input(
+                "Key (משתנה):", value=field.get("key", ""), key=f"schema_key_{idx}"
+            )
+
+            if field_type == "checkbox":
+                field_default = st.checkbox(
+                    "ברירת מחדל:",
+                    value=field.get("default", False),
+                    key=f"schema_default_{idx}",
                 )
-
-                field_label = st.text_input(
-                    "תווית:", value=field.get("label", ""), key=f"schema_label_{idx}"
+            elif field_type == "number":
+                field_default = st.number_input(
+                    "ברירת מחדל:",
+                    value=float(field.get("default", 0)),
+                    key=f"schema_default_{idx}",
                 )
-
-            with col2:
-                field_key = st.text_input(
-                    "Key (משתנה):", value=field.get("key", ""), key=f"schema_key_{idx}"
+            elif field_type == "select":
+                options_str = st.text_input(
+                    "אפשרויות (מופרד בפסיק):",
+                    value=",".join(field.get("options", [])),
+                    key=f"schema_options_{idx}",
                 )
-
-                if field_type == "checkbox":
-                    field_default = st.checkbox(
-                        "ברירת מחדל:",
-                        value=field.get("default", False),
-                        key=f"schema_default_{idx}",
-                    )
-                elif field_type == "number":
-                    field_default = st.number_input(
-                        "ברירת מחדל:",
-                        value=float(field.get("default", 0)),
-                        key=f"schema_default_{idx}",
-                    )
-                elif field_type == "select":
-                    options_str = st.text_input(
-                        "אפשרויות (מופרד בפסיק):",
-                        value=",".join(field.get("options", [])),
-                        key=f"schema_options_{idx}",
-                    )
-                    field_options = [
-                        o.strip() for o in options_str.split(",") if o.strip()
-                    ]
+                field_options = [o.strip() for o in options_str.split(",") if o.strip()]
+                if field_options:
                     field_default = st.selectbox(
                         "ברירת מחדל:",
-                        field_options if field_options else [""],
+                        field_options,
                         index=0,
                         key=f"schema_default_select_{idx}",
                     )
                 else:
-                    field_default = st.text_input(
-                        "ברירת מחדל:",
-                        value=field.get("default", ""),
-                        key=f"schema_default_text_{idx}",
-                    )
+                    field_default = ""
+            else:
+                field_default = st.text_input(
+                    "ברירת מחדל:",
+                    value=field.get("default", ""),
+                    key=f"schema_default_text_{idx}",
+                )
 
-            # בניית השדה החדש
-            new_field = {
-                "type": field_type,
-                "label": field_label,
-                "key": field_key,
-                "default": field_default,
-            }
+        # בניית השדה החדש
+        new_field = {
+            "type": field_type,
+            "label": field_label,
+            "key": field_key,
+            "default": field_default,
+        }
 
-            if field_type == "select":
-                new_field["options"] = field_options
-            elif field_type == "number":
-                new_field["step"] = field.get("step", 0.1)
+        if field_type == "select" and field_options:
+            new_field["options"] = field_options
+        elif field_type == "number":
+            new_field["step"] = field.get("step", 0.1)
 
-            new_schema.append(new_field)
+        new_schema.append(new_field)
 
-            if st.button("🗑️ מחק שדה", key=f"delete_field_{idx}"):
-                st.warning("שדה זה יימחק בשמירה הבאה")
+        if st.button("🗑️ מחק שדה", key=f"delete_field_{idx}"):
+            # סימון למחיקה
+            new_schema = [f for i, f in enumerate(new_schema) if i != idx]
+
+        st.markdown("---")
 
     # כפתור הוספת שדה
     if st.button("➕ הוסף שדה חדש"):

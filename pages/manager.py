@@ -378,7 +378,7 @@ def render_workshop_tab():
                         floor,
                         debug_img,
                     )
-                    = analyzer.process_file(path, save_debug=show_debug)
+                    analyzer.process_file(path, save_debug=show_debug)
 
                     if not meta.get("plan_name"):
                         meta["plan_name"] = (

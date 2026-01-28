@@ -113,7 +113,7 @@ def render_workshop_tab():
 
             # אם זה קובץ חדש, נאתחל
             if file_key not in st.session_state.crop_mode_data:
-                with st.spinner("טוען תצוגה מקדימה..."):
+            with st.spinner("טוען תצוגה מקדימה..."):
                     try:
                         with tempfile.NamedTemporaryFile(
                             delete=False, suffix=".pdf"
@@ -184,7 +184,7 @@ def render_workshop_tab():
                             type="primary",
                             key=f"analyze_crop_{file_key}",
                         ):
-                            with st.spinner(f"מנתח {file_key} עם Crop ROI..."):
+                        with st.spinner(f"מנתח {file_key} עם Crop ROI..."):
                                 try:
                                     with tempfile.NamedTemporaryFile(
                                         delete=False, suffix=".pdf"
@@ -358,107 +358,107 @@ def render_workshop_tab():
             if f.name in st.session_state.projects:
                 continue
 
-                with st.spinner(f"מעבד {f.name} עם Multi-Pass Detection..."):
-                    try:
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=".pdf"
-                        ) as tmp:
-                            tmp.write(f.getvalue())
-                            path = tmp.name
+            with st.spinner(f"מעבד {f.name} עם Multi-Pass Detection..."):
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".pdf"
+                    ) as tmp:
+                        tmp.write(f.getvalue())
+                        path = tmp.name
 
-                        analyzer = FloorPlanAnalyzer()
-                        (
-                            pix,
-                            skel,
-                            thick,
-                            orig,
-                            meta,
-                            conc,
-                            blok,
-                            floor,
-                            debug_img,
+                    analyzer = FloorPlanAnalyzer()
+                    (
+                        pix,
+                        skel,
+                        thick,
+                        orig,
+                        meta,
+                        conc,
+                        blok,
+                        floor,
+                        debug_img,
+                    )
+                    = analyzer.process_file(path, save_debug=show_debug)
+
+                    if not meta.get("plan_name"):
+                        meta["plan_name"] = (
+                            f.name.replace(".pdf", "").replace("-", " ").strip()
                         )
-                        = analyzer.process_file(path, save_debug=show_debug)
 
-                        if not meta.get("plan_name"):
-                            meta["plan_name"] = (
-                                f.name.replace(".pdf", "").replace("-", " ").strip()
-                            )
+                    llm_data = {}
+                    if meta.get("raw_text"):
+                        llm_data = safe_process_metadata(
+                            raw_text=meta.get("raw_text"),
+                            raw_text_full=meta.get("raw_text_full"),
+                            normalized_text=meta.get("normalized_text"),
+                            raw_blocks=meta.get("raw_blocks"),
+                        )
+                        meta.update(get_simple_metadata_values(llm_data))
 
-                        llm_data = {}
-                        if meta.get("raw_text"):
-                            llm_data = safe_process_metadata(
-                                raw_text=meta.get("raw_text"),
-                                raw_text_full=meta.get("raw_text_full"),
-                                normalized_text=meta.get("normalized_text"),
-                                raw_blocks=meta.get("raw_blocks"),
-                            )
-                            meta.update(get_simple_metadata_values(llm_data))
+                    st.session_state.projects[f.name] = {
+                        "skeleton": skel,
+                        "thick_walls": thick,
+                        "original": orig,
+                        "raw_pixels": pix,
+                        "scale": 200.0,
+                        "metadata": meta,
+                        "concrete_mask": conc,
+                        "blocks_mask": blok,
+                        "flooring_mask": floor,
+                        "total_length": pix / 200.0,
+                        "llm_data": llm_data,
+                        "llm_suggestions": (
+                            llm_data if meta.get("raw_text") else {}
+                        ),
+                        "debug_layers": getattr(analyzer, "debug_layers", {}),
+                    }
 
-                        st.session_state.projects[f.name] = {
-                            "skeleton": skel,
-                            "thick_walls": thick,
-                            "original": orig,
-                            "raw_pixels": pix,
-                            "scale": 200.0,
-                            "metadata": meta,
-                            "concrete_mask": conc,
-                            "blocks_mask": blok,
-                            "flooring_mask": floor,
-                            "total_length": pix / 200.0,
-                            "llm_data": llm_data,
-                            "llm_suggestions": (
-                                llm_data if meta.get("raw_text") else {}
-                            ),
-                            "debug_layers": getattr(analyzer, "debug_layers", {}),
-                        }
+                    # תצוגת Debug משופרת
+                    if show_debug and debug_img is not None:
+                        with st.expander(
+                            "🔍 Debug: ניתוח Multi-Pass", expanded=False
+                        ):
 
-                        # תצוגת Debug משופרת
-                        if show_debug and debug_img is not None:
-                            with st.expander(
-                                "🔍 Debug: ניתוח Multi-Pass", expanded=False
-                            ):
-
-                                if debug_mode == "מפורט - שכבות":
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
+                            if debug_mode == "מפורט - שכבות":
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.image(
+                                        debug_img,
+                                        caption="תוצאה משולבת",
+                                        use_column_width=True,
+                                    )
+                                with col2:
+                                    if (
+                                        hasattr(analyzer, "debug_layers")
+                                        and "text_combined" in analyzer.debug_layers
+                                    ):
                                         st.image(
-                                            debug_img,
-                                            caption="תוצאה משולבת",
+                                            analyzer.debug_layers["text_combined"],
+                                            caption="🔴 טקסט שהוסר",
                                             use_column_width=True,
                                         )
-                                    with col2:
-                                        if (
-                                            hasattr(analyzer, "debug_layers")
-                                            and "text_combined" in analyzer.debug_layers
-                                        ):
-                                            st.image(
-                                                analyzer.debug_layers["text_combined"],
-                                                caption="🔴 טקסט שהוסר",
-                                                use_column_width=True,
-                                            )
-                                    with col3:
-                                        if (
-                                            hasattr(analyzer, "debug_layers")
-                                            and "walls" in analyzer.debug_layers
-                                        ):
-                                            st.image(
-                                                analyzer.debug_layers["walls"],
-                                                caption="🟢 קירות שזוהו",
-                                                use_column_width=True,
-                                            )
-
-                                elif debug_mode == "מלא - עם confidence":
-                                    col1, col2 = st.columns(2)
-                                    with col1:
+                                with col3:
+                                    if (
+                                        hasattr(analyzer, "debug_layers")
+                                        and "walls" in analyzer.debug_layers
+                                    ):
                                         st.image(
-                                            debug_img,
-                                            caption="תוצאה משולבת",
+                                            analyzer.debug_layers["walls"],
+                                            caption="🟢 קירות שזוהו",
                                             use_column_width=True,
                                         )
-                                    with col2:
-                                        st.markdown(
-                                            """
+
+                            elif debug_mode == "מלא - עם confidence":
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.image(
+                                        debug_img,
+                                        caption="תוצאה משולבת",
+                                        use_column_width=True,
+                                    )
+                                with col2:
+                                    st.markdown(
+                                        """
     **מקרא צבעים:**
     - 🟠 כתום = טקסט ברור
     - 🟡 צהוב = סמלים וכותרות
@@ -1171,7 +1171,7 @@ def render_plan_data_tab():
 
         with col2:
             if st.button("🔄 חלץ מחדש", type="primary", use_container_width=True):
-                with st.spinner("מחלץ נתונים..."):
+            with st.spinner("מחלץ נתונים..."):
                     try:
                         from utils import safe_process_metadata
 
@@ -1712,3 +1712,4 @@ def render_floor_analysis_tab():
                     st.caption(
                         f"מציג 5 מתוך {len(result['rooms'])} חדרים. לחץ 'חשב מחדש' לתצוגה מלאה."
                     )
+

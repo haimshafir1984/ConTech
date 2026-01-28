@@ -1,6 +1,6 @@
 """
-ConTech Pro - Worker Page v2.0
-מצב דיווח שטח מתקדם עם Schema Editor ו-2-Point Mode
+ConTech Pro - Worker Page v2.1
+מצב דיווח שטח מתקדם עם Schema Editor, UX משופר, ומקור אמת יחיד
 """
 
 import streamlit as st
@@ -10,6 +10,8 @@ from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import json
 from datetime import datetime
+import uuid
+import re
 
 from database import (
     save_progress_report,
@@ -18,6 +20,25 @@ from database import (
     get_plan_by_id,
     update_plan_metadata,
 )
+
+
+# ==========================================
+# פונקציות המרה - מקור אמת יחיד
+# ==========================================
+
+
+def px_to_m(px_value, scale_factor, scale):
+    """המרת פיקסלים למטרים"""
+    if scale <= 0:
+        return 0.0
+    return px_value / scale_factor / scale
+
+
+def px2_to_m2(px2_value, scale_factor, scale):
+    """המרת פיקסלים בריבוע למ"ר"""
+    if scale <= 0:
+        return 0.0
+    return px2_value / ((scale * scale_factor) ** 2)
 
 
 # ==========================================
@@ -40,6 +61,11 @@ def get_corrected_walls(selected_plan, proj):
         return corrected
     else:
         return proj["thick_walls"]
+
+
+def generate_uid():
+    """יוצר uuid קצר וייחודי"""
+    return str(uuid.uuid4())[:8]
 
 
 def compute_line_length_px(obj):
@@ -120,46 +146,52 @@ def create_single_object_mask(obj, canvas_width, canvas_height):
 
 
 def auto_enrich_item(item, mask, corrected_walls, proj):
-    """Auto-enrichment: מציע is_wall וחומר לפי overlap"""
-    if mask is None or corrected_walls is None:
+    """Auto-enrichment: מציע is_wall וחומר לפי overlap - עובד גם לריצוף"""
+    if mask is None:
         return item
 
-    # בדיקת overlap עם קירות
-    if corrected_walls.shape == mask.shape:
+    item_pixels = np.count_nonzero(mask)
+    if item_pixels == 0:
+        return item
+
+    # בדיקת overlap עם קירות (אם קיים)
+    if corrected_walls is not None and corrected_walls.shape == mask.shape:
         intersection = cv2.bitwise_and(mask, corrected_walls)
         overlap_pixels = np.count_nonzero(intersection)
-        item_pixels = np.count_nonzero(mask)
 
-        if item_pixels > 0:
-            overlap_ratio = overlap_pixels / item_pixels
-            item["wall_overlap_ratio"] = round(overlap_ratio, 2)
-            item["is_wall_suggested"] = overlap_ratio > 0.5
-        else:
-            item["wall_overlap_ratio"] = 0
-            item["is_wall_suggested"] = False
+        overlap_ratio = overlap_pixels / item_pixels
+        item["wall_overlap_ratio"] = round(overlap_ratio, 2)
+        item["is_wall_suggested"] = overlap_ratio > 0.5
 
-    # ניסיון לזהות חומר
+    # ניסיון לזהות חומר (safe - לא קורס אם חסר)
     concrete_mask = proj.get("concrete_mask")
     blocks_mask = proj.get("blocks_mask")
 
     suggested_material = None
+
     if concrete_mask is not None and concrete_mask.shape == mask.shape:
-        conc_overlap = np.count_nonzero(cv2.bitwise_and(mask, concrete_mask))
-        if conc_overlap > item_pixels * 0.5:
-            suggested_material = "בטון"
+        try:
+            conc_overlap = np.count_nonzero(cv2.bitwise_and(mask, concrete_mask))
+            if conc_overlap > item_pixels * 0.5:
+                suggested_material = "בטון"
+        except:
+            pass
 
     if blocks_mask is not None and blocks_mask.shape == mask.shape:
-        block_overlap = np.count_nonzero(cv2.bitwise_and(mask, blocks_mask))
-        if block_overlap > item_pixels * 0.5:
-            suggested_material = "בלוקים"
+        try:
+            block_overlap = np.count_nonzero(cv2.bitwise_and(mask, blocks_mask))
+            if block_overlap > item_pixels * 0.5:
+                suggested_material = "בלוקים"
+        except:
+            pass
 
     item["material_suggested"] = suggested_material
 
     return item
 
 
-def create_annotated_preview(rgb_image, items_data):
-    """יוצר תמונת preview עם מספרים ומדידות"""
+def create_annotated_preview(rgb_image, items_data, selected_uid=None):
+    """יוצר תמונת preview עם מספרים ומדידות והדגשת פריט נבחר"""
     annotated = rgb_image.copy()
 
     for idx, item in enumerate(items_data, 1):
@@ -167,13 +199,20 @@ def create_annotated_preview(rgb_image, items_data):
         cy = int(item.get("center_y", 0))
         measurement = item.get("measurement", 0.0)
         unit = item.get("unit", "m")
+        uid = item.get("uid", "")
 
         text = f"{idx}: {measurement:.2f}{unit}"
 
+        # הדגשה אם נבחר
+        is_selected = selected_uid and uid == selected_uid
+        text_color = (255, 0, 0) if is_selected else (0, 0, 255)
+        box_color = (255, 0, 0) if is_selected else (0, 0, 0)
+        box_thickness = 3 if is_selected else 2
+
         # רקע לטקסט
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.6
-        thickness = 2
+        font_scale = 0.7 if is_selected else 0.6
+        thickness = 3 if is_selected else 2
         (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
 
         cv2.rectangle(
@@ -188,12 +227,12 @@ def create_annotated_preview(rgb_image, items_data):
             annotated,
             (cx - 5, cy - text_h - 10),
             (cx + text_w + 5, cy + 5),
-            (0, 0, 0),
-            2,
+            box_color,
+            box_thickness,
         )
 
         # טקסט
-        cv2.putText(annotated, text, (cx, cy), font, font_scale, (0, 0, 255), thickness)
+        cv2.putText(annotated, text, (cx, cy), font, font_scale, text_color, thickness)
 
     return annotated
 
@@ -267,8 +306,36 @@ def save_form_schema(plan_name, proj, schema):
     return True
 
 
+def validate_schema_field(field):
+    """ולידציה לשדה schema"""
+    errors = []
+
+    # בדיקת key
+    key = field.get("key", "").strip()
+    if not key:
+        errors.append("Key לא יכול להיות ריק")
+    elif not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", key):
+        errors.append(f"Key '{key}' לא תקין (חייב להתחיל באות/_, רק אותיות/מספרים/_)")
+
+    # בדיקת label
+    if not field.get("label", "").strip():
+        errors.append("Label לא יכול להיות ריק")
+
+    # בדיקת type
+    if field.get("type") not in ["checkbox", "select", "number", "text"]:
+        errors.append("Type חייב להיות checkbox/select/number/text")
+
+    # בדיקת options ל-select
+    if field.get("type") == "select":
+        options = field.get("options", [])
+        if not options or len(options) == 0:
+            errors.append("Select חייב לכלול לפחות אפשרות אחת")
+
+    return errors
+
+
 def render_schema_editor(plan_name, proj):
-    """מסך הגדרת schema לטופס"""
+    """מסך הגדרת schema לטופס עם ולידציה"""
     st.markdown("### ⚙️ הגדרת טופס (למנהל)")
     st.caption("הגדר שדות ושאלות שיופיעו לכל פריט")
 
@@ -283,11 +350,13 @@ def render_schema_editor(plan_name, proj):
     # UI לעריכת schema
     new_schema = []
     fields_to_delete = []
+    all_keys = []
+    validation_errors = []
 
     st.markdown("---")
 
     for idx, field in enumerate(schema):
-        # Card פשוט במקום expander
+        # Card פשוט
         st.markdown(f"#### שדה #{idx+1}: {field.get('label', 'ללא שם')}")
 
         col1, col2, col3 = st.columns([2, 2, 1])
@@ -303,12 +372,16 @@ def render_schema_editor(plan_name, proj):
             )
 
             field_label = st.text_input(
-                "תווית:", value=field.get("label", ""), key=f"schema_label_{idx}"
+                "תווית:",
+                value=field.get("label", ""),
+                key=f"schema_label_{idx}",
             )
 
         with col2:
             field_key = st.text_input(
-                "Key (משתנה):", value=field.get("key", ""), key=f"schema_key_{idx}"
+                "Key (משתנה):",
+                value=field.get("key", ""),
+                key=f"schema_key_{idx}",
             )
 
             if field_type == "checkbox":
@@ -372,24 +445,41 @@ def render_schema_editor(plan_name, proj):
         elif field_type == "number":
             new_field["step"] = field.get("step", 0.1)
 
+        # ולידציה
+        field_errors = validate_schema_field(new_field)
+        if field_errors:
+            validation_errors.extend([f"שדה #{idx+1}: {err}" for err in field_errors])
+
+        # בדיקת כפילויות key
+        if field_key.strip():
+            if field_key in all_keys:
+                validation_errors.append(f"שדה #{idx+1}: Key '{field_key}' כבר קיים")
+            all_keys.append(field_key)
+
         new_schema.append(new_field)
 
         st.markdown("---")
 
-    # מחיקת שדות שסומנו
+    # מחיקת שדות
     if fields_to_delete:
         new_schema = [f for i, f in enumerate(new_schema) if i not in fields_to_delete]
         st.session_state[schema_key] = new_schema
         st.rerun()
 
-    # עדכון session_state עם השינויים
+    # עדכון session_state
     st.session_state[schema_key] = new_schema
 
+    # הצגת שגיאות ולידציה
+    if validation_errors:
+        st.error("❌ שגיאות ולידציה:")
+        for err in validation_errors:
+            st.write(f"- {err}")
+
     # כפתורי פעולה
-    col_btn1, col_btn2 = st.columns(2)
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
 
     with col_btn1:
-        if st.button("➕ הוסף שדה חדש", use_container_width=True):
+        if st.button("➕ הוסף שדה", use_container_width=True):
             st.session_state[schema_key].append(
                 {
                     "type": "text",
@@ -401,20 +491,25 @@ def render_schema_editor(plan_name, proj):
             st.rerun()
 
     with col_btn2:
-        if st.button("💾 שמור Schema", type="primary", use_container_width=True):
+        save_disabled = len(validation_errors) > 0
+        if st.button(
+            "💾 שמור Schema",
+            type="primary",
+            use_container_width=True,
+            disabled=save_disabled,
+        ):
             if save_form_schema(plan_name, proj, st.session_state[schema_key]):
                 st.success("✅ Schema נשמר!")
-                # ניקוי session_state אחרי שמירה
                 del st.session_state[schema_key]
                 st.rerun()
             else:
                 st.error("❌ שגיאה בשמירה")
 
-    # כפתור איפוס
-    if st.button("🔄 איפוס לברירת מחדל"):
-        if schema_key in st.session_state:
-            del st.session_state[schema_key]
-        st.rerun()
+    with col_btn3:
+        if st.button("🔄 איפוס", use_container_width=True):
+            if schema_key in st.session_state:
+                del st.session_state[schema_key]
+            st.rerun()
 
 
 def render_item_questions(item_id, item, schema):
@@ -486,9 +581,9 @@ def render_item_questions(item_id, item, schema):
 
 
 def render_worker_page():
-    """מצב דיווח שטח מתקדם v2.0"""
-    st.title("👷 דיווח ביצוע - מתקדם v2.0")
-    st.caption("✨ Schema Editor, Auto-enrichment, 2-Point Mode")
+    """מצב דיווח שטח מתקדם v2.1"""
+    st.title("👷 דיווח ביצוע - מתקדם v2.1")
+    st.caption("✨ Schema Editor, Auto-enrichment, UX משופר")
 
     if not st.session_state.projects:
         st.warning("📂 אין תוכניות זמינות. אנא העלה תוכנית במצב מנהל.")
@@ -497,6 +592,11 @@ def render_worker_page():
     # === בחירת פרויקט ===
     plan_name = st.selectbox("📋 בחר תוכנית:", list(st.session_state.projects.keys()))
     proj = st.session_state.projects[plan_name]
+
+    # אתחול report_objects (מקור אמת יחיד)
+    report_key = f"report_objects_{plan_name}"
+    if report_key not in st.session_state:
+        st.session_state[report_key] = []
 
     # === Schema Editor (Expander למנהל) ===
     with st.expander("⚙️ הגדרת טופס (למנהל)", expanded=False):
@@ -518,29 +618,20 @@ def render_worker_page():
         "🎯 סוג עבודה:", ["🧱 בניית קירות", "🔲 ריצוף/חיפוי"], horizontal=True
     )
 
-    # === בחירת מצב ציור ===
-    col_mode1, col_mode2 = st.columns([2, 1])
+    # === בחירת מצב ציור (פשוט - ללא 2-point מורכב) ===
+    drawing_mode_display = st.radio(
+        "🖌️ מצב ציור:",
+        ["✏️ קו ישר (line)", "🖊️ ציור חופשי (freedraw)", "▭ ריבוע (rect)"],
+        horizontal=True,
+    )
 
-    with col_mode1:
-        drawing_mode_display = st.radio(
-            "🖌️ מצב ציור:",
-            ["✏️ קו (line)", "🖊️ ציור חופשי (freedraw)", "▭ ריבוע (rect)"],
-            horizontal=True,
-        )
-
-    with col_mode2:
-        two_point_mode = st.checkbox("🎯 מצב 2 נקודות", value=False)
-
-    if two_point_mode:
-        drawing_mode = "point"
-        st.info("📍 לחץ על 2 נקודות על התמונה ליצירת קו")
+    if "קו" in drawing_mode_display:
+        drawing_mode = "line"
+        st.info("💡 לחץ והחזק, גרור לכיוון הרצוי, ושחרר ליצירת קו ישר מדויק")
+    elif "חופשי" in drawing_mode_display:
+        drawing_mode = "freedraw"
     else:
-        if "קו" in drawing_mode_display:
-            drawing_mode = "line"
-        elif "חופשי" in drawing_mode_display:
-            drawing_mode = "freedraw"
-        else:
-            drawing_mode = "rect"
+        drawing_mode = "rect"
 
     st.markdown("---")
 
@@ -557,7 +648,7 @@ def render_worker_page():
     if "קירות" in report_type:
         fill = "rgba(0,0,0,0)"
         stroke = "#00FF00"
-        stroke_width = 8
+        stroke_width = 6
     else:
         fill = "rgba(255,255,0,0.3)"
         stroke = "#FFFF00"
@@ -573,95 +664,65 @@ def render_worker_page():
         canvas = st_canvas(
             fill_color=fill,
             stroke_color=stroke,
-            stroke_width=stroke_width if not two_point_mode else 1,
+            stroke_width=stroke_width,
             background_image=img_resized,
             height=int(h * scale_factor),
             width=int(w * scale_factor),
             drawing_mode=drawing_mode,
-            point_display_radius=5 if two_point_mode else 0,
-            key=f"canvas_{plan_name}_{report_type}_{drawing_mode}_{two_point_mode}",
+            key=f"canvas_{plan_name}_{report_type}_{drawing_mode}",
             update_streamlit=True,
         )
 
-        # 2-Point Mode Logic
-        if two_point_mode and canvas.json_data and canvas.json_data.get("objects"):
-            objects = canvas.json_data["objects"]
-            points = [
-                obj
-                for obj in objects
-                if obj.get("type") in ["circle", "rect"] and obj.get("width", 0) < 20
-            ]
+        # כפתורי ניהול
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("🗑️ נקה הכל", use_container_width=True):
+                st.session_state[report_key] = []
+                st.rerun()
 
-            if len(points) >= 2:
-                st.info(f"✅ נאספו {len(points)} נקודות. לחץ 'המר לקווים' ליצירת קווים")
-
-                if st.button("🔄 המר לקווים", key="convert_points"):
-                    # יצירת line objects מנקודות
-                    if "manual_lines" not in st.session_state:
-                        st.session_state.manual_lines = []
-
-                    for i in range(0, len(points) - 1, 2):
-                        p1 = points[i]
-                        p2 = points[i + 1]
-
-                        x1 = p1.get("left", 0) + p1.get("width", 0) / 2
-                        y1 = p1.get("top", 0) + p1.get("height", 0) / 2
-                        x2 = p2.get("left", 0) + p2.get("width", 0) / 2
-                        y2 = p2.get("top", 0) + p2.get("height", 0) / 2
-
-                        line_obj = {
-                            "type": "line",
-                            "x1": x1,
-                            "y1": y1,
-                            "x2": x2,
-                            "y2": y2,
-                            "stroke": stroke,
-                            "strokeWidth": stroke_width,
-                        }
-                        st.session_state.manual_lines.append(line_obj)
-
-                    st.success(f"✅ נוצרו {len(points)//2} קווים!")
+        with col_btn2:
+            if st.button("↩️ בטל אחרון", use_container_width=True):
+                if st.session_state[report_key]:
+                    st.session_state[report_key].pop()
                     st.rerun()
 
     with col_right:
         st.markdown("### 📋 פרטי פריטים")
 
-        # עיבוד נתונים
-        objects = []
-
-        # הוספת אובייקטים רגילים
+        # === בניית report_objects מקנבס (מקור אמת יחיד) ===
         if canvas.json_data and canvas.json_data.get("objects"):
-            if two_point_mode:
-                # סינון נקודות
-                objects = [
-                    obj
-                    for obj in canvas.json_data["objects"]
-                    if not (
-                        obj.get("type") in ["circle", "rect"]
-                        and obj.get("width", 0) < 20
-                    )
-                ]
-            else:
-                objects = canvas.json_data["objects"]
+            canvas_objects = canvas.json_data["objects"]
 
-        # הוספת קווים ידניים
-        if "manual_lines" in st.session_state:
-            objects.extend(st.session_state.manual_lines)
+            # סנכרון: רק אם יש objects חדשים
+            current_count = len(st.session_state[report_key])
+            canvas_count = len(canvas_objects)
 
-        if len(objects) == 0 or canvas.image_data is None:
+            if canvas_count > current_count:
+                # נוספו objects חדשים
+                for i in range(current_count, canvas_count):
+                    new_obj = canvas_objects[i].copy()
+                    new_obj["uid"] = generate_uid()
+                    st.session_state[report_key].append(new_obj)
+
+        objects = st.session_state[report_key]
+
+        if len(objects) == 0:
             st.info("🖌️ התחל לצייר על התוכנית")
         else:
-            # === חישוב מדידות ===
+            # === חישוב מדידות עם המרות עקביות ===
             items_data = []
             total_length = 0.0
             total_area = 0.0
 
-            for idx, obj in enumerate(objects):
+            for obj in objects:
+                uid = obj.get("uid", generate_uid())
+
                 # חישוב מדידה
                 if "קירות" in report_type:
                     length_px = compute_line_length_px(obj)
                     if length_px > 0:
-                        length_m = length_px / scale_factor / proj["scale"]
+                        # שימוש בפונקציית המרה אחידה
+                        length_m = px_to_m(length_px, scale_factor, proj["scale"])
                         total_length += length_m
 
                         # מרכז
@@ -673,7 +734,7 @@ def render_worker_page():
                             cy = int(obj.get("top", 0)) + int(obj.get("height", 0)) // 2
 
                         item = {
-                            "item_id": idx + 1,
+                            "uid": uid,
                             "type": obj.get("type", "unknown"),
                             "measurement": length_m,
                             "unit": "m",
@@ -697,29 +758,37 @@ def render_worker_page():
                     if obj.get("type") == "rect":
                         area_px = compute_rect_area_px(obj)
                         if area_px > 0:
-                            area_m2 = area_px / ((proj["scale"] * scale_factor) ** 2)
+                            # שימוש בפונקציית המרה אחידה
+                            area_m2 = px2_to_m2(area_px, scale_factor, proj["scale"])
                             total_area += area_m2
 
                             cx = int(obj.get("left", 0)) + int(obj.get("width", 0)) // 2
                             cy = int(obj.get("top", 0)) + int(obj.get("height", 0)) // 2
 
-                            items_data.append(
-                                {
-                                    "item_id": idx + 1,
-                                    "type": "rect",
-                                    "measurement": area_m2,
-                                    "unit": "m²",
-                                    "center_x": cx,
-                                    "center_y": cy,
-                                }
+                            item = {
+                                "uid": uid,
+                                "type": "rect",
+                                "measurement": area_m2,
+                                "unit": "m²",
+                                "center_x": cx,
+                                "center_y": cy,
+                            }
+
+                            # Auto-enrichment גם לריצוף
+                            mask = create_single_object_mask(
+                                obj, int(w * scale_factor), int(h * scale_factor)
                             )
+                            item = auto_enrich_item(item, mask, None, proj)
+
+                            items_data.append(item)
                     else:
                         mask = create_single_object_mask(
                             obj, int(w * scale_factor), int(h * scale_factor)
                         )
                         pixels = np.count_nonzero(mask)
                         if pixels > 0:
-                            area_m2 = pixels / ((proj["scale"] * scale_factor) ** 2)
+                            # שימוש בפונקציית המרה אחידה
+                            area_m2 = px2_to_m2(pixels, scale_factor, proj["scale"])
                             total_area += area_m2
 
                             cy_arr, cx_arr = np.where(mask > 0)
@@ -730,16 +799,19 @@ def render_worker_page():
                                 cx = int(obj.get("left", 0))
                                 cy = int(obj.get("top", 0))
 
-                            items_data.append(
-                                {
-                                    "item_id": idx + 1,
-                                    "type": obj.get("type", "unknown"),
-                                    "measurement": area_m2,
-                                    "unit": "m²",
-                                    "center_x": cx,
-                                    "center_y": cy,
-                                }
-                            )
+                            item = {
+                                "uid": uid,
+                                "type": obj.get("type", "unknown"),
+                                "measurement": area_m2,
+                                "unit": "m²",
+                                "center_x": cx,
+                                "center_y": cy,
+                            }
+
+                            # Auto-enrichment
+                            item = auto_enrich_item(item, mask, None, proj)
+
+                            items_data.append(item)
 
             # === סיכום ===
             if "קירות" in report_type:
@@ -752,20 +824,59 @@ def render_worker_page():
             # === טעינת schema ===
             schema = load_form_schema(plan_name, proj)
 
-            # === רשימת פריטים ===
-            if items_data:
-                st.markdown("#### 🔧 פריטים:")
+            # === פריט נבחר (UI משופר) ===
+            selected_key = f"selected_item_{plan_name}"
+            if selected_key not in st.session_state:
+                st.session_state[selected_key] = None
 
-                for item in items_data:
-                    item_id = item["item_id"]
+            # === רשימת פריטים קומפקטית ===
+            if items_data:
+                st.markdown("#### 🔧 בחר פריט:")
+
+                for idx, item in enumerate(items_data, 1):
+                    uid = item.get("uid")
                     measurement = item["measurement"]
                     unit = item["unit"]
 
-                    # Card קומפקטי
-                    with st.expander(
-                        f"#{item_id} - {measurement:.2f} {unit}", expanded=False
-                    ):
-                        render_item_questions(item_id, item, schema)
+                    col_num, col_select = st.columns([3, 1])
+                    with col_num:
+                        st.write(f"**#{idx}** - {measurement:.2f} {unit}")
+                    with col_select:
+                        if st.button("📝", key=f"select_{uid}", help="ערוך"):
+                            st.session_state[selected_key] = uid
+                            st.rerun()
+
+                st.markdown("---")
+
+                # === טופס לפריט נבחר ===
+                selected_uid = st.session_state[selected_key]
+
+                if selected_uid:
+                    selected_item = next(
+                        (
+                            item
+                            for item in items_data
+                            if item.get("uid") == selected_uid
+                        ),
+                        None,
+                    )
+
+                    if selected_item:
+                        idx = items_data.index(selected_item) + 1
+                        st.markdown(f"### ✏️ עריכת פריט #{idx}")
+                        st.caption(
+                            f"מדידה: {selected_item['measurement']:.2f} {selected_item['unit']}"
+                        )
+
+                        render_item_questions(selected_uid, selected_item, schema)
+
+                        if st.button("✅ סיים עריכה", key="done_editing"):
+                            st.session_state[selected_key] = None
+                            st.rerun()
+                    else:
+                        st.warning("פריט לא נמצא")
+                else:
+                    st.info("👆 בחר פריט מהרשימה לעריכה")
 
             # === כפתור שליחה ===
             st.markdown("---")
@@ -777,7 +888,6 @@ def render_worker_page():
                     "shift": shift,
                     "mode": "walls" if "קירות" in report_type else "floor",
                     "drawing_mode": drawing_mode,
-                    "two_point_mode": two_point_mode,
                     "items": items_data,
                     "totals": {
                         "length_m": (
@@ -814,20 +924,24 @@ def render_worker_page():
                 try:
                     save_progress_report(pid, measured, note_text)
                     st.success("✅ הדיווח נשמר!")
+                    st.balloons()
 
                     # ניקוי
-                    if "manual_lines" in st.session_state:
-                        del st.session_state.manual_lines
+                    st.session_state[report_key] = []
+                    if selected_key in st.session_state:
+                        st.session_state[selected_key] = None
 
                 except Exception as e:
                     st.error(f"❌ שגיאה: {str(e)}")
 
-        # Preview מסומן (למטה)
+        # === Preview מסומן (למטה) ===
         if items_data:
             st.markdown("---")
             st.markdown("#### 🔍 Preview")
+            selected_uid = st.session_state.get(selected_key)
             annotated = create_annotated_preview(
                 cv2.resize(rgb, (int(w * scale_factor), int(h * scale_factor))),
                 items_data,
+                selected_uid,
             )
-            st.image(annotated, caption="פריטים מסומנים")
+            st.image(annotated, caption="פריטים מסומנים (אדום = נבחר)")

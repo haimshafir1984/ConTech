@@ -272,10 +272,17 @@ def render_schema_editor(plan_name, proj):
     st.markdown("### ⚙️ הגדרת טופס (למנהל)")
     st.caption("הגדר שדות ושאלות שיופיעו לכל פריט")
 
-    schema = load_form_schema(plan_name, proj)
+    # טעינת schema מה-DB או session_state
+    schema_key = f"schema_editing_{plan_name}"
 
-    # UI לעריכת schema - ללא expanders מקוננים!
+    if schema_key not in st.session_state:
+        st.session_state[schema_key] = load_form_schema(plan_name, proj)
+
+    schema = st.session_state[schema_key]
+
+    # UI לעריכת schema
     new_schema = []
+    fields_to_delete = []
 
     st.markdown("---")
 
@@ -283,7 +290,7 @@ def render_schema_editor(plan_name, proj):
         # Card פשוט במקום expander
         st.markdown(f"#### שדה #{idx+1}: {field.get('label', 'ללא שם')}")
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns([2, 2, 1])
 
         with col1:
             field_type = st.selectbox(
@@ -324,10 +331,17 @@ def render_schema_editor(plan_name, proj):
                 )
                 field_options = [o.strip() for o in options_str.split(",") if o.strip()]
                 if field_options:
+                    current_default = field.get("default", "")
+                    if current_default not in field_options:
+                        current_default = field_options[0]
                     field_default = st.selectbox(
                         "ברירת מחדל:",
                         field_options,
-                        index=0,
+                        index=(
+                            field_options.index(current_default)
+                            if current_default in field_options
+                            else 0
+                        ),
                         key=f"schema_default_select_{idx}",
                     )
                 else:
@@ -338,6 +352,12 @@ def render_schema_editor(plan_name, proj):
                     value=field.get("default", ""),
                     key=f"schema_default_text_{idx}",
                 )
+
+        with col3:
+            st.write("")  # spacing
+            st.write("")  # spacing
+            if st.button("🗑️", key=f"delete_field_{idx}", help="מחק שדה"):
+                fields_to_delete.append(idx)
 
         # בניית השדה החדש
         new_field = {
@@ -354,26 +374,47 @@ def render_schema_editor(plan_name, proj):
 
         new_schema.append(new_field)
 
-        if st.button("🗑️ מחק שדה", key=f"delete_field_{idx}"):
-            # סימון למחיקה
-            new_schema = [f for i, f in enumerate(new_schema) if i != idx]
-
         st.markdown("---")
 
-    # כפתור הוספת שדה
-    if st.button("➕ הוסף שדה חדש"):
-        new_schema.append(
-            {"type": "text", "label": "שדה חדש", "key": "new_field", "default": ""}
-        )
+    # מחיקת שדות שסומנו
+    if fields_to_delete:
+        new_schema = [f for i, f in enumerate(new_schema) if i not in fields_to_delete]
+        st.session_state[schema_key] = new_schema
         st.rerun()
 
-    # שמירה
-    if st.button("💾 שמור Schema", type="primary"):
-        if save_form_schema(plan_name, proj, new_schema):
-            st.success("✅ Schema נשמר!")
+    # עדכון session_state עם השינויים
+    st.session_state[schema_key] = new_schema
+
+    # כפתורי פעולה
+    col_btn1, col_btn2 = st.columns(2)
+
+    with col_btn1:
+        if st.button("➕ הוסף שדה חדש", use_container_width=True):
+            st.session_state[schema_key].append(
+                {
+                    "type": "text",
+                    "label": "שדה חדש",
+                    "key": f"new_field_{len(st.session_state[schema_key])+1}",
+                    "default": "",
+                }
+            )
             st.rerun()
-        else:
-            st.error("❌ שגיאה בשמירה")
+
+    with col_btn2:
+        if st.button("💾 שמור Schema", type="primary", use_container_width=True):
+            if save_form_schema(plan_name, proj, st.session_state[schema_key]):
+                st.success("✅ Schema נשמר!")
+                # ניקוי session_state אחרי שמירה
+                del st.session_state[schema_key]
+                st.rerun()
+            else:
+                st.error("❌ שגיאה בשמירה")
+
+    # כפתור איפוס
+    if st.button("🔄 איפוס לברירת מחדל"):
+        if schema_key in st.session_state:
+            del st.session_state[schema_key]
+        st.rerun()
 
 
 def render_item_questions(item_id, item, schema):
@@ -773,7 +814,6 @@ def render_worker_page():
                 try:
                     save_progress_report(pid, measured, note_text)
                     st.success("✅ הדיווח נשמר!")
-                    st.balloons()
 
                     # ניקוי
                     if "manual_lines" in st.session_state:

@@ -823,6 +823,8 @@ def render_worker_page():
     with col_right:
         st.markdown("### 📋 פרטי פריטים")
 
+        items_data = []
+
         # === בניית report_objects מקנבס (מקור אמת יחיד) ===
         if canvas.json_data and canvas.json_data.get("objects"):
             canvas_objects = canvas.json_data["objects"]

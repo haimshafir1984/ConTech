@@ -854,7 +854,7 @@ def render_worker_page():
             st.info("🖌️ התחל לצייר על התוכנית")
         else:
             # === חישוב מדידות ===
-            items_data = []
+            items_data = []  # ← תיקון: אתחול כאן!
             total_length = 0.0
             total_area = 0.0
 
@@ -991,7 +991,7 @@ def render_worker_page():
 
                 st.markdown("---")
 
-                # === טופס לפריט נבחר עם גלילה ===
+                # === טופס לפריט נבחר ===
                 selected_uid = st.session_state[selected_key]
 
                 if selected_uid:
@@ -1011,11 +1011,10 @@ def render_worker_page():
                             f"מדידה: {selected_item['measurement']:.2f} {selected_item['unit']}"
                         )
 
-                        # Container עם גלילה
-                        with st.container(height=420):
-                            render_item_questions(
-                                selected_uid, selected_item, schema, answers_key
-                            )
+                        # שאלות (ללא container - תאימות לגרסאות ישנות)
+                        render_item_questions(
+                            selected_uid, selected_item, schema, answers_key
+                        )
 
                         if st.button("✅ סיים עריכה", key="done_editing"):
                             st.session_state[selected_key] = None

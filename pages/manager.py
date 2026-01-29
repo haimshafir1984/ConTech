@@ -907,9 +907,7 @@ def render_workshop_tab():
                 proj["metadata"]["plan_name"] = p_name
                 proj["metadata"]["scale"] = p_scale_text
 
-                import json as jsonlib
-
-                meta_json = jsonlib.dumps(proj["metadata"], ensure_ascii=False)
+                meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
                 materials = json.dumps(
                     {
                         "concrete_length": conc_len,

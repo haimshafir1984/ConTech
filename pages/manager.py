@@ -601,7 +601,6 @@ def render_workshop_tab():
                     if profile_id:
                         try:
                             from database import insert_learning_event
-                            import json
 
                             insert_learning_event(
                                 profile_id=profile_id,

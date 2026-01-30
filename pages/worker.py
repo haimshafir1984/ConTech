@@ -1087,8 +1087,18 @@ def render_worker_page():
             st.markdown("---")
             st.markdown("#### 🔍 Preview")
             selected_uid = st.session_state.get(selected_key)
+
+            # בסיס ה-preview: התמונה של הקנבס (כוללת את הקווים שצוירו)
+            if canvas.image_data is not None:
+                base = canvas.image_data.copy().astype("uint8")  # RGBA
+                if base.shape[-1] == 4:
+                    base = cv2.cvtColor(base, cv2.COLOR_RGBA2RGB)
+            else:
+                # fallback אם אין image_data
+                base = cv2.resize(rgb, (int(w * scale_factor), int(h * scale_factor)))
+
             annotated = create_annotated_preview(
-                cv2.resize(rgb, (int(w * scale_factor), int(h * scale_factor))),
+                base,
                 items_data,
                 selected_uid,
             )

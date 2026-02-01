@@ -727,6 +727,61 @@ def render_worker_page():
         (int(w * scale_factor), int(h * scale_factor))
     )
 
+    # === כלי כיול סקלה ===
+    # כיון שה-scale הנוכחי הוא FALLBACK (A4+1:50) ולא נכון לתוכנית,
+    # נתת לעובד אפשרות לכיול ישר: צייר קו, כתוב אורך אמיתי, scale מחשב
+    with st.expander("📏 כיול סקלה (חשוב לדיוק!)", expanded=is_fallback):
+        st.caption("צייר קו על קיר שיש לו אורך ידווע, כתוב את האורך האמיתי שלו → ה-scale יחשב אוטומטית")
+
+        cal_canvas = st_canvas(
+            fill_color="rgba(0,0,0,0)",
+            stroke_color="#FF00FF",
+            stroke_width=3,
+            background_image=img_resized,
+            height=int(h * scale_factor),
+            width=int(w * scale_factor),
+            drawing_mode="line",
+            key=f"cal_canvas_{plan_name}_{proj['scale']}",
+            update_streamlit=True,
+        )
+
+        # חישוב אורך הקו האחרון שציירת
+        cal_px = 0.0
+        if cal_canvas.json_data and cal_canvas.json_data.get("objects"):
+            cal_lines = [o for o in cal_canvas.json_data["objects"] if o.get("type") == "line"]
+            if cal_lines:
+                cal_px = compute_line_length_px(cal_lines[-1])
+
+        if cal_px > 0:
+            st.info(f"📐 אורך הקו שציירת: {cal_px:.0f} פיקסלים (על הקנבס)")
+
+            col_real, col_btn = st.columns([2, 1])
+            with col_real:
+                real_length_m = st.number_input(
+                    "אורך האמיתי של הקו הזה (מטר):",
+                    value=1.0,
+                    min_value=0.1,
+                    max_value=100.0,
+                    step=0.5,
+                    key=f"cal_real_length_{plan_name}",
+                )
+            with col_btn:
+                st.write("")
+                if st.button("✅ תקן סקלה", type="primary", use_container_width=True):
+                    # cal_px הוא על הקנבס הקטן → חזרה למקורי
+                    cal_px_original = cal_px / scale_factor
+                    new_scale = cal_px_original / real_length_m
+                    proj["scale"] = new_scale
+
+                    verify = px_to_m(cal_px, scale_factor, new_scale)
+                    st.success(f"✅ סקלה תיקנה! {new_scale:.1f} px/m (וריפיקציה: {verify:.2f}m)")
+                    st.rerun()
+        else:
+            st.info("👆 צייר קו ישר על קיר שיש לו אורך ידווע בתוכנית")
+
+        st.caption(f"Scale הנוכחי: {proj['scale']:.1f} px/m {'⚠️ FALLBACK' if is_fallback else '✅ הוגדר ידנית'}")
+
+
     # === הגדרות ציור ===
     if "קירות" in report_type:
         fill = "rgba(0,0,0,0)"
@@ -1088,14 +1143,19 @@ def render_worker_page():
             st.markdown("#### 🔍 Preview")
             selected_uid = st.session_state.get(selected_key)
 
-            # בסיס ה-preview: התמונה של הקנבס (כוללת את הקווים שצוירו)
+            # בסיס ה-preview: שמוע הקנבס RGBA על ה-background
+            # (canvas.image_data הוא שקיף + קווים בלבד, לא כולל תמונה)
+            bg = cv2.resize(rgb, (int(w * scale_factor), int(h * scale_factor)))
             if canvas.image_data is not None:
-                base = canvas.image_data.copy().astype("uint8")  # RGBA
-                if base.shape[-1] == 4:
-                    base = cv2.cvtColor(base, cv2.COLOR_RGBA2RGB)
+                overlay = canvas.image_data.copy().astype("uint8")  # RGBA
+                if overlay.shape[-1] == 4:
+                    alpha = overlay[:, :, 3:4].astype(np.float32) / 255.0
+                    fg = overlay[:, :, :3].astype(np.float32)
+                    base = (fg * alpha + bg.astype(np.float32) * (1 - alpha)).astype(np.uint8)
+                else:
+                    base = overlay
             else:
-                # fallback אם אין image_data
-                base = cv2.resize(rgb, (int(w * scale_factor), int(h * scale_factor)))
+                base = bg
 
             annotated = create_annotated_preview(
                 base,

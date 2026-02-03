@@ -21,6 +21,19 @@ from database import (
     update_plan_metadata,
 )
 
+try:
+    from smart_measurements import SmartMeasurements
+    from quantity_calculator import QuantityCalculator
+    from building_elements import Wall
+    from snap_engine import SimpleSnapEngine
+
+    PHASE1_AVAILABLE = True
+except ImportError:
+    PHASE1_AVAILABLE = False
+    SmartMeasurements = None
+    QuantityCalculator = None
+    Wall = None
+    SimpleSnapEngine = None
 
 # ==========================================
 # פונקציות המרה - מקור אמת יחיד
@@ -103,6 +116,76 @@ def get_corrected_walls(selected_plan, proj):
         return corrected
     else:
         return proj["thick_walls"]
+
+
+def extract_segments_from_mask(walls_mask, scale):
+    """
+    מחלץ segments מתוך מסכה קיימת ללא Hough כפול
+
+    Args:
+        walls_mask: מסכת קירות (numpy array)
+        scale: פיקסלים למטר
+
+    Returns:
+        רשימת segments: [{'start': (x,y), 'end': (x,y), 'length_px': ...}]
+    """
+    segments = []
+
+    # שיטה 1: שימוש ב-contours (יותר יציב מ-Hough)
+    contours, _ = cv2.findContours(
+        walls_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    for contour in contours:
+        # פישוט הקונטור לקווים
+        epsilon = 0.01 * cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, epsilon, True)
+
+        # המרה לקטעים
+        for i in range(len(approx)):
+            p1 = approx[i][0]
+            p2 = approx[(i + 1) % len(approx)][0]
+
+            length_px = np.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2)
+
+            # סינון קטעים קצרים מדי
+            if length_px > 20:  # מינימום 20 פיקסלים
+                segments.append(
+                    {
+                        "start": tuple(p1),
+                        "end": tuple(p2),
+                        "length_px": length_px,
+                        "length_m": length_px / scale,
+                        "source": "contours",
+                    }
+                )
+
+    return segments
+
+
+def build_snap_points(segments):
+    """
+    בונה רשימת נקודות להצמדה מתוך segments
+
+    Args:
+        segments: רשימת קטעים
+
+    Returns:
+        רשימת נקודות: [(x1, y1), (x2, y2), ...]
+    """
+    points = set()  # set למניעת כפילויות
+
+    for seg in segments:
+        # קצוות הקטע
+        points.add(seg["start"])
+        points.add(seg["end"])
+
+        # אמצע הקטע (אופציונלי)
+        mid_x = (seg["start"][0] + seg["end"][0]) // 2
+        mid_y = (seg["start"][1] + seg["end"][1]) // 2
+        points.add((mid_x, mid_y))
+
+    return list(points)
 
 
 def generate_uid():
@@ -731,7 +814,9 @@ def render_worker_page():
     # כיון שה-scale הנוכחי הוא FALLBACK (A4+1:50) ולא נכון לתוכנית,
     # נתת לעובד אפשרות לכיול ישר: צייר קו, כתוב אורך אמיתי, scale מחשב
     with st.expander("📏 כיול סקלה (חשוב לדיוק!)", expanded=is_fallback):
-        st.caption("צייר קו על קיר שיש לו אורך ידווע, כתוב את האורך האמיתי שלו → ה-scale יחשב אוטומטית")
+        st.caption(
+            "צייר קו על קיר שיש לו אורך ידווע, כתוב את האורך האמיתי שלו → ה-scale יחשב אוטומטית"
+        )
 
         cal_canvas = st_canvas(
             fill_color="rgba(0,0,0,0)",
@@ -748,7 +833,9 @@ def render_worker_page():
         # חישוב אורך הקו האחרון שציירת
         cal_px = 0.0
         if cal_canvas.json_data and cal_canvas.json_data.get("objects"):
-            cal_lines = [o for o in cal_canvas.json_data["objects"] if o.get("type") == "line"]
+            cal_lines = [
+                o for o in cal_canvas.json_data["objects"] if o.get("type") == "line"
+            ]
             if cal_lines:
                 cal_px = compute_line_length_px(cal_lines[-1])
 
@@ -774,13 +861,16 @@ def render_worker_page():
                     proj["scale"] = new_scale
 
                     verify = px_to_m(cal_px, scale_factor, new_scale)
-                    st.success(f"✅ סקלה תיקנה! {new_scale:.1f} px/m (וריפיקציה: {verify:.2f}m)")
+                    st.success(
+                        f"✅ סקלה תיקנה! {new_scale:.1f} px/m (וריפיקציה: {verify:.2f}m)"
+                    )
                     st.rerun()
         else:
             st.info("👆 צייר קו ישר על קיר שיש לו אורך ידווע בתוכנית")
 
-        st.caption(f"Scale הנוכחי: {proj['scale']:.1f} px/m {'⚠️ FALLBACK' if is_fallback else '✅ הוגדר ידנית'}")
-
+        st.caption(
+            f"Scale הנוכחי: {proj['scale']:.1f} px/m {'⚠️ FALLBACK' if is_fallback else '✅ הוגדר ידנית'}"
+        )
 
     # === הגדרות ציור ===
     if "קירות" in report_type:
@@ -811,7 +901,33 @@ def render_worker_page():
             key=f"canvas_{plan_name}_{report_type}_{drawing_mode}_{two_point_mode}",
             update_streamlit=True,
         )
+        # === הוסף כאן ===
+        # Snap Indicator (אינדיקציה ויזואלית)
+        if PHASE1_AVAILABLE and f"snap_{plan_name}" in st.session_state:
+            snap_engine = st.session_state[f"snap_{plan_name}"]
 
+            # בדיקה אם יש אובייקטים בקנבס
+            if canvas.json_data and canvas.json_data.get("objects"):
+                last_obj = canvas.json_data["objects"][-1]
+
+                # אם זה קו - בדוק snap בנקודות הקצה
+                if last_obj.get("type") == "line":
+                    x1, y1 = last_obj.get("x1", 0), last_obj.get("y1", 0)
+                    x2, y2 = last_obj.get("x2", 0), last_obj.get("y2", 0)
+
+                    # בדיקת snap
+                    snap1 = snap_engine.find_snap(int(x1), int(y1))
+                    snap2 = snap_engine.find_snap(int(x2), int(y2))
+
+                    # תצוגה
+                    if snap1 or snap2:
+                        snapped_text = []
+                        if snap1:
+                            snapped_text.append(f"התחלה: ✅ נצמד ({snap1[2]:.0f}px)")
+                        if snap2:
+                            snapped_text.append(f"סיום: ✅ נצמד ({snap2[2]:.0f}px)")
+
+                        st.success("🎯 " + " | ".join(snapped_text))
         # כפתורי ניהול
         if two_point_mode:
             # מצב 2 נקודות - כפתורים מיוחדים
@@ -1151,7 +1267,9 @@ def render_worker_page():
                 if overlay.shape[-1] == 4:
                     alpha = overlay[:, :, 3:4].astype(np.float32) / 255.0
                     fg = overlay[:, :, :3].astype(np.float32)
-                    base = (fg * alpha + bg.astype(np.float32) * (1 - alpha)).astype(np.uint8)
+                    base = (fg * alpha + bg.astype(np.float32) * (1 - alpha)).astype(
+                        np.uint8
+                    )
                 else:
                     base = overlay
             else:

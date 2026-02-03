@@ -8,6 +8,7 @@ anthropic
 pymupdf
 psycopg2-binary
 reportlab
-
-# ML Libraries (for Phase 3)
 scikit-learn>=1.0.0
+
+# Phase 1: Smart Measurements + Quantity Calculator
+plotly>=5.0.0

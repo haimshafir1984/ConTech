@@ -759,6 +759,48 @@ def render_worker_page():
     if answers_key not in st.session_state:
         st.session_state[answers_key] = {}
 
+    # ===== PHASE 1: אתחול Smart Measurements + Snap =====
+    if PHASE1_AVAILABLE:
+        smart_key = f"smart_measurements_{plan_name}"
+        snap_key = f"snap_engine_{plan_name}"
+
+        # אתחול רק אם לא קיים
+        if smart_key not in st.session_state or snap_key not in st.session_state:
+            try:
+                corrected_walls_temp = get_corrected_walls(plan_name, proj)
+                segments = extract_segments_from_mask(corrected_walls_temp, scale_value)
+
+                # SmartMeasurements (אם המודול קיים)
+                st.session_state[smart_key] = SmartMeasurements(
+                    detected_segments=segments,
+                    scale=scale_value
+                )
+
+                # בניית snap points (תומך בשני פורמטים של segments)
+                snap_points = []
+                for seg in segments:
+                    if isinstance(seg, dict):
+                        if "start" in seg and "end" in seg:
+                            x1, y1 = seg["start"]
+                            x2, y2 = seg["end"]
+                        elif all(k in seg for k in ("x1", "y1", "x2", "y2")):
+                            x1, y1, x2, y2 = seg["x1"], seg["y1"], seg["x2"], seg["y2"]
+                        else:
+                            continue
+
+                        snap_points.append((int(x1), int(y1)))
+                        snap_points.append((int(x2), int(y2)))
+
+                st.session_state[snap_key] = SimpleSnapEngine(
+                    snap_points=snap_points,
+                    tolerance_px=15
+                )
+
+            except Exception as e:
+                st.warning(f"⚠️ Phase 1 init failed: {str(e)}")
+                st.session_state[smart_key] = None
+                st.session_state[snap_key] = None
+
     # === Schema Editor (Expander למנהל) ===
     with st.expander("⚙️ הגדרת טופס (למנהל)", expanded=False):
         render_schema_editor(plan_name, proj)
@@ -925,8 +967,8 @@ def render_worker_page():
         )
         # === הוסף כאן ===
         # Snap Indicator (אינדיקציה ויזואלית)
-        if PHASE1_AVAILABLE and f"snap_{plan_name}" in st.session_state:
-            snap_engine = st.session_state[f"snap_{plan_name}"]
+        if PHASE1_AVAILABLE and f"snap_engine_{plan_name}" in st.session_state:
+            snap_engine = st.session_state[f"snap_engine_{plan_name}"]
 
             # בדיקה אם יש אובייקטים בקנבס
             if canvas.json_data and canvas.json_data.get("objects"):
@@ -1219,6 +1261,69 @@ def render_worker_page():
                 else:
                     st.info("👆 בחר פריט מהרשימה לעריכה")
 
+                # ===== PHASE 1: חישוב כמויות אוטומטי =====
+                if PHASE1_AVAILABLE and items_data:
+                    st.markdown("---")
+                    st.subheader("📊 חישוב כמויות אוטומטי")
+        
+                    show_quantities = st.checkbox("🔢 הצג חישוב", value=False, key=f"show_q_{plan_name}")
+        
+                    if show_quantities:
+                        with st.expander("⚙️ הגדרות", expanded=True):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                cfg_h = st.number_input("גובה (מ')", value=2.5, step=0.1, key=f"h_{plan_name}")
+                                cfg_b = st.number_input("בלוקים/מ\"ר", value=12.5, step=0.5, key=f"b_{plan_name}")
+                            with col2:
+                                cfg_t = st.number_input("עובי (מ')", value=0.20, step=0.05, key=f"t_{plan_name}")
+                                cfg_w = st.number_input("בזבוז %", value=5.0, step=1.0, key=f"w_{plan_name}")
+            
+                        config = {
+                            'blocks_per_sqm': cfg_b,
+                            'waste_factor': 1.0 + (cfg_w / 100.0),
+                            'default_wall_height': cfg_h,
+                            'default_wall_thickness': cfg_t
+                        }
+            
+                        try:
+                            from building_elements import Wall
+                            calc = QuantityCalculator(config=config)
+                
+                            for item in items_data:
+                                if item.get('material') and item.get('measurement'):
+                                    wall = Wall(
+                                        uid=item['uid'],
+                                        start=(0, 0),
+                                        end=(item['measurement'], 0),
+                                        thickness=cfg_t,
+                                        height=cfg_h,
+                                        material=item['material'],
+                                        status='planned'
+                                    )
+                                    calc.add_wall(wall)
+                
+                            quantities = calc.calculate_all()
+                
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("קירות", quantities['summary']['total_walls'])
+                            with col2:
+                                blocks = quantities['blocks']
+                                if blocks['wall_count'] > 0:
+                                    st.metric("בלוקים", f"{blocks['blocks_needed']:,}")
+                                    st.caption(f"🚛 {blocks['blocks_needed']/60:.1f} פלטות")
+                                else:
+                                    st.info("אין בלוקים")
+                            with col3:
+                                concrete = quantities['concrete']
+                                if concrete['wall_count'] > 0:
+                                    st.metric("בטון מ\"ק", f"{concrete['total_volume_cubic_meters']:.2f}")
+                                else:
+                                    st.info("אין בטון")
+                
+                            st.caption(f"⚙️ {cfg_h}m גובה, {cfg_w}% בזבוז, {cfg_b} בלוקים/מ\"ר")
+                        except Exception as e:
+                            st.error(f"שגיאה: {str(e)}")
             # === כפתור שליחה ===
             st.markdown("---")
             if st.button("🚀 שלח דיווח", type="primary", use_container_width=True):

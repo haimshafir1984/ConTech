@@ -5,7 +5,7 @@ Simple Snap Engine
 Phase 1: Smart Measurements + Quantity Calculator
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import numpy as np
 
 

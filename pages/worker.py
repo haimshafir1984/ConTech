@@ -810,6 +810,23 @@ def render_worker_page():
     corrected_walls = get_corrected_walls(plan_name, proj)
     rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
     h, w = rgb.shape[:2]
+    # === DEBUG - הוסף כאן ===
+    st.write("🔍 Debug:")
+    st.write(f"proj keys: {list(proj.keys())}")
+    
+    if "thick_walls" in proj:
+        st.write(f"✅ thick_walls: {proj['thick_walls'].shape}")
+        st.write(f"יש פיקסלים: {np.any(proj['thick_walls'] > 0)}")
+    else:
+        st.error("❌ thick_walls לא קיים!")
+    
+    if corrected_walls is not None:
+        st.write(f"✅ corrected_walls: {corrected_walls.shape}")
+        st.write(f"יש פיקסלים: {np.any(corrected_walls > 0)}")
+    else:
+        st.error("❌ corrected_walls הוא None!")
+    st.write("---")
+    # === סוף DEBUG ==
     scale_factor = 800 / w if w > 800 else 1.0
     img_resized = Image.fromarray(rgb).resize(
         (int(w * scale_factor), int(h * scale_factor))

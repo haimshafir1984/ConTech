@@ -1359,10 +1359,10 @@ def render_worker_page():
                         
                         try:
                             from building_elements import Wall
-                                try:
-                                    calc = QuantityCalculator(config=config)
-                                except TypeError:
-                                    calc = QuantityCalculator(config)
+                        try:
+                            calc = QuantityCalculator(config=config)
+                        except TypeError:
+                            calc = QuantityCalculator(config)
 
                             
                             # הוספת קירות

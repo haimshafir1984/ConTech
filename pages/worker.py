@@ -1359,7 +1359,11 @@ def render_worker_page():
                         
                         try:
                             from building_elements import Wall
-                            calc = QuantityCalculator(config=config)
+                                try:
+                                    calc = QuantityCalculator(config=config)
+                                except TypeError:
+                                    calc = QuantityCalculator(config)
+
                             
                             # הוספת קירות
                             for item in items_data:
@@ -1451,10 +1455,13 @@ def render_worker_page():
                             
                         except Exception as e:
                             st.error(f"❌ שגיאה בחישוב כמויות: {str(e)}")
-                            with st.expander("🐛 Debug"):
+
+                            show_debug_q = st.checkbox("🐛 הצג Debug", value=False, key=f"dbg_q_{plan_name}")
+                            if show_debug_q:
                                 st.code(str(e))
                                 import traceback
                                 st.code(traceback.format_exc())
+
 
             # === כפתור שליחה ===
             st.markdown("---")

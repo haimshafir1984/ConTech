@@ -1327,23 +1327,26 @@ def render_worker_page():
                 with st.expander("📊 חישוב כמויות מפורט", expanded=False):
                     if PHASE1_AVAILABLE and items_data:
                         st.caption("💡 חישוב מקיף: בלוקים, בטון, ריצוף, טיח, צבע ובידוד")
-                        with st.expander("⚙️ הגדרות חישוב", expanded=True):
-                            col_set1, col_set2, col_set3 = st.columns(3)
-                            
-                            with col_set1:
-                                st.markdown("**מידות קירות:**")
-                                cfg_h = st.number_input("גובה (מ')", value=2.5, min_value=0.1, max_value=10.0, step=0.1, key=f"h_{plan_name}")
-                                cfg_t = st.number_input("עובי (מ')", value=0.20, min_value=0.05, max_value=1.0, step=0.05, key=f"t_{plan_name}")
-                            
-                            with col_set2:
-                                st.markdown("**בלוקים ובטון:**")
-                                cfg_b = st.number_input("בלוקים/מ\"ר", value=12.5, min_value=1.0, max_value=50.0, step=0.5, key=f"b_{plan_name}")
-                                cfg_w = st.number_input("בזבוז %", value=5.0, min_value=0.0, max_value=50.0, step=1.0, key=f"w_{plan_name}")
-                            
-                            with col_set3:
-                                st.markdown("**ריצוף וטיח:**")
-                                cfg_tile = st.number_input("גודל אריח (מ\"ר)", value=0.36, min_value=0.01, max_value=2.0, step=0.01, key=f"tile_{plan_name}", help="ברירת מחדל: 60x60cm = 0.36")
-                                cfg_plaster = st.number_input("עובי טיח (ס\"מ)", value=1.5, min_value=0.5, max_value=5.0, step=0.1, key=f"plaster_{plan_name}")
+                        
+                        st.markdown("---")
+                        st.markdown("#### ⚙️ הגדרות חישוב")
+                        
+                        col_set1, col_set2, col_set3 = st.columns(3)
+                        
+                        with col_set1:
+                            st.markdown("**מידות קירות:**")
+                            cfg_h = st.number_input("גובה (מ')", value=2.5, min_value=0.1, max_value=10.0, step=0.1, key=f"h_{plan_name}")
+                            cfg_t = st.number_input("עובי (מ')", value=0.20, min_value=0.05, max_value=1.0, step=0.05, key=f"t_{plan_name}")
+                        
+                        with col_set2:
+                            st.markdown("**בלוקים ובטון:**")
+                            cfg_b = st.number_input("בלוקים/מ\"ר", value=12.5, min_value=1.0, max_value=50.0, step=0.5, key=f"b_{plan_name}")
+                            cfg_w = st.number_input("בזבוז %", value=5.0, min_value=0.0, max_value=50.0, step=1.0, key=f"w_{plan_name}")
+                        
+                        with col_set3:
+                            st.markdown("**ריצוף וטיח:**")
+                            cfg_tile = st.number_input("גודל אריח (מ\"ר)", value=0.36, min_value=0.01, max_value=2.0, step=0.01, key=f"tile_{plan_name}", help="ברירת מחדל: 60x60cm = 0.36")
+                            cfg_plaster = st.number_input("עובי טיח (ס\"מ)", value=1.5, min_value=0.5, max_value=5.0, step=0.1, key=f"plaster_{plan_name}")
                         
                         config = {
                             'blocks_per_sqm': cfg_b,

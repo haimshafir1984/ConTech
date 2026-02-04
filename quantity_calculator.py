@@ -65,34 +65,19 @@ class QuantityCalculator:
         return self.custom_costs.get(key, default)
 
     def calculate_blocks(self) -> Dict:
-    """חישוב בלוקים"""
-    block_walls = [w for w in self.walls if w.material == "בלוקים"]
-    
-    if not block_walls:
-        return {...}  # empty result
-    
-    total_area = sum(w.area for w in block_walls)
-    
-    # ← שימוש ב-config!
-    blocks_per_sqm = self.config.get('blocks_per_sqm', 12.5)
-    waste_factor = self.config.get('waste_factor', 1.05)
-    
-    # החל waste factor
-    total_area_with_waste = total_area * waste_factor
-    total_blocks = total_area_with_waste * blocks_per_sqm
-    total_mortar = total_area_with_waste * self.MORTAR_PER_SQM
-    
-    return {
-        'wall_count': len(block_walls),
-        'total_area_sqm': round(total_area, 2),
-        'total_area_with_waste': round(total_area_with_waste, 2),
-        'waste_factor': waste_factor,
-        'blocks_needed': int(np.ceil(total_blocks)),
-        "mortar_cubic_meters": 0,
-        "pallets": 0,
-        "total_weight_tons": 0,
-        "estimated_cost": 0,
-    }
+        """חישוב בלוקים"""
+        block_walls = [w for w in self.walls if w.material == "בלוקים"]
+
+        if not block_walls:
+            return {
+                "wall_count": 0,
+                "total_area_sqm": 0,
+                "blocks_needed": 0,
+                "mortar_cubic_meters": 0,
+                "pallets": 0,
+                "total_weight_tons": 0,
+                "estimated_cost": 0,
+            }
 
         total_area = sum(w.area for w in block_walls)
         total_blocks = total_area * self.BLOCKS_PER_SQM
@@ -180,10 +165,6 @@ class QuantityCalculator:
             },
             "blocks": blocks,
             "concrete": concrete,
-            "flooring": self.calculate_flooring(),    # ← חדש
-            "plaster": self.calculate_plaster(),      # ← חדש
-            "paint": self.calculate_paint(),          # ← חדש
-            "insulation": self.calculate_insulation(), # ← חדש
             "breakdown_by_material": self._breakdown_by_material(),
         }
 
@@ -260,116 +241,6 @@ class QuantityCalculator:
             )
 
         return {"items": shopping_list, "total_items": len(shopping_list)}
-
-    # ==========================================
-    # פונקציות מורחבות - תיקון מהיר
-    # ==========================================
-    
-    def calculate_flooring(self) -> Dict:
-        """חישוב ריצוף/חיפוי"""
-        flooring_walls = [w for w in self.walls if 'ריצוף' in w.material.lower() or 'חיפוי' in w.material.lower()]
-        
-        if not flooring_walls:
-            return {'wall_count': 0, 'total_area_sqm': 0, 'tiles_needed': 0}
-        
-        total_area = sum([w.length * w.height for w in flooring_walls])
-        waste_factor = self.config.get('waste_factor', 1.05)
-        area_with_waste = total_area * waste_factor
-        
-        # אריחים - לפי גודל אריח (ברירת מחדל: 60x60cm)
-        tile_size = self.config.get('tile_size_sqm', 0.36)
-        tiles_needed = int(area_with_waste / tile_size) + 1
-        
-        # אריזות (בדרך כלל 4 אריחים באריזה)
-        tiles_per_box = self.config.get('tiles_per_box', 4)
-        boxes_needed = int(tiles_needed / tiles_per_box) + 1
-        
-        return {
-            'wall_count': len(flooring_walls),
-            'total_area_sqm': round(total_area, 2),
-            'total_area_with_waste': round(area_with_waste, 2),
-            'tiles_needed': tiles_needed,
-            'boxes_needed': boxes_needed,
-            'tile_size_sqm': tile_size,
-            'waste_factor': waste_factor
-        }
-    
-    def calculate_plaster(self) -> Dict:
-        """חישוב טיח (שתי פאות)"""
-        # טיח על שתי הפאות של כל קיר
-        all_walls_area = sum([w.length * w.height * 2 for w in self.walls])
-        
-        if all_walls_area == 0:
-            return {'wall_count': 0, 'total_area_sqm': 0, 'volume_cubic_meters': 0, 'bags_needed': 0}
-        
-        plaster_thickness = self.config.get('plaster_thickness_m', 0.015)  # 1.5 ס"מ
-        waste_factor = self.config.get('waste_factor', 1.05)
-        
-        volume = all_walls_area * plaster_thickness * waste_factor
-        
-        # שקים של טיח (1 שק כיסוי ל-4 מ"ר בעובי 1.5 ס"מ)
-        coverage_per_bag = self.config.get('plaster_coverage_sqm_per_bag', 4.0)
-        bags_needed = int(all_walls_area / coverage_per_bag) + 1
-        
-        return {
-            'wall_count': len(self.walls),
-            'total_area_sqm': round(all_walls_area, 2),
-            'volume_cubic_meters': round(volume, 3),
-            'bags_needed': bags_needed,
-            'thickness_m': plaster_thickness,
-            'coverage_per_bag': coverage_per_bag
-        }
-    
-    def calculate_paint(self) -> Dict:
-        """חישוב צבע (שתי פאות, מספר שכבות)"""
-        # צבע על שתי הפאות
-        all_walls_area = sum([w.length * w.height * 2 for w in self.walls])
-        
-        if all_walls_area == 0:
-            return {'wall_count': 0, 'total_area_sqm': 0, 'liters_needed': 0, 'buckets_needed': 0}
-        
-        # ברירת מחדל: 1 ליטר ל-10 מ"ר, 2 שכבות
-        coverage_per_liter = self.config.get('paint_coverage_sqm_per_liter', 10.0)
-        coats = self.config.get('paint_coats', 2)
-        
-        liters_needed = (all_walls_area * coats) / coverage_per_liter
-        
-        # דליים (בדרך כלל 18 ליטר לדלי)
-        bucket_size = self.config.get('paint_bucket_size_liters', 18.0)
-        buckets_needed = int(liters_needed / bucket_size) + 1
-        
-        return {
-            'wall_count': len(self.walls),
-            'total_area_sqm': round(all_walls_area, 2),
-            'liters_needed': round(liters_needed, 1),
-            'buckets_needed': buckets_needed,
-            'coats': coats,
-            'coverage_per_liter': coverage_per_liter
-        }
-    
-    def calculate_insulation(self) -> Dict:
-        """חישוב בידוד תרמי/אקוסטי"""
-        # בידוד - לפי דרישה
-        insulation_walls = [w for w in self.walls if 'בידוד' in w.material.lower()]
-        
-        if not insulation_walls:
-            return {'wall_count': 0, 'total_area_sqm': 0, 'panels_needed': 0}
-        
-        total_area = sum([w.length * w.height for w in insulation_walls])
-        waste_factor = self.config.get('waste_factor', 1.05)
-        area_with_waste = total_area * waste_factor
-        
-        # פאנלים (ברירת מחדל: 1.2x0.6m = 0.72 מ"ר)
-        panel_size = self.config.get('insulation_panel_sqm', 0.72)
-        panels_needed = int(area_with_waste / panel_size) + 1
-        
-        return {
-            'wall_count': len(insulation_walls),
-            'total_area_sqm': round(total_area, 2),
-            'total_area_with_waste': round(area_with_waste, 2),
-            'panels_needed': panels_needed,
-            'panel_size_sqm': panel_size
-        }
 
     def reset(self):
         """אפס את כל הנתונים"""

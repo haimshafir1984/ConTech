@@ -1256,8 +1256,7 @@ def render_worker_page():
             if len(items_data) == 1:
                 st.write(f"✓ נמצא **פריט אחד** לדיווח")
             else:
-                st.write(f"✓ נמצאו **{len(items_data)} פריטים** לדיווח")
-
+                st.write(f"✓ נמצאו **{len(items_data) פריטים** לדיווח")
             
             st.metric("פריטים", len(items_data))
 

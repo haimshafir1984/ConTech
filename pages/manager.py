@@ -44,6 +44,79 @@ from utils import (
 # ייבוא פונקציות preprocessing לגזירה
 from preprocessing import get_crop_bbox_from_canvas_data
 
+def enhanced_plan_analysis(proj, analyzer, scale_value):
+    """ניתוח מתקדם של תוכנית"""
+    
+    # 1. זיהוי סוג תוכנית
+    plan_type_info = analyzer.detect_plan_type(
+        proj["original"],
+        proj.get("metadata", {})
+    )
+    
+    # 2. זיהוי מקרא
+    legend_bbox = analyzer.auto_detect_legend(proj["original"])
+    legend_info = None
+    if legend_bbox:
+        legend_info = {
+            'found': True,
+            'bbox': legend_bbox,
+            'location': f"({legend_bbox[0]}, {legend_bbox[1]}) גודל: {legend_bbox[2]}x{legend_bbox[3]}"
+        }
+    
+    # 3. הפרדת בטון/בלוקים
+    walls_mask = proj["thick_walls"]
+    kernel_thick = np.ones((8, 8), np.uint8)
+    concrete_mask = cv2.dilate(cv2.erode(walls_mask, kernel_thick, iterations=1), kernel_thick, iterations=2)
+    blocks_mask = cv2.subtract(walls_mask, concrete_mask)
+    
+    # חישוב אורכים
+    concrete_length = np.count_nonzero(concrete_mask) / scale_value
+    blocks_length = np.count_nonzero(blocks_mask) / scale_value
+    total_length = np.count_nonzero(walls_mask) / scale_value
+    
+    # 4. חילוץ segments
+    from worker import extract_segments_from_mask
+    segments = extract_segments_from_mask(walls_mask, scale_value)
+    
+    # סיווג לפי כיוון
+    horizontal = [s for s in segments if abs(s['angle']) < 15 or abs(s['angle'] - 180) < 15]
+    vertical = [s for s in segments if abs(abs(s['angle']) - 90) < 15]
+    diagonal = [s for s in segments if s not in horizontal and s not in vertical]
+    
+    # 5. איכות
+    confidence = plan_type_info.get('confidence', 0)
+    quality_score = confidence
+    if len(segments) < 4:
+        quality_score -= 20
+    if concrete_length == 0 and blocks_length == 0:
+        quality_score -= 30
+    
+    return {
+        'plan_type': plan_type_info,
+        'legend': legend_info,
+        'walls': {
+            'total_count': len(segments),
+            'horizontal_count': len(horizontal),
+            'vertical_count': len(vertical),
+            'diagonal_count': len(diagonal),
+            'total_length_m': round(total_length, 2),
+            'concrete_length_m': round(concrete_length, 2),
+            'blocks_length_m': round(blocks_length, 2),
+        },
+        'materials': {
+            'concrete_mask': concrete_mask,
+            'blocks_mask': blocks_mask,
+            'concrete_percentage': (concrete_length / total_length * 100) if total_length > 0 else 0,
+            'blocks_percentage': (blocks_length / total_length * 100) if total_length > 0 else 0,
+        },
+        'quality': {
+            'score': max(0, min(100, quality_score)),
+            'segments_detected': len(segments),
+            'legend_found': legend_bbox is not None,
+            'materials_identified': concrete_length > 0 or blocks_length > 0
+        }
+    }
+
 
 def get_corrected_walls(selected_plan, proj):
     """מחזיר את מסכת הקירות המתוקנת (אם יש תיקונים)"""
@@ -439,6 +512,46 @@ def render_workshop_tab():
                         "llm_suggestions": (llm_data if meta.get("raw_text") else {}),
                         "debug_layers": getattr(analyzer, "debug_layers", {}),
                     }
+                    proj = st.session_state.projects[f.name]
+                    enhanced = enhanced_plan_analysis(proj, analyzer, scale_val)
+                    proj["enhanced_analysis"] = enhanced
+
+                    # הצג ניתוח
+                    st.markdown("### 🔍 ניתוח מתקדם")
+
+                    col_a1, col_a2, col_a3 = st.columns(3)
+                    with col_a1:
+                        st.metric(
+                            "סוג תוכנית",
+                            enhanced['plan_type']['plan_type'],
+                            help=f"ביטחון: {enhanced['plan_type']['confidence']}%"
+                        )
+                    with col_a2:
+                        st.metric(
+                            "איכות זיהוי",
+                            f"{enhanced['quality']['score']}%"
+                        )
+                    with col_a3:
+                        st.metric(
+                            "קירות זוהו",
+                            enhanced['walls']['total_count']
+                        )
+
+                    with st.expander("📊 פירוט קירות"):
+                        col_b1, col_b2, col_b3 = st.columns(3)
+                        with col_b1:
+                            st.metric("אופקיים", enhanced['walls']['horizontal_count'])
+                        with col_b2:
+                            st.metric("אנכיים", enhanced['walls']['vertical_count'])
+                        with col_b3:
+                            st.metric("אלכסוניים", enhanced['walls']['diagonal_count'])
+                        
+                        st.markdown("**התפלגות חומרים:**")
+                        col_c1, col_c2 = st.columns(2)
+                        with col_c1:
+                            st.metric("בטון", f"{enhanced['walls']['concrete_length_m']:.1f} מ'")
+                        with col_c2:
+                            st.metric("בלוקים", f"{enhanced['walls']['blocks_length_m']:.1f} מ'")
 
                     # תצוגת Debug משופרת
                     if show_debug and debug_img is not None:

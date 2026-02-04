@@ -163,7 +163,7 @@ def render_workshop_tab():
     # ==========================================
     # שלב 0: Crop ROI (אופציונלי)
     # ==========================================
-    st.markdown("### ✂️ שלב 0: בחירת אזור שרטוט (אופציונלי)")
+    st.markdown("### ✂️ שלב 0: גזירת אזור שרטוט (אופציונלי)")
 
     enable_crop = st.checkbox(
         "🎯 הפעל גזירה ידנית לפני ניתוח",
@@ -172,7 +172,9 @@ def render_workshop_tab():
     )
 
     if enable_crop:
-        st.info("💡 **איך זה עובד:** צייר מלבן סביב אזור השרטוט. רק האזור בתוך המלבן ינותח.")
+        st.info(
+            "💡 במצב זה, תוכל לסמן מלבן על התוכנית לפני הניתוח. רק האזור בתוך המלבן ינותח."
+        )
 
         # אתחול session state ל-crop
         if "crop_mode_data" not in st.session_state:
@@ -212,7 +214,7 @@ def render_workshop_tab():
                         os.unlink(temp_path)
 
                     except Exception as e:
-                        st.error("❌ לא ניתן לפתוח את הקובץ - ודא שזה PDF תקין")
+                        st.error(f"❌ לא ניתן לפתוח את הקובץ - ודא שזה PDF תקין")
                         crop_file = None
 
             # הצגת Canvas לציור ROI
@@ -230,8 +232,9 @@ def render_workshop_tab():
 
                 pil_preview = Image.fromarray(preview_rgb)
                 pil_preview_resized = pil_preview.resize(
-                    (display_w, display_h), Image.Resampling.LANCZOS
+                     (display_w, display_h), Image.Resampling.LANCZOS
                 )
+
 
                 st.markdown("#### 🎨 צייר מלבן סביב אזור השרטוט:")
                 st.caption(f"גודל מקורי: {w}x{h}px | תצוגה: {display_w}x{display_h}px")
@@ -466,7 +469,7 @@ def render_workshop_tab():
             if f.name in st.session_state.projects:
                 continue
 
-            with st.spinner(f"מעבד {f.name}..."):
+            with st.spinner(f"מעבד {f.name} עם Multi-Pass Detection..."):
                 try:
                     with tempfile.NamedTemporaryFile(
                         delete=False, suffix=".pdf"
@@ -518,7 +521,7 @@ def render_workshop_tab():
                         "debug_layers": getattr(analyzer, "debug_layers", {}),
                     }
                     proj = st.session_state.projects[f.name]
-                    enhanced = enhanced_plan_analysis(proj, analyzer, scale_val)
+                    enhanced = enhanced_plan_analysis(proj, analyzer, float(proj["scale"]))
                     proj["enhanced_analysis"] = enhanced
 
                     # הצג ניתוח
@@ -1083,11 +1086,8 @@ def render_workshop_tab():
 
 def render_corrections_tab():
     """טאב 2: תיקונים ידניים"""
-    
-    st.header("🎨 תיקון זיהוי קירות")
-    st.caption("אם המערכת החמיצה קירות או זיהתה בטעות - תקן כאן")
-    st.info("💡 **מתי להשתמש:** רק אם הזיהוי האוטומטי לא מדויק מספיק")
-    st.markdown("### 1️⃣ בחר תוכנית לתיקון")
+    st.markdown("## 🎨 תיקונים ידניים")
+    st.caption("הוסף או הסר קירות באופן ידני למדויקות מקסימלית")
 
     if not st.session_state.projects:
         st.info("📂 אנא העלה תוכנית תחילה בטאב 'סדנת עבודה'")
@@ -1257,26 +1257,15 @@ def render_corrections_tab():
 
 def render_dashboard_tab():
     """טאב 3: דשבורד"""
-    st.header("📊 דשבורד ניהולי")
-    st.caption("מבט על כל על הפרויקט")
-    
     from pages.dashboard import render_dashboard
+
     render_dashboard()
 
 
 def render_invoices_tab():
     """טאב 4: חשבונות"""
-    st.header("💰 ניהול חשבונות")
-    st.caption("הפקת חשבוניות חלקיות וסיכומי תשלום")
-    st.markdown("### 🎯 יצירת חשבונית חדשה")
-    st.markdown("#### 1️⃣ בחר פרויקט ותקופה")
-    st.markdown("#### 2️⃣ פרטי קבלן")
-    st.markdown("#### 3️⃣ מחירון")
-    st.markdown("---")
-    st.markdown("### 👁️ תצוגה מקדימה")
-    st.markdown("---")
-    
     from pages.invoices import render_invoices
+
     render_invoices()
 
 

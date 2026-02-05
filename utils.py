@@ -18,15 +18,16 @@ def safe_process_metadata(
     raw_blocks=None,
     candidates=None,
     meta=None,
+    pdf_bytes=None,  # ← חדש!
 ):
     """
     ✨ משופר: Enhanced wrapper for brain.process_plan_metadata
-    תומך גם בפורמט הישן וגם החדש
+    תומך גם בפורמט הישן וגם החדש + Google Vision OCR
     """
 
     # אם קיבלנו meta dict (פורמט חדש)
     if meta and isinstance(meta, dict):
-        return _safe_process_metadata_new_format(meta)
+        return _safe_process_metadata_new_format(meta, pdf_bytes=pdf_bytes)
 
     # פורמט ישן - המשך עם הלוגיקה המקורית
     return _safe_process_metadata_old_format(
@@ -35,10 +36,11 @@ def safe_process_metadata(
         normalized_text=normalized_text,
         raw_blocks=raw_blocks,
         candidates=candidates,
+        pdf_bytes=pdf_bytes,  # ← חדש!
     )
 
 
-def _safe_process_metadata_new_format(meta):
+def _safe_process_metadata_new_format(meta, pdf_bytes=None):
     """
     ✨ עיבוד פורמט חדש עם Error Handling מקיף
     """
@@ -70,8 +72,11 @@ def _safe_process_metadata_new_format(meta):
         if has_full_text:
             try:
                 with st.spinner("🧠 מנתח מטא-דאטה עם AI..."):
-                    result = process_plan_metadata(meta["raw_text_full"])
-
+                    result = process_plan_metadata(
+                        meta["raw_text_full"],
+                        use_google_ocr=bool(pdf_bytes),
+                        pdf_bytes=pdf_bytes,
+                    )
                     if result and isinstance(result, dict) and not result.get("error"):
                         result["_processing_method"] = "full_context"
                         result["_text_length"] = len(meta["raw_text_full"])
@@ -87,7 +92,11 @@ def _safe_process_metadata_new_format(meta):
         if has_basic_text:
             try:
                 with st.spinner("🔄 מנסה ניתוח בסיסי..."):
-                    result = process_plan_metadata(meta["raw_text"])
+                    result = process_plan_metadata(
+                        meta["raw_text"],
+                        use_google_ocr=bool(pdf_bytes),
+                        pdf_bytes=pdf_bytes,
+                    )
 
                     if result and isinstance(result, dict):
                         result["_processing_method"] = "basic_context"
@@ -118,9 +127,10 @@ def _safe_process_metadata_old_format(
     normalized_text=None,
     raw_blocks=None,
     candidates=None,
+    pdf_bytes=None,  # ← הוסף
 ):
     """
-    עיבוד פורמט ישן (backward compatibility)
+    עיבוד פורמט ישן (backward compatibility) + Google Vision OCR
     """
     best_text = None
 
@@ -148,7 +158,10 @@ def _safe_process_metadata_old_format(
     try:
         from brain import process_plan_metadata
 
-        result = process_plan_metadata(best_text)
+        # ← שנה את השורה הזו:
+        result = process_plan_metadata(
+            best_text, use_google_ocr=bool(pdf_bytes), pdf_bytes=pdf_bytes
+        )
 
         if isinstance(result, dict):
             if "document" in result:

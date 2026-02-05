@@ -1,6 +1,6 @@
 """
-ConTech Pro - Manager Pages
-מכיל את כל הטאבים של מצב מנהל (גרסה מקורית משוחזרת)
+ConTech Pro v2.0 - Manager Pages
+כל הטאבים של מצב מנהל פרויקט
 """
 
 import streamlit as st
@@ -10,114 +10,38 @@ import pandas as pd
 import tempfile
 import os
 import json
-from PIL import Image
+import io
 from streamlit_drawable_canvas import st_canvas
+from datetime import datetime
+from PIL import Image
 
-# ייבוא פונקציות לוגיקה
-from analyzer import FloorPlanAnalyzer, compute_skeleton_length_px
+from analyzer import FloorPlanAnalyzer
 from reporter import generate_status_pdf, generate_payment_invoice_pdf
 from database import (
     save_plan,
-    get_plan_by_id,
+    save_progress_report,
     get_progress_reports,
+    get_plan_by_filename,
+    get_all_plans,
+    get_plan_by_id,
     get_project_forecast,
     get_project_financial_status,
+    calculate_material_estimates,
     get_payment_invoice_data,
     get_all_work_types_for_plan,
     get_progress_summary_by_date_range,
-    get_all_plans,
-    upsert_document_profile,
-    insert_learning_event,
-    get_learning_overrides_by_aspect,
 )
 from utils import (
     safe_process_metadata,
     safe_analyze_legend,
     load_stats_df,
     create_colored_overlay,
-    get_simple_metadata_values,
-    calculate_area_m2,
-    refine_flooring_mask_with_rooms,
-    build_document_signature,
 )
 
-# ייבוא פונקציות preprocessing לגזירה
-from preprocessing import get_crop_bbox_from_canvas_data
 
-def enhanced_plan_analysis(proj, analyzer, scale_value):
-    """ניתוח מתקדם של תוכנית"""
-    
-    # 1. זיהוי סוג תוכנית
-    plan_type_info = analyzer.detect_plan_type(
-        proj["original"],
-        proj.get("metadata", {})
-    )
-    
-    # 2. זיהוי מקרא
-    legend_bbox = analyzer.auto_detect_legend(proj["original"])
-    legend_info = None
-    if legend_bbox:
-        legend_info = {
-            'found': True,
-            'bbox': legend_bbox,
-            'location': f"({legend_bbox[0]}, {legend_bbox[1]}) גודל: {legend_bbox[2]}x{legend_bbox[3]}"
-        }
-    
-    # 3. הפרדת בטון/בלוקים
-    walls_mask = proj["thick_walls"]
-    kernel_thick = np.ones((8, 8), np.uint8)
-    concrete_mask = cv2.dilate(cv2.erode(walls_mask, kernel_thick, iterations=1), kernel_thick, iterations=2)
-    blocks_mask = cv2.subtract(walls_mask, concrete_mask)
-    
-    # חישוב אורכים
-    concrete_length = np.count_nonzero(concrete_mask) / scale_value
-    blocks_length = np.count_nonzero(blocks_mask) / scale_value
-    total_length = np.count_nonzero(walls_mask) / scale_value
-    
-    # 4. חילוץ segments
-    from worker import extract_segments_from_mask
-    segments = extract_segments_from_mask(walls_mask, scale_value)
-    
-    # סיווג לפי כיוון
-    horizontal = [s for s in segments if abs(s['angle']) < 15 or abs(s['angle'] - 180) < 15]
-    vertical = [s for s in segments if abs(abs(s['angle']) - 90) < 15]
-    diagonal = [s for s in segments if s not in horizontal and s not in vertical]
-    
-    # 5. איכות
-    confidence = plan_type_info.get('confidence', 0)
-    quality_score = confidence
-    if len(segments) < 4:
-        quality_score -= 20
-    if concrete_length == 0 and blocks_length == 0:
-        quality_score -= 30
-    
-    return {
-        'plan_type': plan_type_info,
-        'legend': legend_info,
-        'walls': {
-            'total_count': len(segments),
-            'horizontal_count': len(horizontal),
-            'vertical_count': len(vertical),
-            'diagonal_count': len(diagonal),
-            'total_length_m': round(total_length, 2),
-            'concrete_length_m': round(concrete_length, 2),
-            'blocks_length_m': round(blocks_length, 2),
-        },
-        'materials': {
-            'concrete_mask': concrete_mask,
-            'blocks_mask': blocks_mask,
-            'concrete_percentage': (concrete_length / total_length * 100) if total_length > 0 else 0,
-            'blocks_percentage': (blocks_length / total_length * 100) if total_length > 0 else 0,
-        },
-        'quality': {
-            'score': max(0, min(100, quality_score)),
-            'segments_detected': len(segments),
-            'legend_found': legend_bbox is not None,
-            'materials_identified': concrete_length > 0 or blocks_length > 0
-        }
-    }
-
-
+# ==========================================
+# פונקציות עזר - Corrections
+# ==========================================
 def get_corrected_walls(selected_plan, proj):
     """מחזיר את מסכת הקירות המתוקנת (אם יש תיקונים)"""
     if selected_plan in st.session_state.manual_corrections:
@@ -131,517 +55,192 @@ def get_corrected_walls(selected_plan, proj):
             corrected = cv2.subtract(corrected, corrections["removed_walls"])
 
         return corrected
-    return proj["thick_walls"]
+    else:
+        return proj["thick_walls"]
 
 
+# ==========================================
+# TAB 1: סדנת עבודה
+# ==========================================
 def render_workshop_tab():
     """
-    טאב 1: סדנת עבודה - העלאת תוכניות וניתוח
-    גרסה 2.3 UX משופר
+    ✨ טאב העלאה ועריכת תוכניות
+    עם תמיכה ב-Google Vision OCR
     """
-    
-    st.header("📂 העלאת תוכנית חדשה")
-    st.caption("העלה קובץ PDF של תוכנית בנייה וקבל ניתוח אוטומטי")
-    
-    # הגדרות מתקדמות בexpander
-    with st.expander("⚙️ הגדרות מתקדמות (למנהלים)", expanded=False):
-        st.caption("⚠️ משתמשים רגילים לא צריכים לשנות כאן")
-        
-        learn_enabled = st.checkbox(
-            "למידה מתוכניות קודמות",
-            value=True,
-            help="המערכת תזכור הגדרות מקבצים דומים",
-            key="learning_enabled_checkbox",
-        )
-
-    if learn_enabled:
-        st.caption("✅ המערכת תלמד מהתיקונים שלך ותשפר את הזיהוי בקבצים הבאים")
-    else:
-        st.caption("⚠️ למידה מושבתת - כל תוכנית תנותח מחדש")
-
-    st.markdown("---")
     # ==========================================
-    # שלב 0: Crop ROI (אופציונלי)
+    # 🆕 CHANGE 1: הוספת checkbox ל-Google Vision OCR
     # ==========================================
-    st.markdown("### ✂️ שלב 0: גזירת אזור שרטוט (אופציונלי)")
+    with st.expander("העלאת קבצים", expanded=not st.session_state.projects):
+        # ✨ בורר Google Vision OCR
+        col_ocr1, col_ocr2 = st.columns([3, 1])
 
-    enable_crop = st.checkbox(
-        "🎯 הפעל גזירה ידנית לפני ניתוח",
-        value=False,
-        help="אפשר לסמן אזור מסוים בתוכנית לניתוח (ROI). שאר התוכנית תתעלם.",
-    )
+        with col_ocr1:
+            files = st.file_uploader(
+                "גרור PDF או לחץ לבחירה", type="pdf", accept_multiple_files=True
+            )
 
-    if enable_crop:
-        st.info(
-            "💡 במצב זה, תוכל לסמן מלבן על התוכנית לפני הניתוח. רק האזור בתוך המלבן ינותח."
-        )
-
-        # אתחול session state ל-crop
-        if "crop_mode_data" not in st.session_state:
-            st.session_state.crop_mode_data = {}
-
-        # העלאת קובץ למצב Crop
-        crop_file = st.file_uploader(
-            "📂 העלה PDF לגזירה",
-            type="pdf",
-            key="crop_file_uploader",
-            help="העלה תוכנית אחת לפעם עבור גזירה",
-        )
-
-        if crop_file:
-            file_key = crop_file.name
-
-            # אם זה קובץ חדש, נאתחל
-            if file_key not in st.session_state.crop_mode_data:
-                with st.spinner("טוען תצוגה מקדימה..."):
-                    try:
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=".pdf"
-                        ) as tmp:
-                            tmp.write(crop_file.getvalue())
-                            temp_path = tmp.name
-
-                        analyzer = FloorPlanAnalyzer()
-                        preview_img = analyzer.pdf_to_image(temp_path)
-
-                        st.session_state.crop_mode_data[file_key] = {
-                            "preview_img": preview_img,
-                            "pdf_path": temp_path,
-                            "crop_bbox": None,
-                            "processed": False,
-                        }
-
-                        os.unlink(temp_path)
-
-                    except Exception as e:
-                        st.error(f"❌ לא ניתן לפתוח את הקובץ - ודא שזה PDF תקין")
-                        crop_file = None
-
-            # הצגת Canvas לציור ROI
-            if file_key in st.session_state.crop_mode_data:
-                data = st.session_state.crop_mode_data[file_key]
-                preview_img = data["preview_img"]
-
-                preview_rgb = cv2.cvtColor(preview_img, cv2.COLOR_BGR2RGB)
-                h, w = preview_rgb.shape[:2]
-
-                max_width = 800
-                scale_factor = min(1.0, max_width / w)
-                display_w = int(w * scale_factor)
-                display_h = int(h * scale_factor)
-
-                pil_preview = Image.fromarray(preview_rgb)
-                pil_preview_resized = pil_preview.resize(
-                     (display_w, display_h), Image.Resampling.LANCZOS
-                )
-
-
-                st.markdown("#### 🎨 צייר מלבן סביב אזור השרטוט:")
-                st.caption(f"גודל מקורי: {w}x{h}px | תצוגה: {display_w}x{display_h}px")
-
-                canvas_result = st_canvas(
-                    fill_color="rgba(0, 255, 0, 0.1)",
-                    stroke_width=3,
-                    stroke_color="#00FF00",
-                    background_image=pil_preview_resized,
-                    height=display_h,
-                    width=display_w,
-                    drawing_mode="rect",
-                    key=f"crop_canvas_{file_key}",
-                    update_streamlit=True,
-                )
-
-                if canvas_result.json_data and canvas_result.json_data.get("objects"):
-                    bbox = get_crop_bbox_from_canvas_data(
-                        canvas_result.json_data, scale_factor
-                    )
-
-                    if bbox:
-                        x, y, bw, bh = bbox
-                        st.success(f"✅ אזור נבחר: {bw}x{bh}px (מיקום: x={x}, y={y})")
-
-                        if st.button(
-                            "🚀 נתח תוכנית עם גזירה",
-                            type="primary",
-                            key=f"analyze_crop_{file_key}",
-                        ):
-                            with st.spinner(f"מנתח {file_key} עם Crop ROI..."):
-                                try:
-                                    with tempfile.NamedTemporaryFile(
-                                        delete=False, suffix=".pdf"
-                                    ) as tmp:
-                                        tmp.write(crop_file.getvalue())
-                                        path = tmp.name
-
-                                    analyzer = FloorPlanAnalyzer()
-                                    (
-                                        pix,
-                                        skel,
-                                        thick,
-                                        orig,
-                                        meta,
-                                        conc,
-                                        blok,
-                                        floor,
-                                        debug_img,
-                                    ) = analyzer.process_file(
-                                        path, save_debug=False, crop_bbox=bbox
-                                    )
-                                    from utils import build_document_signature
-                                    from database import (
-                                        upsert_document_profile,
-                                        get_learning_overrides_by_aspect,
-                                    )
-
-                                    # --- בניית Signature ---
-                                    text_tokens = []
-                                    if meta.get("normalized_text"):
-                                        text_tokens = meta["normalized_text"].split()
-
-                                    signature = build_document_signature(
-                                        meta,
-                                        orig.shape,
-                                        text_tokens,
-                                    )
-
-                                    profile_data = {
-                                        "project_name": meta.get("plan_name"),
-                                        "filename": file_key,
-                                        "page_width_px": signature["page_w"],
-                                        "page_height_px": signature["page_h"],
-                                        "aspect_ratio": signature["aspect_ratio"],
-                                        "has_grid": signature["has_grid"],
-                                        "avg_wall_thickness": signature[
-                                            "avg_wall_thickness"
-                                        ],
-                                        "detected_scale": meta.get("scale_denominator"),
-                                        "final_scale": meta.get("scale_denominator"),
-                                        "signature": signature,
-                                    }
-                                    profile_id = upsert_document_profile(profile_data)
-                                    # ודא שיש proj לפני שימוש בו (במיוחד במסלול Crop ROI)
-                                    if "proj" not in locals() or proj is None:
-                                        proj = {"metadata": meta, "file_key": file_key}
-                                    proj["profile_id"] = profile_id
-
-                                    # 🧠 החלת למידה מתוכניות דומות
-                                    if st.session_state.get(
-                                        "learning_enabled_checkbox", True
-                                    ):
-                                        try:
-                                            overrides = (
-                                                get_learning_overrides_by_aspect(
-                                                    signature["aspect_ratio"]
-                                                )
-                                            )
-
-                                            if overrides:
-                                                # סינון overrides לפי סוג
-                                                scale_overrides = [
-                                                    o
-                                                    for o in overrides
-                                                    if o.get("event_type")
-                                                    == "scale_override"
-                                                ]
-
-                                                # אם יש override של scale וה-scale הנוכחי חלש/לא קיים
-                                                if scale_overrides and not meta.get(
-                                                    "scale_denominator"
-                                                ):
-                                                    try:
-                                                        latest_scale = json.loads(
-                                                            scale_overrides[0][
-                                                                "payload"
-                                                            ]
-                                                        )
-                                                        new_scale = latest_scale.get(
-                                                            "new"
-                                                        )
-
-                                                        if new_scale and new_scale > 0:
-                                                            meta[
-                                                                "scale_denominator"
-                                                            ] = new_scale
-                                                            meta["scale_confidence"] = (
-                                                                0.85
-                                                            )
-                                                            meta["_scale_source"] = (
-                                                                "learned_prior"
-                                                            )
-                                                            st.info(
-                                                                f"🧠 שימוש בקנה מידה נלמד: 1:{new_scale} (מתוכניות דומות)"
-                                                            )
-
-                                                    except Exception as e:
-                                                        pass  # כשלון שקט
-
-                                        except Exception as e:
-                                            pass  # כשלון שקט - לא לשבור את הזרימה
-
-                                    if not meta.get("plan_name"):
-                                        meta["plan_name"] = (
-                                            file_key.replace(".pdf", "")
-                                            .replace("-", " ")
-                                            .strip()
-                                        )
-
-                                    llm_data = {}
-                                    if meta.get("raw_text"):
-                                        llm_data = safe_process_metadata(
-                                            raw_text=meta.get("raw_text"),
-                                            raw_text_full=meta.get("raw_text_full"),
-                                            normalized_text=meta.get("normalized_text"),
-                                            raw_blocks=meta.get("raw_blocks"),
-                                        )
-                                        meta.update(
-                                            get_simple_metadata_values(llm_data)
-                                        )
-
-                                    st.session_state.projects[file_key] = {
-                                        "skeleton": skel,
-                                        "thick_walls": thick,
-                                        "original": orig,
-                                        "raw_pixels": pix,
-                                        "scale": 200.0,
-                                        "metadata": meta,
-                                        "concrete_mask": conc,
-                                        "blocks_mask": blok,
-                                        "flooring_mask": floor,
-                                        "total_length": pix / 200.0,
-                                        "llm_data": llm_data,
-                                        "llm_suggestions": (
-                                            llm_data if meta.get("raw_text") else {}
-                                        ),
-                                        "debug_layers": getattr(
-                                            analyzer, "debug_layers", {}
-                                        ),
-                                    }
-
-                                    os.unlink(path)
-                                    del st.session_state.crop_mode_data[file_key]
-
-                                    st.success(f"✅ {file_key} נותח בהצלחה עם Crop!")
-                                    st.info(
-                                        "💾 עכשיו תוכל למצוא את התוכנית ברשימה למטה"
-                                    )
-                                    st.rerun()
-
-                                except Exception as e:
-                                    st.error(f"❌ שגיאה: {str(e)}")
-                                    import traceback
-
-                                    with st.expander("פרטי שגיאה"):
-                                        st.code(traceback.format_exc())
-                    else:
-                        st.warning("⚠️ צייר מלבן על התמונה")
-                else:
-                    st.info("👆 צייר מלבן על אזור השרטוט")
-        else:
-            st.info("📂 העלה קובץ PDF למעלה")
-
-        st.markdown("---")
-
-    # ==========================================
-    # העלאה רגילה (ללא Crop)
-    # ==========================================
-
-    with st.form("upload_form", clear_on_submit=False):
-        files = st.file_uploader(
-            "גרור PDF או לחץ לבחירה",
-            type="pdf",
-            accept_multiple_files=True,
-            key="main_file_uploader",
-        )
+        with col_ocr2:
+            use_google_ocr = st.checkbox(
+                "🔍 Google Vision",
+                value=True,
+                help="OCR מדויק יותר (במיוחד עברית)",
+                key="use_google_ocr",
+            )
 
         debug_mode = st.selectbox(
-            "מצב Debug",
-            ["בסיסי", "מפורט - שכבות", "מלא - עם confidence"],
-            index=0,
-            key="debug_mode_select",
+            "מצב Debug", ["בסיסי", "מפורט - שכבות", "מלא - עם confidence"], index=0
         )
+        show_debug = debug_mode != "בסיסי"
 
-        submitted = st.form_submit_button("🚀 עבד קבצים", type="primary")
+        if files:
+            for f in files:
+                if f.name not in st.session_state.projects:
+                    with st.spinner(f"מעבד {f.name} עם Multi-Pass Detection..."):
+                        try:
+                            with tempfile.NamedTemporaryFile(
+                                delete=False, suffix=".pdf"
+                            ) as tmp:
+                                tmp.write(f.getvalue())
+                                path = tmp.name
 
-    show_debug = st.session_state.get("debug_mode_select", "בסיסי") != "בסיסי"
+                            analyzer = FloorPlanAnalyzer()
+                            (
+                                pix,
+                                skel,
+                                thick,
+                                orig,
+                                meta,
+                                conc,
+                                blok,
+                                floor,
+                                debug_img,
+                            ) = analyzer.process_file(path, save_debug=show_debug)
 
-    if submitted and files:
-        for f in files:
-            if f.name in st.session_state.projects:
-                continue
+                            if not meta.get("plan_name"):
+                                meta["plan_name"] = (
+                                    f.name.replace(".pdf", "").replace("-", " ").strip()
+                                )
 
-            with st.spinner(f"מעבד {f.name} עם Multi-Pass Detection..."):
-                try:
-                    with tempfile.NamedTemporaryFile(
-                        delete=False, suffix=".pdf"
-                    ) as tmp:
-                        tmp.write(f.getvalue())
-                        path = tmp.name
+                            # ==========================================
+                            # 🆕 CHANGE 2: העברת pdf_bytes לפונקציית metadata
+                            # ==========================================
+                            # חילוץ מטא-דאטה + ניתוח חכם עם Google Vision OCR
+                            if meta.get("raw_text"):
+                                llm_data = safe_process_metadata(
+                                    meta=meta,
+                                    pdf_bytes=meta.get("pdf_bytes"),  # ← העברת ה-bytes
+                                )
+                                meta.update({k: v for k, v in llm_data.items() if v})
 
-                    analyzer = FloorPlanAnalyzer()
-                    (
-                        pix,
-                        skel,
-                        thick,
-                        orig,
-                        meta,
-                        conc,
-                        blok,
-                        floor,
-                        debug_img,
-                    ) = analyzer.process_file(path, save_debug=show_debug)
+                            st.session_state.projects[f.name] = {
+                                "skeleton": skel,
+                                "thick_walls": thick,
+                                "original": orig,
+                                "raw_pixels": pix,
+                                "scale": 200.0,
+                                "metadata": meta,
+                                "concrete_mask": conc,
+                                "blocks_mask": blok,
+                                "flooring_mask": floor,
+                                "total_length": pix / 200.0,
+                                "llm_suggestions": (
+                                    llm_data if meta.get("raw_text") else {}
+                                ),
+                                "debug_layers": getattr(analyzer, "debug_layers", {}),
+                            }
 
-                    if not meta.get("plan_name"):
-                        meta["plan_name"] = (
-                            f.name.replace(".pdf", "").replace("-", " ").strip()
-                        )
+                            # תצוגת Debug משופרת
+                            if show_debug and debug_img is not None:
+                                st.markdown("### 🔍 ניתוח Multi-Pass")
 
-                    llm_data = {}
-                    if meta.get("raw_text"):
-                        llm_data = safe_process_metadata(
-                            raw_text=meta.get("raw_text"),
-                            raw_text_full=meta.get("raw_text_full"),
-                            normalized_text=meta.get("normalized_text"),
-                            raw_blocks=meta.get("raw_blocks"),
-                        )
-                        meta.update(get_simple_metadata_values(llm_data))
-
-                    st.session_state.projects[f.name] = {
-                        "skeleton": skel,
-                        "thick_walls": thick,
-                        "original": orig,
-                        "raw_pixels": pix,
-                        "scale": 200.0,
-                        "metadata": meta,
-                        "concrete_mask": conc,
-                        "blocks_mask": blok,
-                        "flooring_mask": floor,
-                        "total_length": pix / 200.0,
-                        "llm_data": llm_data,
-                        "llm_suggestions": (llm_data if meta.get("raw_text") else {}),
-                        "debug_layers": getattr(analyzer, "debug_layers", {}),
-                    }
-                    proj = st.session_state.projects[f.name]
-                    enhanced = enhanced_plan_analysis(proj, analyzer, float(proj["scale"]))
-                    proj["enhanced_analysis"] = enhanced
-
-                    # הצג ניתוח
-                    st.markdown("### 🔍 ניתוח מתקדם")
-
-                    col_a1, col_a2, col_a3 = st.columns(3)
-                    with col_a1:
-                        st.metric(
-                            "סוג תוכנית",
-                            enhanced['plan_type']['plan_type'],
-                            help=f"ביטחון: {enhanced['plan_type']['confidence']}%"
-                        )
-                    with col_a2:
-                        st.metric(
-                            "איכות זיהוי",
-                            f"{enhanced['quality']['score']}%"
-                        )
-                    with col_a3:
-                        st.metric(
-                            "קירות זוהו",
-                            enhanced['walls']['total_count']
-                        )
-
-                    with st.expander("📊 פירוט קירות"):
-                        col_b1, col_b2, col_b3 = st.columns(3)
-                        with col_b1:
-                            st.metric("אופקיים", enhanced['walls']['horizontal_count'])
-                        with col_b2:
-                            st.metric("אנכיים", enhanced['walls']['vertical_count'])
-                        with col_b3:
-                            st.metric("אלכסוניים", enhanced['walls']['diagonal_count'])
-                        
-                        st.markdown("**התפלגות חומרים:**")
-                        col_c1, col_c2 = st.columns(2)
-                        with col_c1:
-                            st.metric("בטון", f"{enhanced['walls']['concrete_length_m']:.1f} מ'")
-                        with col_c2:
-                            st.metric("בלוקים", f"{enhanced['walls']['blocks_length_m']:.1f} מ'")
-
-                    # תצוגת Debug משופרת
-                    if show_debug and debug_img is not None:
-                        with st.expander("🔍 Debug: ניתוח Multi-Pass", expanded=False):
-                            if debug_mode == "מפורט - שכבות":
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.image(
-                                        debug_img,
-                                        caption="תוצאה משולבת",
-                                        use_column_width=True,
-                                    )
-                                with col2:
-                                    if (
-                                        hasattr(analyzer, "debug_layers")
-                                        and "text_combined" in analyzer.debug_layers
-                                    ):
+                                if debug_mode == "מפורט - שכבות":
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
                                         st.image(
-                                            analyzer.debug_layers["text_combined"],
-                                            caption="🔴 טקסט שהוסר",
+                                            debug_img,
+                                            caption="תוצאה משולבת",
                                             use_column_width=True,
                                         )
-                                with col3:
-                                    if (
-                                        hasattr(analyzer, "debug_layers")
-                                        and "walls" in analyzer.debug_layers
-                                    ):
+                                    with col2:
+                                        if (
+                                            hasattr(analyzer, "debug_layers")
+                                            and "text_combined" in analyzer.debug_layers
+                                        ):
+                                            st.image(
+                                                analyzer.debug_layers["text_combined"],
+                                                caption="🔴 טקסט שהוסר",
+                                                use_column_width=True,
+                                            )
+                                    with col3:
+                                        if (
+                                            hasattr(analyzer, "debug_layers")
+                                            and "walls" in analyzer.debug_layers
+                                        ):
+                                            st.image(
+                                                analyzer.debug_layers["walls"],
+                                                caption="🟢 קירות שזוהו",
+                                                use_column_width=True,
+                                            )
+
+                                elif debug_mode == "מלא - עם confidence":
+                                    col1, col2 = st.columns(2)
+                                    with col1:
                                         st.image(
-                                            analyzer.debug_layers["walls"],
-                                            caption="🟢 קירות שזוהו",
+                                            debug_img,
+                                            caption="תוצאה משולבת",
                                             use_column_width=True,
                                         )
-
-                            elif debug_mode == "מלא - עם confidence":
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.image(
-                                        debug_img,
-                                        caption="תוצאה משולבת",
-                                        use_column_width=True,
-                                    )
-                                with col2:
-                                    st.markdown(
+                                    with col2:
+                                        st.markdown(
+                                            """
+                                        **מקרא צבעים:**
+                                        - 🟠 כתום = טקסט ברור
+                                        - 🟡 צהוב = סמלים וכותרות
+                                        - 🟣 סגול = מספרי חדרים
+                                        - 🟢 ירוק = קירות
+                                        - 🔥 אדום-צהוב = confidence גבוה
+                                        - 🔵 כחול-שחור = confidence נמוך
                                         """
-                **מקרא צבעים:**
-                - 🟠 כתום = טקסט ברור
-                - 🟡 צהוב = סמלים וכותרות
-                - 🟣 סגול = מספרי חדרים
-                - 🟢 ירוק = קירות
-                - 🔥 אדום-צהוב = confidence גבוה
-                - 🔵 כחול-שחור = confidence נמוך
-                """
-                                    )
-                                    st.metric(
-                                        "Confidence ממוצע",
-                                        f"{meta.get('confidence_avg', 0):.2f}",
-                                    )
-                                    st.metric(
-                                        "פיקסלי טקסט שהוסרו",
-                                        f"{meta.get('text_removed_pixels', 0):,}",
-                                    )
+                                        )
 
-                    try:
-                        os.unlink(path)
-                    except Exception:
-                        pass
-                    st.success(f"✅ {f.name} נותח בהצלחה!")
+                                        st.metric(
+                                            "Confidence ממוצע",
+                                            f"{meta.get('confidence_avg', 0):.2f}",
+                                        )
+                                        st.metric(
+                                            "פיקסלי טקסט שהוסרו",
+                                            f"{meta.get('text_removed_pixels', 0):,}",
+                                        )
 
-                except Exception as e:
-                    st.error(f"שגיאה: {str(e)}")
-                    import traceback
-
-                    show_trace = st.checkbox(
-                        "פרטי שגיאה (Traceback)", value=False, key=f"trace_{f.name}"
-                    )
-                    if show_trace:
-                        st.code(traceback.format_exc())
-                    try:
-                        if "path" in locals() and path and os.path.exists(path):
                             os.unlink(path)
-                    except Exception:
-                        pass
+                            st.success(f"✅ {f.name} נותח בהצלחה!")
+
+                            # ==========================================
+                            # 🆕 CHANGE 3: הוספת אינדיקטור OCR
+                            # ==========================================
+                            # הצגת מקור ה-OCR
+                            if llm_data and llm_data.get("_ocr_source"):
+                                ocr_icons = {
+                                    "google_vision": "🔍 Google Vision OCR",
+                                    "pymupdf": "📄 PyMuPDF",
+                                    "pymupdf_fallback": "📄 PyMuPDF (fallback)",
+                                }
+                                ocr_source = llm_data.get("_ocr_source", "unknown")
+                                ocr_label = ocr_icons.get(ocr_source, ocr_source)
+
+                                # צבע לפי מקור
+                                if ocr_source == "google_vision":
+                                    st.success(f"✨ {ocr_label}")
+                                else:
+                                    st.info(f"ℹ️ {ocr_label}")
+
+                        except Exception as e:
+                            st.error(f"שגיאה: {str(e)}")
+                            import traceback
+
+                            with st.expander("פרטי שגיאה"):
+                                st.code(traceback.format_exc())
+
     if st.session_state.projects:
         st.markdown("---")
         selected = st.selectbox(
@@ -661,6 +260,7 @@ def render_workshop_tab():
         with col_edit:
             st.markdown("### הגדרות תוכנית")
 
+            # אינדיקטור תיקונים
             if selected in st.session_state.manual_corrections:
                 st.success("✏️ תוכנית זו תוקנה ידנית")
 
@@ -679,292 +279,36 @@ def render_workshop_tab():
             )
             proj["scale"] = scale_val
 
+            # שימוש בגרסה המתוקנת
             corrected_walls = get_corrected_walls(selected, proj)
-            corrected_pixels = int(np.count_nonzero(corrected_walls))
+            corrected_pixels = np.count_nonzero(corrected_walls)
             total_len = corrected_pixels / scale_val
 
+            # חישוב חומרים מהגרסה המתוקנת
             kernel = np.ones((6, 6), np.uint8)
             conc_corrected = cv2.dilate(
                 cv2.erode(corrected_walls, kernel, iterations=1), kernel, iterations=2
             )
             block_corrected = cv2.subtract(corrected_walls, conc_corrected)
 
-            conc_len = float(np.count_nonzero(conc_corrected) / scale_val)
-            block_len = float(np.count_nonzero(block_corrected) / scale_val)
-            meta = proj.get("metadata", {})
-            flooring_pixels = meta.get(
-                "pixels_flooring_area_refined",
-                proj["metadata"].get("pixels_flooring_area", 0),
+            conc_len = np.count_nonzero(conc_corrected) / scale_val
+            block_len = np.count_nonzero(block_corrected) / scale_val
+            floor_area = proj["metadata"].get("pixels_flooring_area", 0) / (
+                scale_val**2
             )
-            floor_area = calculate_area_m2(
-                flooring_pixels,
-                meters_per_pixel=meta.get("meters_per_pixel"),
-                meters_per_pixel_x=meta.get("meters_per_pixel_x"),
-                meters_per_pixel_y=meta.get("meters_per_pixel_y"),
-                pixels_per_meter=scale_val,
-            )
-            floor_area = float(floor_area or 0)
 
             proj["total_length"] = total_len
+
             st.info(
                 f"📏 קירות: {total_len:.1f}מ' | בטון: {conc_len:.1f}מ' | בלוקים: {block_len:.1f}מ' | ריצוף: {floor_area:.1f}מ\"ר"
             )
-            # 🧠 כפתור שמירה ללמידה
-            col_save_learn, col_spacer = st.columns([1, 2])
-            with col_save_learn:
-                if st.button(
-                    "💾 שמור קנה מידה ללמידה",
-                    key=f"save_scale_learning_{selected}",
-                    help="שמירת התיקון הזה תעזור למערכת לזהות טוב יותר תוכניות דומות בעתיד",
-                ):
-                    profile_id = proj.get("profile_id")
-
-                    if profile_id:
-                        try:
-                            from database import insert_learning_event
-
-                            insert_learning_event(
-                                profile_id=profile_id,
-                                event_type="scale_override",
-                                payload={"new": float(scale_val)},
-                                confidence=1.0,
-                            )
-
-                            st.success("✅ קנה המידה נשמר ללמידה!")
-                            st.balloons()
-
-                        except Exception as e:
-                            st.error(f"❌ שגיאה בשמירה: {str(e)}")
-                    else:
-                        st.warning("⚠️ לא נמצא profile_id - לא ניתן לשמור ללמידה")
-
-            # מדידות מתקדמות
-            with st.expander("📐 מדידות מתקדמות (Stage 1+2)", expanded=False):
-                meta = proj.get("metadata", {})
-
-                col_a, col_b, col_c = st.columns(3)
-                with col_a:
-                    paper_size = meta.get("paper_size_detected", "unknown")
-                    st.metric("גודל נייר", paper_size)
-                with col_b:
-                    conf = meta.get("paper_detection_confidence", 0) * 100
-                    st.metric("ביטחון זיהוי", f"{conf:.0f}%")
-                with col_c:
-                    scale_denom = meta.get("scale_denominator")
-                    st.metric(
-                        "קנה מידה", f"1:{scale_denom}" if scale_denom else "לא זוהה"
-                    )
-
-                floor_conf = meta.get("flooring_confidence")
-                if floor_conf is not None:
-                    st.caption(f"🔎 ביטחון ריצוף: {floor_conf * 100:.0f}%")
-                    if floor_conf < 0.3:
-                        st.warning("⚠️ איכות ריצוף נמוכה - ייתכן דיוק נמוך בשטח")
-
-                st.markdown("---")
-                st.markdown("#### 📄 Override גודל נייר")
-
-                paper_override_key = f"paper_override_{selected}"
-                current_detected = meta.get("paper_size_detected", "unknown")
-
-                paper_options = ["זיהוי אוטומטי", "A0", "A1", "A2", "A3", "A4"]
-                default_idx = 0
-                if paper_override_key in st.session_state:
-                    try:
-                        default_idx = paper_options.index(
-                            st.session_state[paper_override_key]
-                        )
-                    except ValueError:
-                        default_idx = 0
-
-                selected_paper = st.selectbox(
-                    f"גודל נייר (זוהה: {current_detected}):",
-                    options=paper_options,
-                    index=default_idx,
-                    key=f"paper_select_{selected}",
-                )
-
-                prev_override = st.session_state.get(paper_override_key)
-
-                if selected_paper != "זיהוי אוטומטי":
-                    if prev_override != selected_paper:
-                        st.session_state[paper_override_key] = selected_paper
-
-                        ISO_SIZES = {
-                            "A0": (841, 1189),
-                            "A1": (594, 841),
-                            "A2": (420, 594),
-                            "A3": (297, 420),
-                            "A4": (210, 297),
-                        }
-
-                        paper_w_mm, paper_h_mm = ISO_SIZES[selected_paper]
-
-                        if meta.get("image_size_px"):
-                            w_px = meta["image_size_px"]["width"]
-                            h_px = meta["image_size_px"]["height"]
-                            if w_px > h_px and paper_w_mm < paper_h_mm:
-                                paper_w_mm, paper_h_mm = paper_h_mm, paper_w_mm
-
-                        meta["paper_size_detected"] = selected_paper
-                        meta["paper_mm"] = {"width": paper_w_mm, "height": paper_h_mm}
-                        meta["paper_detection_confidence"] = 1.0
-
-                        if meta.get("image_size_px"):
-                            w_px = meta["image_size_px"]["width"]
-                            h_px = meta["image_size_px"]["height"]
-
-                            mm_per_pixel_x = paper_w_mm / w_px
-                            mm_per_pixel_y = paper_h_mm / h_px
-                            mm_per_pixel = (mm_per_pixel_x + mm_per_pixel_y) / 2.0
-
-                            meta["mm_per_pixel"] = float(mm_per_pixel)
-
-                            scale_denom = meta.get("scale_denominator")
-                            if scale_denom:
-                                meters_per_pixel = (mm_per_pixel * scale_denom) / 1000.0
-                                meta["meters_per_pixel"] = float(meters_per_pixel)
-
-                                if meta.get("wall_length_total_px"):
-                                    meta["wall_length_total_m"] = float(
-                                        meta["wall_length_total_px"] * meters_per_pixel
-                                    )
-
-                        st.success(f"✅ גודל נייר עודכן ל-{selected_paper}")
-                        st.rerun()
-                else:
-                    if prev_override is not None:
-                        del st.session_state[paper_override_key]
-                        st.rerun()
-
-                if not meta.get("scale_denominator"):
-                    st.markdown("---")
-                    st.markdown("#### 🔍 למה קנה מידה לא זוהה?")
-
-                    st.write("**מקורות שנבדקו:**")
-                    st.write(f"1. meta['scale'] = `{meta.get('scale', 'לא קיים')}`")
-                    st.write(
-                        f"2. meta['raw_text'][:200] = `{meta.get('raw_text', 'לא קיים')[:200]}`"
-                    )
-
-                    st.markdown("**ניסיון ידני:**")
-                    manual_scale_text = st.text_input(
-                        "הזן קנה מידה ידנית (לדוגמה: 1:50):",
-                        key=f"manual_scale_{selected}",
-                    )
-
-                    if manual_scale_text and st.button(
-                        "החל", key=f"apply_scale_{selected}"
-                    ):
-                        from analyzer import parse_scale
-
-                        parsed = parse_scale(manual_scale_text)
-                        if parsed:
-                            meta["scale_denominator"] = parsed
-                            meta["scale"] = manual_scale_text
-                            st.success(f"✅ קנה מידה עודכן ל-1:{parsed}")
-                            st.rerun()
-                        else:
-                            st.error("❌ לא הצלחתי לפרסר את הקנה מידה")
-
-                st.markdown("---")
-                st.markdown("#### 📊 נתוני חישוב מה-PDF")
-
-                has_data = all(
-                    [
-                        meta.get("paper_size_detected"),
-                        meta.get("image_size_px"),
-                        meta.get("scale_denominator"),
-                        meta.get("mm_per_pixel"),
-                        meta.get("meters_per_pixel"),
-                    ]
-                )
-
-                if has_data:
-                    paper_w = meta["paper_mm"]["width"]
-                    paper_h = meta["paper_mm"]["height"]
-                    img_w = meta["image_size_px"]["width"]
-                    img_h = meta["image_size_px"]["height"]
-
-                    col_p1, col_p2 = st.columns(2)
-                    with col_p1:
-                        st.markdown(
-                            f"**📄 נייר:** `{meta['paper_size_detected']}`  \n`{paper_w:.0f}×{paper_h:.0f}` מ\"מ"
-                        )
-                    with col_p2:
-                        st.markdown(f"**🖼️ תמונה:** \n`{img_w}×{img_h}` px")
-
-                    mm_per_px = float(meta["mm_per_pixel"])
-                    m_per_px = float(meta["meters_per_pixel"])
-                    scale_denom = int(meta["scale_denominator"])
-
-                    col_r1, col_r2, col_r3 = st.columns(3)
-                    with col_r1:
-                        st.markdown(f'**מ"מ/px** \n`{mm_per_px:.4f}`')
-                    with col_r2:
-                        st.markdown(f"**קנה מידה** \n`1:{scale_denom}`")
-                    with col_r3:
-                        st.markdown(f"**מטר/px** \n`{m_per_px:.6f}`")
-
-                    st.markdown("**3️⃣ חישוב צעד אחר צעד:**")
-                    show_formulas = st.checkbox(
-                        "👁️ הצג נוסחאות",
-                        value=True,
-                        key=f"show_formulas_{selected}",
-                    )
-                    if show_formulas:
-                        st.code(
-                            f"""
-נוסחאות החישוב:
-
-1. מ"מ/פיקסל = גודל נייר במ"מ / גודל תמונה בפיקסלים
-   mm_per_pixel_x = {paper_w} / {img_w} = {paper_w/img_w:.4f}
-   mm_per_pixel_y = {paper_h} / {img_h} = {paper_h/img_h:.4f}
-   mm_per_pixel = ממוצע = {mm_per_px:.4f}
-
-2. מטר/פיקסל = (מ"מ/פיקסל × קנה מידה) / 1000
-   meters_per_pixel = ({mm_per_px:.4f} × {scale_denom}) / 1000
-   meters_per_pixel = {m_per_px:.6f}
-
-3. אורך קירות במטרים = פיקסלי קירות × מטר/פיקסל
-""",
-                            language="text",
-                        )
-
-                    # אם לא התקבל wall_length_total_px מהאנלייזר, ננסה לחשב מה-skeleton
-                    if (
-                        not meta.get("wall_length_total_px")
-                        and proj.get("skeleton") is not None
-                    ):
-                        try:
-                            meta["wall_length_total_px"] = float(
-                                compute_skeleton_length_px(proj["skeleton"])
-                            )
-                        except Exception:
-                            pass
-
-                    if meta.get("wall_length_total_px"):
-                        wall_px = float(meta["wall_length_total_px"])
-                        wall_m = float(
-                            meta.get("wall_length_total_m", wall_px * m_per_px)
-                        )
-
-                        st.markdown("---")
-                        col_w1, col_w2 = st.columns(2)
-                        with col_w1:
-                            st.success(f"📏 `{wall_px:,.0f}` פיקסלים")
-                        with col_w2:
-                            st.success(f"📐 `{wall_m:.2f}` מטר")
-
-                else:
-                    st.warning("⚠️ חסרים נתונים - בחר גודל נייר וקנה מידה למעלה")
 
             # מחשבון הצעת מחיר
             with st.expander("💰 מחשבון הצעת מחיר", expanded=False):
                 st.markdown(
                     """<div style="background:#f0f2f6;padding:10px;border-radius:8px;margin-bottom:10px;">
-<strong>מחירון בסיס:</strong> בטון 1200₪/מ' | בלוקים 600₪/מ' | ריצוף 250₪/מ"ר
-</div>""",
+                <strong>מחירון בסיס:</strong> בטון 1200₪/מ' | בלוקים 600₪/מ' | ריצוף 250₪/מ\"ר
+                </div>""",
                     unsafe_allow_html=True,
                 )
 
@@ -1026,7 +370,6 @@ def render_workshop_tab():
             ):
                 proj["metadata"]["plan_name"] = p_name
                 proj["metadata"]["scale"] = p_scale_text
-
                 meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
                 materials = json.dumps(
                     {
@@ -1041,8 +384,8 @@ def render_workshop_tab():
                     selected,
                     p_name,
                     p_scale_text,
-                    float(scale_val),
-                    int(corrected_pixels),
+                    scale_val,
+                    corrected_pixels,
                     meta_json,
                     None,
                     0,
@@ -1062,6 +405,7 @@ def render_workshop_tab():
                 "הצג ריצוף", value=True, key=f"show_flooring_{selected}"
             )
 
+            # שימוש בגרסה המתוקנת
             corrected_walls_display = get_corrected_walls(selected, proj)
 
             kernel_display = np.ones((6, 6), np.uint8)
@@ -1072,796 +416,873 @@ def render_workshop_tab():
             )
             blocks_corrected = cv2.subtract(corrected_walls_display, concrete_corrected)
 
-            floor_mask = None
-            if show_flooring:
-                floor_mask = proj.get("flooring_mask_refined")
-            if floor_mask is None:
-                floor_mask = proj.get("flooring_mask")
+            floor_mask = proj["flooring_mask"] if show_flooring else None
+
             overlay = create_colored_overlay(
                 proj["original"], concrete_corrected, blocks_corrected, floor_mask
             )
             st.image(overlay, use_column_width=True)
             st.caption("🔵 כחול=בטון | 🟠 כתום=בלוקים | 🟣 סגול=ריצוף")
 
+            # ניתוח מקרא
+            st.markdown("---")
+            with st.expander("🎨 נתח מקרא (AI)", expanded=False):
+                st.caption(
+                    "המערכת תנסה למצוא את המקרא אוטומטית, או שאתה יכול לחתוך ידנית"
+                )
 
+                col_auto, col_manual = st.columns([1, 1])
+
+                with col_auto:
+                    if st.button(
+                        "🔍 מצא מקרא אוטומטית",
+                        key=f"auto_legend_{selected}",
+                        use_container_width=True,
+                    ):
+                        with st.spinner("מחפש מקרא..."):
+                            try:
+                                analyzer_temp = FloorPlanAnalyzer()
+                                legend_bbox = analyzer_temp.auto_detect_legend(
+                                    proj["original"]
+                                )
+
+                                if legend_bbox:
+                                    x, y, w, h = legend_bbox
+
+                                    cropped = proj["original"][y : y + h, x : x + w]
+                                    cropped_rgb = cv2.cvtColor(
+                                        cropped, cv2.COLOR_BGR2RGB
+                                    )
+
+                                    st.success("✅ נמצא מקרא!")
+                                    st.image(
+                                        cropped_rgb,
+                                        caption=f"מקרא שזוהה (גודל: {w}x{h}px)",
+                                        width=400,
+                                    )
+
+                                    if "auto_legend" not in st.session_state:
+                                        st.session_state.auto_legend = {}
+                                    st.session_state.auto_legend[selected] = cropped
+
+                                    if st.button(
+                                        "📝 נתח מקרא זה",
+                                        key=f"analyze_auto_{selected}",
+                                    ):
+                                        with st.spinner("מנתח עם Claude AI..."):
+                                            _, buffer = cv2.imencode(".png", cropped)
+                                            image_bytes = buffer.tobytes()
+
+                                            result = safe_analyze_legend(image_bytes)
+
+                                            if (
+                                                isinstance(result, dict)
+                                                and "error" not in result
+                                            ):
+                                                st.success("✅ ניתוח הושלם!")
+
+                                                col_a, col_b = st.columns(2)
+                                                with col_a:
+                                                    st.metric(
+                                                        "סוג תוכנית",
+                                                        result.get(
+                                                            "plan_type", "לא זוהה"
+                                                        ),
+                                                    )
+                                                    st.metric(
+                                                        "רמת ביטחון",
+                                                        f"{result.get('confidence', 0)}%",
+                                                    )
+
+                                                with col_b:
+                                                    if result.get("materials_found"):
+                                                        st.markdown("**חומרים שזוהו:**")
+                                                        for material in result[
+                                                            "materials_found"
+                                                        ]:
+                                                            st.markdown(f"- {material}")
+
+                                                if result.get("symbols"):
+                                                    st.markdown("**סמלים:**")
+                                                    for symbol in result["symbols"][:5]:
+                                                        st.markdown(
+                                                            f"- **{symbol.get('symbol', '')}**: {symbol.get('meaning', '')}"
+                                                        )
+
+                                                if result.get("notes"):
+                                                    st.info(f"💡 {result['notes']}")
+
+                                                proj["metadata"][
+                                                    "legend_analysis"
+                                                ] = result
+                                            else:
+                                                st.error(
+                                                    f"❌ {result.get('error', 'שגיאה לא ידועה')}"
+                                                )
+                                else:
+                                    st.warning(
+                                        "⚠️ לא נמצא מקרא אוטומטית. נסה לחתוך ידנית למטה."
+                                    )
+                                    st.caption(
+                                        "💡 טיפ: המקרא בדרך כלל בפינה או בצד של התוכנית"
+                                    )
+
+                            except Exception as e:
+                                st.error(f"❌ שגיאה: {str(e)}")
+
+                with col_manual:
+                    st.markdown("**או:**")
+                    st.caption("צייר ריבוע סביב המקרא ידנית ↓")
+
+                st.markdown("---")
+                st.markdown("### חיתוך ידני")
+
+                rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
+                h, w = rgb.shape[:2]
+
+                scale_factor = min(1.0, 1200 / max(w, h))
+
+                new_w = int(w * scale_factor)
+                new_h = int(h * scale_factor)
+
+                pil_image = Image.fromarray(rgb.astype("uint8"), "RGB")
+                pil_image_resized = pil_image.resize(
+                    (new_w, new_h), Image.Resampling.LANCZOS
+                )
+
+                legend_canvas = st_canvas(
+                    fill_color="rgba(255,0,0,0.1)",
+                    stroke_width=3,
+                    stroke_color="#FF0000",
+                    background_image=pil_image_resized,
+                    height=new_h,
+                    width=new_w,
+                    drawing_mode="rect",
+                    key=f"legend_canvas_{selected}",
+                    update_streamlit=True,
+                )
+
+                if legend_canvas.json_data and legend_canvas.json_data["objects"]:
+                    if st.button("🔍 נתח מקרא עם AI", key=f"analyze_legend_{selected}"):
+                        with st.spinner("מנתח מקרא..."):
+                            try:
+                                rect = legend_canvas.json_data["objects"][-1]
+                                x = int(rect["left"] / scale_factor)
+                                y = int(rect["top"] / scale_factor)
+                                rect_w = int(rect["width"] / scale_factor)
+                                rect_h = int(rect["height"] / scale_factor)
+
+                                cropped = proj["original"][
+                                    y : y + rect_h, x : x + rect_w
+                                ]
+
+                                _, buffer = cv2.imencode(".png", cropped)
+                                image_bytes = buffer.tobytes()
+
+                                result = safe_analyze_legend(image_bytes)
+
+                                if isinstance(result, dict) and "error" not in result:
+                                    st.success("✅ ניתוח הושלם!")
+
+                                    col_a, col_b = st.columns(2)
+                                    with col_a:
+                                        st.metric(
+                                            "סוג תוכנית",
+                                            result.get("plan_type", "לא זוהה"),
+                                        )
+                                        st.metric(
+                                            "רמת ביטחון",
+                                            f"{result.get('confidence', 0)}%",
+                                        )
+
+                                    with col_b:
+                                        if result.get("materials_found"):
+                                            st.markdown("**חומרים שזוהו:**")
+                                            for material in result["materials_found"]:
+                                                st.markdown(f"- {material}")
+
+                                    if result.get("symbols"):
+                                        st.markdown("**סמלים:**")
+                                        for symbol in result["symbols"][:5]:
+                                            st.markdown(
+                                                f"- **{symbol.get('symbol', '')}**: {symbol.get('meaning', '')}"
+                                            )
+
+                                    if result.get("notes"):
+                                        st.info(f"💡 {result['notes']}")
+
+                                    proj["metadata"]["legend_analysis"] = result
+
+                                elif isinstance(result, dict) and "error" in result:
+                                    st.error(f"שגיאה: {result['error']}")
+                                else:
+                                    st.warning(f"תשובה לא צפויה: {result}")
+
+                            except Exception as e:
+                                st.error(f"שגיאה בניתוח: {str(e)}")
+                                import traceback
+
+                                with st.expander("פרטי שגיאה"):
+                                    st.code(traceback.format_exc())
+                else:
+                    st.info("👆 צייר ריבוע סביב המקרא בתוכנית ולחץ על הכפתור")
+
+
+# ==========================================
+# TAB 2: תיקונים ידניים
+# ==========================================
 def render_corrections_tab():
-    """טאב 2: תיקונים ידניים"""
+    """טאב תיקונים ידניים לקירות"""
     st.markdown("## 🎨 תיקונים ידניים")
     st.caption("הוסף או הסר קירות באופן ידני למדויקות מקסימלית")
 
     if not st.session_state.projects:
         st.info("📂 אנא העלה תוכנית תחילה בטאב 'סדנת עבודה'")
-        return
+    else:
+        selected_plan = st.selectbox(
+            "בחר תוכנית לתיקון:",
+            list(st.session_state.projects.keys()),
+            key="correction_plan_select",
+        )
+        proj = st.session_state.projects[selected_plan]
 
-    selected_plan = st.selectbox(
-        "בחר תוכנית לתיקון:",
-        list(st.session_state.projects.keys()),
-        key="correction_plan_select",
-    )
-    proj = st.session_state.projects[selected_plan]
-
-    correction_mode = st.radio(
-        "מצב תיקון:",
-        ["➕ הוסף קירות חסרים", "➖ הסר קירות מזויפים", "👁️ השוואה"],
-        horizontal=True,
-    )
-
-    rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
-    h, w = rgb.shape[:2]
-    scale_factor = 1000 / w if w > 1000 else 1.0
-    img_display = Image.fromarray(rgb).resize(
-        (int(w * scale_factor), int(h * scale_factor))
-    )
-
-    if correction_mode == "➕ הוסף קירות חסרים":
-        st.info("🖌️ צייר בירוק על הקירות שהמערכת החמיצה")
-
-        canvas_add = st_canvas(
-            fill_color="rgba(0,0,0,0)",
-            stroke_width=6,
-            stroke_color="#00FF00",
-            background_image=img_display,
-            height=int(h * scale_factor),
-            width=int(w * scale_factor),
-            drawing_mode="freedraw",
-            key=f"canvas_add_{selected_plan}",
-            update_streamlit=True,
+        correction_mode = st.radio(
+            "מצב תיקון:",
+            ["➕ הוסף קירות חסרים", "➖ הסר קירות מזויפים", "👁️ השוואה"],
+            horizontal=True,
         )
 
-        if canvas_add.image_data is not None and np.any(
-            canvas_add.image_data[:, :, 3] > 0
-        ):
-            if st.button("✅ אשר הוספה", key="confirm_add"):
-                if selected_plan not in st.session_state.manual_corrections:
-                    st.session_state.manual_corrections[selected_plan] = {}
-
-                added_mask = cv2.resize(
-                    canvas_add.image_data[:, :, 3],
-                    (w, h),
-                    interpolation=cv2.INTER_NEAREST,
-                )
-                added_mask = (added_mask > 0).astype(np.uint8) * 255
-
-                st.session_state.manual_corrections[selected_plan][
-                    "added_walls"
-                ] = added_mask
-                st.success("✅ קירות נוספו! עבור לטאב 'השוואה' לראות את התוצאה")
-                st.rerun()
-
-    elif correction_mode == "➖ הסר קירות מזויפים":
-        st.info("🖌️ צייר באדום על קירות שהמערכת זיהתה בטעות")
-
-        walls_overlay = proj["thick_walls"].copy()
-        walls_colored = cv2.cvtColor(walls_overlay, cv2.COLOR_GRAY2RGB)
-        walls_colored[walls_overlay > 0] = [0, 255, 255]
-
-        combined = cv2.addWeighted(rgb, 0.6, walls_colored, 0.4, 0)
-        combined_resized = cv2.resize(
-            combined, (int(w * scale_factor), int(h * scale_factor))
-        )
-        img_with_walls = Image.fromarray(combined_resized)
-
-        canvas_remove = st_canvas(
-            fill_color="rgba(0,0,0,0)",
-            stroke_width=8,
-            stroke_color="#FF0000",
-            background_image=img_with_walls,
-            height=int(h * scale_factor),
-            width=int(w * scale_factor),
-            drawing_mode="freedraw",
-            key=f"canvas_remove_{selected_plan}",
-            update_streamlit=True,
+        rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
+        h, w = rgb.shape[:2]
+        scale_factor = 1000 / w if w > 1000 else 1.0
+        img_display = Image.fromarray(rgb).resize(
+            (int(w * scale_factor), int(h * scale_factor))
         )
 
-        if canvas_remove.image_data is not None and np.any(
-            canvas_remove.image_data[:, :, 3] > 0
-        ):
-            if st.button("✅ אשר הסרה", key="confirm_remove"):
-                if selected_plan not in st.session_state.manual_corrections:
-                    st.session_state.manual_corrections[selected_plan] = {}
+        if correction_mode == "➕ הוסף קירות חסרים":
+            st.info("🖌️ צייר בירוק על הקירות שהמערכת החמיצה")
 
-                removed_mask = cv2.resize(
-                    canvas_remove.image_data[:, :, 3],
-                    (w, h),
-                    interpolation=cv2.INTER_NEAREST,
-                )
-                removed_mask = (removed_mask > 0).astype(np.uint8) * 255
+            canvas_add = st_canvas(
+                fill_color="rgba(0,0,0,0)",
+                stroke_width=6,
+                stroke_color="#00FF00",
+                background_image=img_display,
+                height=int(h * scale_factor),
+                width=int(w * scale_factor),
+                drawing_mode="freedraw",
+                key=f"canvas_add_{selected_plan}",
+                update_streamlit=True,
+            )
 
-                st.session_state.manual_corrections[selected_plan][
-                    "removed_walls"
-                ] = removed_mask
-                st.success("✅ קירות הוסרו! עבור לטאב 'השוואה' לראות את התוצאה")
-                st.rerun()
+            if canvas_add.image_data is not None and np.any(
+                canvas_add.image_data[:, :, 3] > 0
+            ):
+                if st.button("✅ אשר הוספה", key="confirm_add"):
+                    if selected_plan not in st.session_state.manual_corrections:
+                        st.session_state.manual_corrections[selected_plan] = {}
 
-    elif correction_mode == "👁️ השוואה":
-        st.markdown("### לפני ואחרי")
-
-        if selected_plan in st.session_state.manual_corrections:
-            corrected_walls = get_corrected_walls(selected_plan, proj)
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.markdown("#### 🤖 זיהוי אוטומטי")
-                auto_overlay = rgb.copy()
-                auto_overlay[proj["thick_walls"] > 0] = [0, 255, 0]
-                st.image(auto_overlay, use_column_width=True)
-
-                auto_pixels = np.count_nonzero(proj["thick_walls"])
-                auto_length = auto_pixels / proj["scale"]
-                st.metric("אורך", f"{auto_length:.1f} מ'")
-
-            with col2:
-                st.markdown("#### ✅ אחרי תיקון")
-                corrected_overlay = rgb.copy()
-                corrected_overlay[corrected_walls > 0] = [255, 165, 0]
-                st.image(corrected_overlay, use_column_width=True)
-
-                corrected_pixels = np.count_nonzero(corrected_walls)
-                corrected_length = corrected_pixels / proj["scale"]
-                st.metric(
-                    "אורך",
-                    f"{corrected_length:.1f} מ'",
-                    delta=f"{corrected_length - auto_length:+.1f} מ'",
-                )
-
-            st.markdown("---")
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("💾 שמור גרסה מתוקנת", type="primary"):
-                    proj["thick_walls"] = corrected_walls
-                    proj["raw_pixels"] = int(corrected_pixels)
-                    proj["total_length"] = float(corrected_length)
-
-                    import json as jsonlib
-
-                    meta_json = jsonlib.dumps(proj["metadata"], ensure_ascii=False)
-                    save_plan(
-                        selected_plan,
-                        proj["metadata"].get("plan_name"),
-                        "1:50",
-                        float(proj["scale"]),
-                        int(corrected_pixels),
-                        meta_json,
+                    added_mask = cv2.resize(
+                        canvas_add.image_data[:, :, 3],
+                        (w, h),
+                        interpolation=cv2.INTER_NEAREST,
                     )
-                    st.success("✅ הגרסה המתוקנת נשמרה!")
+                    added_mask = (added_mask > 0).astype(np.uint8) * 255
 
-            with col_btn2:
-                if st.button("🔄 אפס תיקונים", key="reset_corrections"):
-                    del st.session_state.manual_corrections[selected_plan]
-                    st.success("התיקונים אופסו")
+                    st.session_state.manual_corrections[selected_plan][
+                        "added_walls"
+                    ] = added_mask
+                    st.success("✅ קירות נוספו! עבור לטאב 'השוואה' לראות את התוצאה")
                     st.rerun()
-        else:
-            st.info("אין תיקונים ידניים עדיין. עבור לטאב 'הוסף קירות' או 'הסר קירות'")
 
+        elif correction_mode == "➖ הסר קירות מזויפים":
+            st.info("🖌️ צייר באדום על קירות שהמערכת זיהתה בטעות")
 
-def render_dashboard_tab():
-    """טאב 3: דשבורד"""
-    from pages.dashboard import render_dashboard
+            walls_overlay = proj["thick_walls"].copy()
+            walls_colored = cv2.cvtColor(walls_overlay, cv2.COLOR_GRAY2RGB)
+            walls_colored[walls_overlay > 0] = [0, 255, 255]
 
-    render_dashboard()
+            combined = cv2.addWeighted(rgb, 0.6, walls_colored, 0.4, 0)
+            combined_resized = cv2.resize(
+                combined, (int(w * scale_factor), int(h * scale_factor))
+            )
+            img_with_walls = Image.fromarray(combined_resized)
 
-
-def render_invoices_tab():
-    """טאב 4: חשבונות"""
-    from pages.invoices import render_invoices
-
-    render_invoices()
-
-
-def render_plan_data_tab():
-    """טאב חדש: נתונים מהשרטוט - הצגת חדרים ושטחים"""
-
-    st.markdown("## 📄 נתונים מהשרטוט")
-    st.caption("מידע שחולץ מהטקסט בתוכנית באמצעות AI")
-
-    if not st.session_state.projects:
-        st.info("📂 אין תוכניות במערכת. העלה תוכנית בטאב 'סדנת עבודה'")
-        return
-
-    # בחירת תוכנית
-    selected_plan = st.selectbox(
-        "בחר תוכנית:", list(st.session_state.projects.keys()), key="plan_data_select"
-    )
-
-    if not selected_plan:
-        return
-
-    proj = st.session_state.projects[selected_plan]
-
-    # Load LLM data from multiple possible locations
-    llm_data = None
-
-    # Priority 1: Direct llm_data key
-    if "llm_data" in proj:
-        llm_data = proj["llm_data"]
-    # Priority 2: llm_suggestions key (legacy)
-    elif "llm_suggestions" in proj:
-        llm_data = proj["llm_suggestions"]
-    # Priority 3: Nested in metadata
-    elif "metadata" in proj and isinstance(proj["metadata"], dict):
-        if "llm_data" in proj["metadata"]:
-            llm_data = proj["metadata"]["llm_data"]
-
-    # If no data, offer to extract
-    if not llm_data or llm_data.get("status") in ["error", "empty_text", "no_api_key"]:
-        st.warning("⚠️ לא נמצא מידע מחולץ לתוכנית זו")
-
-        # Show reason
-        if llm_data:
-            if llm_data.get("error"):
-                st.error(f"שגיאה: {llm_data['error']}")
-            if llm_data.get("limitations"):
-                st.info("מגבלות:")
-                for limit in llm_data["limitations"]:
-                    st.markdown(f"- {limit}")
-
-        # Offer re-extraction
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown("**האם לנסות לחלץ שוב?**")
-            st.caption("המערכת תנסה לחלץ מידע מהטקסט של התוכנית")
-
-        with col2:
-            if st.button("🔄 חלץ מחדש", type="primary", use_container_width=True):
-                with st.spinner("מחלץ נתונים..."):
-                    try:
-                        from utils import safe_process_metadata
-
-                        # Get best text source
-                        meta = proj.get("metadata", {})
-                        llm_data = safe_process_metadata(
-                            raw_text=meta.get("raw_text"),
-                            raw_text_full=meta.get("raw_text_full"),
-                            normalized_text=meta.get("normalized_text"),
-                            raw_blocks=meta.get("raw_blocks"),
-                        )
-
-                        # Store in all locations for compatibility
-                        proj["llm_data"] = llm_data
-                        proj["llm_suggestions"] = llm_data  # Backward compat
-
-                        st.success("✅ חילוץ הושלם!")
-                        st.rerun()
-
-                    except Exception as e:
-                        st.error(f"❌ שגיאה: {str(e)}")
-
-        st.markdown("---")
-
-    # Display extracted data
-    if llm_data and llm_data.get("status") != "error":
-
-        # Status badge
-        status = llm_data.get("status", "unknown")
-        if status == "success":
-            st.markdown("✅ **סטטוס:** הופק בהצלחה")
-        elif status == "success_legacy":
-            st.info(f"ℹ️ סטטוס: הומר מפורמט ישן")
-
-        if llm_data.get("model_used"):
-            st.caption(f"🤖 מודל: {llm_data['model_used']}")
-
-        st.markdown("---")
-
-        # === 1. Document Information ===
-        st.markdown("### 📋 פרטי מסמך")
-
-        document = llm_data.get("document", {})
-        if document:
-            doc_data = []
-
-            field_labels = {
-                "plan_title": "שם תוכנית",
-                "plan_type": "סוג תוכנית",
-                "scale": "סקלה",
-                "date": "תאריך",
-                "floor_or_level": "קומה/מפלס",
-                "project_name": "שם פרויקט",
-                "project_address": "כתובת",
-                "architect_name": "אדריכל",
-                "drawing_number": "מספר שרטוט",
-            }
-
-            for field_key, field_label in field_labels.items():
-                if field_key in document:
-                    field_obj = document[field_key]
-
-                    # Extract value
-                    if isinstance(field_obj, dict):
-                        value = field_obj.get("value")
-                        confidence = field_obj.get("confidence", 0)
-
-                        if value:
-                            doc_data.append(
-                                {
-                                    "שדה": field_label,
-                                    "ערך": str(value),
-                                    "ביטחון": f"{confidence}%",
-                                }
-                            )
-                    elif field_obj:  # Simple value
-                        doc_data.append(
-                            {"שדה": field_label, "ערך": str(field_obj), "ביטחון": "N/A"}
-                        )
-
-            if doc_data:
-                df_doc = pd.DataFrame(doc_data)
-                st.dataframe(
-                    df_doc, use_container_width=True, hide_index=True, height=220
-                )
-            else:
-                st.info("לא נמצאו פרטי מסמך")
-        else:
-            st.info("לא נמצאו פרטי מסמך")
-
-        st.markdown("---")
-
-        # === 2. Rooms Table ===
-        st.markdown("### 🏠 חדרים ושטחים")
-
-        rooms = llm_data.get("rooms", [])
-        if rooms:
-            st.caption(f"✅ נמצאו {len(rooms)} חדרים")
-
-            rooms_data = []
-            for idx, room in enumerate(rooms, 1):
-                # Extract values from each field
-                def get_val(field_obj, default=""):
-                    if isinstance(field_obj, dict):
-                        return field_obj.get("value", default)
-                    return field_obj if field_obj else default
-
-                def get_conf(field_obj):
-                    if isinstance(field_obj, dict):
-                        return field_obj.get("confidence", 0)
-                    return 0
-
-                room_row = {
-                    "#": idx,
-                    "שם חדר": get_val(room.get("name", {})),
-                    'שטח (מ"ר)': get_val(room.get("area_m2", {}), 0),
-                    "גובה תקרה (מ')": get_val(room.get("ceiling_height_m", {}), ""),
-                    "ריצוף": get_val(room.get("flooring_notes", {})),
-                    "תקרה": get_val(room.get("ceiling_notes", {})),
-                    "הערות": get_val(room.get("other_notes", {})),
-                }
-
-                # Add confidence for area (most important)
-                area_conf = get_conf(room.get("area_m2", {}))
-                if area_conf > 0:
-                    room_row["ביטחון שטח"] = f"{area_conf}%"
-
-                rooms_data.append(room_row)
-
-            df_rooms = pd.DataFrame(rooms_data)
-            st.dataframe(
-                df_rooms, use_container_width=True, hide_index=True, height=360
+            canvas_remove = st_canvas(
+                fill_color="rgba(0,0,0,0)",
+                stroke_width=8,
+                stroke_color="#FF0000",
+                background_image=img_with_walls,
+                height=int(h * scale_factor),
+                width=int(w * scale_factor),
+                drawing_mode="freedraw",
+                key=f"canvas_remove_{selected_plan}",
+                update_streamlit=True,
             )
 
-            # Total area
-            total_area = sum(
-                [
-                    float(r['שטח (מ"ר)'])
-                    for r in rooms_data
-                    if r['שטח (מ"ר)'] and str(r['שטח (מ"ר)']).replace(".", "").isdigit()
-                ]
-            )
+            if canvas_remove.image_data is not None and np.any(
+                canvas_remove.image_data[:, :, 3] > 0
+            ):
+                if st.button("✅ אשר הסרה", key="confirm_remove"):
+                    if selected_plan not in st.session_state.manual_corrections:
+                        st.session_state.manual_corrections[selected_plan] = {}
 
-            if total_area > 0:
-                st.metric("סך כל שטח החדרים", f'{total_area:.2f} מ"ר')
-        else:
-            st.warning("⚠️ לא נמצאו חדרים בטקסט")
-            st.caption("💡 ייתכן שהתוכנית לא כוללת טבלת חדרים או שהטקסט לא חולץ כראוי")
-
-        st.markdown("---")
-
-        # === 3. Heights and Levels ===
-        heights = llm_data.get("heights_and_levels", {})
-        if heights:
-            st.markdown("### 📏 גבהים ומפלסים")
-
-            height_data = []
-            height_labels = {
-                "default_ceiling_height_m": "גובה תקרה סטנדרטי (מ')",
-                "default_floor_height_m": "גובה רצפה ממפלס 0 (מ')",
-                "construction_level_m": "מפלס בנייה (מ')",
-            }
-
-            for key, label in height_labels.items():
-                if key in heights:
-                    field_obj = heights[key]
-                    value = (
-                        field_obj.get("value")
-                        if isinstance(field_obj, dict)
-                        else field_obj
+                    removed_mask = cv2.resize(
+                        canvas_remove.image_data[:, :, 3],
+                        (w, h),
+                        interpolation=cv2.INTER_NEAREST,
                     )
+                    removed_mask = (removed_mask > 0).astype(np.uint8) * 255
 
-                    if value:
-                        height_data.append({"פרמטר": label, "ערך": value})
+                    st.session_state.manual_corrections[selected_plan][
+                        "removed_walls"
+                    ] = removed_mask
+                    st.success("✅ קירות הוסרו! עבור לטאב 'השוואה' לראות את התוצאה")
+                    st.rerun()
 
-            if height_data:
-                df_heights = pd.DataFrame(height_data)
-                st.dataframe(
-                    df_heights, use_container_width=True, hide_index=True, height=240
-                )
-            else:
-                st.info("לא נמצאו נתוני גבהים")
+        elif correction_mode == "👁️ השוואה":
+            st.markdown("### לפני ואחרי")
 
-        # === 4. Execution Notes ===
-        notes = llm_data.get("execution_notes", {})
-        if notes and any(notes.values()):
-            st.markdown("### 📝 הערות ביצוע")
+            if selected_plan in st.session_state.manual_corrections:
+                corrected_walls = get_corrected_walls(selected_plan, proj)
 
-            note_labels = {
-                "general_notes": "הערות כלליות",
-                "structural_notes": "הערות קונסטרוקציה",
-                "hvac_notes": "מיזוג אוויר",
-                "electrical_notes": "חשמל",
-                "plumbing_notes": "אינסטלציה",
-            }
-
-            for key, label in note_labels.items():
-                if key in notes:
-                    field_obj = notes[key]
-                    value = (
-                        field_obj.get("value")
-                        if isinstance(field_obj, dict)
-                        else field_obj
-                    )
-
-                    if value:
-                        st.markdown(f"**{label}:** {value}")
-
-        # === 5. Quantities Hint ===
-        quantities = llm_data.get("quantities_hint", {})
-        if quantities:
-            wall_types = quantities.get("wall_types_mentioned", [])
-            materials = quantities.get("material_hints", [])
-
-            if wall_types or materials:
-                st.markdown("### 🔨 רמזים לכמויות")
-
-                if wall_types:
-                    st.markdown("**סוגי קירות שהוזכרו:**")
-                    for wt in wall_types:
-                        st.markdown(f"- {wt}")
-
-                if materials:
-                    st.markdown("**חומרי גמר שהוזכרו:**")
-                    for mat in materials:
-                        st.markdown(f"- {mat}")
-
-        # === 6. Limitations ===
-        limitations = llm_data.get("limitations", [])
-        if limitations:
-            st.markdown("---")
-            st.markdown("### ⚠️ מגבלות וזיהוי בעיות")
-            for limit in limitations:
-                st.warning(limit)
-
-        # === 7. Raw JSON Debug ===
-        st.markdown("---")
-        with st.expander("🔍 JSON מלא (Debug)", expanded=False):
-            st.json(llm_data)
-
-
-def render_floor_analysis_tab():
-    """
-    טאב חדש: ניתוח שטחי רצפה והיקפים
-    מבוסס על סגמנטציה של חדרים מתוך מסכת קירות
-    """
-    import pandas as pd
-    import cv2
-    import numpy as np
-    from floor_extractor import analyze_floor_and_rooms
-
-    st.markdown("## 📐 ניתוח שטחי רצפה והיקפים")
-    st.caption("חישוב אוטומטי של שטחי חדרים, היקפים ופאנלים על בסיס זיהוי קירות")
-
-    if not st.session_state.projects:
-        st.info("📂 אין תוכניות במערכת. העלה תוכנית בטאב 'סדנת עבודה'")
-        return
-
-    # בחירת תוכנית
-    selected_plan = st.selectbox(
-        "בחר תוכנית:",
-        list(st.session_state.projects.keys()),
-        key="floor_analysis_plan_select",
-    )
-
-    if not selected_plan:
-        return
-
-    proj = st.session_state.projects[selected_plan]
-
-    st.markdown("---")
-
-    # הגדרות ניתוח
-    with st.expander("⚙️ הגדרות מתקדמות", expanded=False):
-        col_set1, col_set2 = st.columns(2)
-
-        with col_set1:
-            seg_method = st.radio(
-                "שיטת סגמנטציה:",
-                ["watershed", "cc"],
-                index=0,
-                help="watershed מומלץ - מפריד חדרים מחוברים | cc - פשוט יותר",
-            )
-
-        with col_set2:
-            auto_min_area = st.checkbox(
-                "סף חדרים אוטומטי",
-                value=True,
-                help="מחשב סף דינאמי לפי גודל השטח הפנימי",
-            )
-            min_area = st.number_input(
-                "שטח מינימלי לחדר (פיקסלים):",
-                min_value=100,
-                max_value=5000,
-                value=500,
-                step=100,
-                help="חדרים קטנים מזה יתעלמו",
-                disabled=auto_min_area,
-            )
-
-    # כפתור ניתוח
-    if st.button(
-        "🔍 חשב שטחים והיקפים מהשרטוט", type="primary", use_container_width=True
-    ):
-
-        with st.spinner("מנתח... זה עשוי לקחת מספר שניות"):
-            try:
-                # שלב 1: הכן נתונים
-                walls_mask = proj.get("thick_walls")
-                original_img = proj.get("original")
-
-                if walls_mask is None:
-                    st.error("❌ לא נמצאה מסכת קירות. נסה לעבד את התוכנית מחדש.")
-                    return
-
-                # שלב 2: חלץ meters_per_pixel
-                meta = proj.get("metadata", {})
-                meters_per_pixel = meta.get("meters_per_pixel")
-                meters_per_pixel_x = meta.get("meters_per_pixel_x")
-                meters_per_pixel_y = meta.get("meters_per_pixel_y")
-
-                if meters_per_pixel is None:
-                    st.warning("⚠️ אין קנה מידה מוגדר - התוצאות יהיו בפיקסלים בלבד")
-
-                # שלב 3: חלץ LLM rooms (אם יש)
-                llm_data = proj.get("llm_data") or proj.get("llm_suggestions")
-                llm_rooms = None
-                if llm_data and isinstance(llm_data, dict):
-                    llm_rooms = llm_data.get("rooms", [])
-
-                # שלב 4: ניתוח!
-                result = analyze_floor_and_rooms(
-                    walls_mask=walls_mask,
-                    original_image=original_img,
-                    meters_per_pixel=meters_per_pixel,
-                    meters_per_pixel_x=meters_per_pixel_x,
-                    meters_per_pixel_y=meters_per_pixel_y,
-                    llm_rooms=llm_rooms,
-                    segmentation_method=seg_method,
-                    min_room_area_px=0 if auto_min_area else int(min_area),
-                )
-
-                # שמור בפרויקט
-                proj["floor_analysis"] = result
-
-                # שיפור מסכת ריצוף לפי מסכות חדרים (אם קיימות)
-                try:
-                    refined_flooring = refine_flooring_mask_with_rooms(
-                        proj.get("flooring_mask"),
-                        result.get("visualizations", {}).get("masks"),
-                    )
-                    if refined_flooring is not None:
-                        proj["flooring_mask_refined"] = refined_flooring
-                        meta = proj.get("metadata", {})
-                        meta["pixels_flooring_area_refined"] = int(
-                            np.count_nonzero(refined_flooring)
-                        )
-                except Exception:
-                    pass
-
-                # שלב 5: הצג תוצאות
-                if not result["success"]:
-                    st.error("❌ הניתוח נכשל")
-                    if result.get("limitations"):
-                        for lim in result["limitations"]:
-                            st.warning(f"⚠️ {lim}")
-                    return
-
-                st.success(
-                    f"✅ הניתוח הושלם! נמצאו {result['totals']['num_rooms']} אזורים/חדרים"
-                )
-
-                # תקציר
-                st.markdown("### 📊 תקציר")
-
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2 = st.columns(2)
 
                 with col1:
-                    st.metric("מספר חדרים", result["totals"]["num_rooms"])
+                    st.markdown("#### 🤖 זיהוי אוטומטי")
+                    auto_overlay = rgb.copy()
+                    auto_overlay[proj["thick_walls"] > 0] = [0, 255, 0]
+                    st.image(auto_overlay, use_column_width=True)
+
+                    auto_pixels = np.count_nonzero(proj["thick_walls"])
+                    auto_length = auto_pixels / proj["scale"]
+                    st.metric("אורך", f"{auto_length:.1f} מ'")
 
                 with col2:
-                    if result["totals"]["total_area_m2"] is not None:
-                        st.metric(
-                            'סה"כ שטח רצפה',
-                            f'{result["totals"]["total_area_m2"]:.2f} מ"ר',
-                        )
-                    else:
-                        st.metric('סה"כ שטח רצפה', "N/A")
+                    st.markdown("#### ✅ אחרי תיקון")
+                    corrected_overlay = rgb.copy()
+                    corrected_overlay[corrected_walls > 0] = [255, 165, 0]
+                    st.image(corrected_overlay, use_column_width=True)
 
-                with col3:
-                    if result["totals"]["total_perimeter_m"] is not None:
-                        st.metric(
-                            'סה"כ היקף',
-                            f'{result["totals"]["total_perimeter_m"]:.1f} מ\'',
-                        )
-                    else:
-                        st.metric('סה"כ היקף', "N/A")
-
-                with col4:
-                    if result["totals"]["total_baseboard_m"] is not None:
-                        st.metric(
-                            'סה"כ פאנלים (MVP)',
-                            f'{result["totals"]["total_baseboard_m"]:.1f} מ\'',
-                        )
-                    else:
-                        st.metric('סה"כ פאנלים', "N/A")
-
-                # טבלת חדרים
-                st.markdown("---")
-                st.markdown("### 🏠 פירוט לפי חדרים")
-
-                if result["rooms"]:
-                    rooms_data = []
-                    for room in result["rooms"]:
-                        row = {
-                            "מזהה": f"#{room['room_id']}",
-                        }
-
-                        # שם (אם matched)
-                        if room.get("matched_name"):
-                            row["שם חדר"] = room["matched_name"]
-                        else:
-                            row["שם חדר"] = "-"
-
-                        # שטחים
-                        if room["area_m2"] is not None:
-                            row['שטח (מ"ר)'] = f"{room['area_m2']:.2f}"
-
-                            if room.get("area_text_m2"):
-                                row["שטח מטקסט"] = f"{room['area_text_m2']:.2f}"
-                                row["הפרש"] = f"{room.get('diff_m2', 0):+.2f}"
-                            else:
-                                row["שטח מטקסט"] = "-"
-                                row["הפרש"] = "-"
-                        else:
-                            row["שטח (פיקסלים)"] = room["area_px"]
-
-                        # היקף
-                        if room["perimeter_m"] is not None:
-                            row["היקף (מ')"] = f"{room['perimeter_m']:.1f}"
-                        else:
-                            row["היקף (פיקסלים)"] = f"{room['perimeter_px']:.0f}"
-
-                        # פאנלים
-                        if room["baseboard_m"] is not None:
-                            row["פאנלים (מ')"] = f"{room['baseboard_m']:.1f}"
-
-                        # ביטחון
-                        if (
-                            room.get("match_confidence") is not None
-                            and room["match_confidence"] > 0
-                        ):
-                            row["התאמה"] = f"{room['match_confidence']:.0%}"
-
-                        rooms_data.append(row)
-
-                    df = pd.DataFrame(rooms_data)
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-
-                    # מגבלות
-                    if result.get("limitations"):
-                        st.markdown("---")
-                        st.markdown("### ⚠️ מגבלות וזיהוי בעיות")
-                        for lim in result["limitations"]:
-                            st.warning(lim)
-
-                    # ויזואליזציה
-                    st.markdown("---")
-                    st.markdown("### 🎨 ויזואליזציה")
-
-                    overlay = result["visualizations"].get("overlay")
-                    if overlay is not None:
-                        st.image(
-                            overlay,
-                            caption="חדרים מסומנים בצבעים",
-                            use_column_width=True,
-                        )
-
-                    # Debug data
-                    with st.expander("🔍 JSON מלא (Debug)", expanded=False):
-                        # הכן גרסה JSON-safe
-                        result_json = {
-                            "success": result["success"],
-                            "totals": result["totals"],
-                            "rooms": [
-                                {
-                                    k: v for k, v in room.items() if k not in ["mask"]
-                                }  # הסר numpy arrays
-                                for room in result["rooms"]
-                            ],
-                            "limitations": result["limitations"],
-                        }
-                        st.json(result_json)
-
-                else:
-                    st.info("לא נמצאו חדרים")
-
-            except Exception as e:
-                st.error(f"❌ שגיאה בניתוח: {str(e)}")
-                import traceback
-
-                with st.expander("פרטי שגיאה מפורטים"):
-                    st.code(traceback.format_exc())
-
-    # הצג תוצאות קיימות (אם יש)
-    elif "floor_analysis" in proj:
-        st.info("💾 יש ניתוח קיים. לחץ על הכפתור למעלה לניתוח מחדש.")
-
-        result = proj["floor_analysis"]
-
-        if result.get("success"):
-            st.markdown("### 📊 תוצאות אחרונות")
-
-            # תקציר מהיר
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("חדרים שנמצאו", result["totals"]["num_rooms"])
-            with col2:
-                if result["totals"]["total_area_m2"]:
+                    corrected_pixels = np.count_nonzero(corrected_walls)
+                    corrected_length = corrected_pixels / proj["scale"]
                     st.metric(
-                        'סה"כ שטח', f'{result["totals"]["total_area_m2"]:.1f} מ"ר'
+                        "אורך",
+                        f"{corrected_length:.1f} מ'",
+                        delta=f"{corrected_length - auto_length:+.1f} מ'",
                     )
 
-            # טבלה מקוצרת
-            if result["rooms"]:
-                quick_data = []
-                for room in result["rooms"][:5]:  # רק 5 ראשונים
-                    row = {"#": room["room_id"]}
-                    if room.get("matched_name"):
-                        row["שם"] = room["matched_name"]
-                    if room["area_m2"]:
-                        row["שטח"] = f"{room['area_m2']:.1f} מ\"ר"
-                    quick_data.append(row)
+                st.markdown("---")
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("💾 שמור גרסה מתוקנת", type="primary"):
+                        proj["thick_walls"] = corrected_walls
+                        proj["raw_pixels"] = corrected_pixels
+                        proj["total_length"] = corrected_length
 
-                st.dataframe(pd.DataFrame(quick_data), hide_index=True)
+                        meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
+                        save_plan(
+                            selected_plan,
+                            proj["metadata"].get("plan_name"),
+                            "1:50",
+                            proj["scale"],
+                            corrected_pixels,
+                            meta_json,
+                        )
 
-                if len(result["rooms"]) > 5:
-                    st.caption(
-                        f"מציג 5 מתוך {len(result['rooms'])} חדרים. לחץ 'חשב מחדש' לתצוגה מלאה."
+                        st.success("✅ הגרסה המתוקנת נשמרה!")
+
+                with col_btn2:
+                    if st.button("🔄 אפס תיקונים", key="reset_corrections"):
+                        del st.session_state.manual_corrections[selected_plan]
+                        st.success("התיקונים אופסו")
+                        st.rerun()
+            else:
+                st.info(
+                    "אין תיקונים ידניים עדיין. עבור לטאב 'הוסף קירות' או 'הסר קירות'"
+                )
+
+
+# ==========================================
+# TAB 3: נתונים מהשרטוט (Placeholder)
+# ==========================================
+def render_plan_data_tab():
+    """טאב הצגת נתונים שחולצו מהתוכנית"""
+    st.markdown("## 📄 נתונים מהשרטוט")
+    st.info("🚧 תכונה בפיתוח - יציג נתונים מובנים שחולצו מה-PDF")
+
+
+# ==========================================
+# TAB 4: ניתוח שטחים (Placeholder)
+# ==========================================
+def render_floor_analysis_tab():
+    """טאב ניתוח שטחים וחדרים"""
+    st.markdown("## 📐 ניתוח שטחים")
+    st.info("🚧 תכונה בפיתוח - ניתוח אוטומטי של חדרים ושטחים")
+
+
+# ==========================================
+# TAB 5: דשבורד
+# ==========================================
+def render_dashboard_tab():
+    """טאב דשבורד פרויקט"""
+    st.header("📊 דשבורד פרויקט")
+
+    all_plans = get_all_plans()
+    if not all_plans:
+        st.info("🔍 אין פרויקטים במערכת. העלה תוכנית בסדנת עבודה.")
+    else:
+        plan_options = [f"{p['plan_name']} (ID: {p['id']})" for p in all_plans]
+        selected_plan_dash = st.selectbox(
+            "📂 בחר פרויקט:", plan_options, key="dashboard_plan_select"
+        )
+        plan_id = int(selected_plan_dash.split("ID: ")[1].strip(")"))
+
+        forecast = get_project_forecast(plan_id)
+        financial = get_project_financial_status(plan_id)
+        plan_data = get_plan_by_id(plan_id)
+
+        st.markdown("### 📈 מדדי ביצוע")
+
+        k1, k2, k3, k4 = st.columns(4)
+
+        total = forecast.get("total_planned", 0)
+        built = forecast.get("cumulative_progress", 0)
+        percent = (built / total * 100) if total > 0 else 0
+        remaining = total - built
+
+        with k1:
+            st.metric(
+                label="📏 סך הכל מתוכנן",
+                value=f"{total:.1f} מ'",
+                help="סך כל הקירות שזוהו בתוכנית",
+            )
+
+        with k2:
+            st.metric(
+                label="✅ בוצע בפועל",
+                value=f"{built:.1f} מ'",
+                delta=f"{percent:.1f}%",
+                delta_color="normal",
+                help="סך כל הדיווחים מצטבר",
+            )
+
+        with k3:
+            st.metric(
+                label="⏳ נותר לביצוע",
+                value=f"{remaining:.1f} מ'",
+                delta=f"{forecast.get('days_to_finish', 0)} ימים",
+                delta_color="inverse",
+                help='תחזית עפ"י קצב ביצוע נוכחי',
+            )
+
+        with k4:
+            budget = financial.get("budget_limit", 0)
+            cost = financial.get("current_cost", 0)
+            variance = budget - cost
+            st.metric(
+                label="💰 עלות מצטברת",
+                value=f"{cost:,.0f} ₪",
+                delta=f"{variance:,.0f} ₪ {'תקציב' if variance >= 0 else 'חריגה'}",
+                delta_color="normal" if variance >= 0 else "inverse",
+                help=f"תקציב: {budget:,.0f} ₪",
+            )
+
+        st.markdown("---")
+        st.markdown("### 📊 התקדמות כללית")
+
+        if percent < 30:
+            color = "#EF4444"
+        elif percent < 70:
+            color = "#F59E0B"
+        else:
+            color = "#10B981"
+
+        progress_html = f"""
+        <div style="margin: 1.5rem 0;">
+            <div style="width: 100%; background: #e5e7eb; border-radius: 12px; height: 40px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <div style="
+                    width: {percent}%; 
+                    background: linear-gradient(90deg, {color}, {color}dd); 
+                    height: 100%; 
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: center; 
+                    color: white; 
+                    font-weight: bold; 
+                    font-size: 18px; 
+                    transition: width 0.5s ease;
+                    box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+                ">
+                    {percent:.1f}%
+                </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 0.75rem; font-size: 0.875rem; color: #6b7280; font-weight: 500;">
+                <span>🚀 התחלה</span>
+                <span>📍 {built:.1f} מ' מתוך {total:.1f} מ'</span>
+                <span>🎯 סיום</span>
+            </div>
+        </div>
+        """
+        st.markdown(progress_html, unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown("### 📈 גרף התקדמות לאורך זמן")
+
+        df_stats = load_stats_df()
+        if not df_stats.empty:
+            df_current = df_stats[df_stats["שם תוכנית"] == plan_data["plan_name"]]
+
+            if not df_current.empty:
+                st.bar_chart(
+                    df_current,
+                    x="תאריך",
+                    y="כמות שבוצעה",
+                    use_container_width=True,
+                )
+
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    st.metric("📋 מספר דיווחים", len(df_current))
+                with col_b:
+                    avg_daily = df_current["כמות שבוצעה"].mean()
+                    st.metric("📊 ממוצע יומי", f"{avg_daily:.1f} מ'")
+                with col_c:
+                    max_day = df_current["כמות שבוצעה"].max()
+                    st.metric("⭐ יום שיא", f"{max_day:.1f} מ'")
+            else:
+                st.info("📭 אין דיווחים לפרויקט זה עדיין")
+        else:
+            st.info("📭 אין דיווחים במערכת")
+
+        st.markdown("---")
+        st.markdown("### 🎯 פעולות ודוחות")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button(
+                "📄 הדפס דוח PDF",
+                use_container_width=True,
+                type="primary",
+                key="pdf_button_dash",
+            ):
+                with st.spinner("🔄 מכין דוח מפורט..."):
+                    try:
+                        if (
+                            selected_plan_dash
+                            and selected_plan_dash in st.session_state.projects
+                        ):
+                            proj = st.session_state.projects[selected_plan_dash]
+                            rgb = cv2.cvtColor(proj["original"], cv2.COLOR_BGR2RGB)
+                        else:
+                            rgb = np.ones((800, 1200, 3), dtype=np.uint8) * 255
+                            cv2.putText(
+                                rgb,
+                                "Image Not Available",
+                                (350, 400),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                1.5,
+                                (150, 150, 150),
+                                3,
+                            )
+
+                        stats = {
+                            "built": built,
+                            "total": total,
+                            "percent": percent,
+                            "remaining": remaining,
+                            "cost": cost,
+                            "budget": budget,
+                        }
+
+                        pdf_buffer = generate_status_pdf(
+                            plan_data["plan_name"], rgb, stats
+                        )
+
+                        st.download_button(
+                            label="⬇️ הורד דוח PDF",
+                            data=pdf_buffer,
+                            file_name=f"status_report_{plan_data['plan_name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            type="secondary",
+                            key="download_pdf_dash",
+                        )
+                        st.success("✅ הדוח מוכן להורדה!")
+
+                    except Exception as e:
+                        st.error(f"❌ שגיאה ביצירת דוח: {str(e)}")
+                        st.info("💡 ודא שהקובץ reporter.py קיים ותקין")
+
+        with col2:
+            if st.button(
+                "📊 ייצא נתונים",
+                use_container_width=True,
+                key="export_button_dash",
+            ):
+                st.info("💡 תכונה בפיתוח: ייצוא ל-Excel")
+
+        with col3:
+            if st.button(
+                '📧 שלח דוא"ל', use_container_width=True, key="email_button_dash"
+            ):
+                st.info("💡 תכונה בפיתוח: שליחת דוח באימייל")
+
+        st.markdown("---")
+        st.markdown("### 📋 דיווחים אחרונים")
+
+        reports = get_progress_reports(plan_id)
+        if reports:
+            recent = reports[:5]
+
+            for i, r in enumerate(recent, 1):
+                meters = r["meters_built"]
+                if meters > 20:
+                    icon = "🟢"
+                elif meters > 10:
+                    icon = "🟡"
+                else:
+                    icon = "🔴"
+
+                with st.expander(
+                    f"{icon} {r['date']} - {meters:.1f} מ' - {r.get('note', 'אין הערה')}"
+                ):
+                    col_a, col_b = st.columns([3, 1])
+                    with col_a:
+                        st.write(f"**📏 כמות:** {meters:.1f} מטרים")
+                        if r.get("note"):
+                            st.write(f"**📝 הערה:** {r['note']}")
+                        st.caption(f"תאריך: {r['date']}")
+                    with col_b:
+                        st.metric("דיווח #", i)
+                        st.caption(f"ID: {r['id']}")
+
+            total_reports = len(reports)
+            if total_reports > 5:
+                st.caption(f"📌 מציג 5 מתוך {total_reports} דיווחים")
+        else:
+            st.info("📭 אין דיווחים לפרויקט זה. התחל לדווח בסדנת עבודה!")
+
+
+# ==========================================
+# TAB 6: חשבונות חלקיים
+# ==========================================
+def render_invoices_tab():
+    """טאב חשבונות חלקיים"""
+    st.markdown("## 💰 מחולל חשבונות חלקיים")
+    st.caption("הפקת חשבונית לתשלום לקבלן על בסיס ביצוע בפועל")
+
+    all_plans = get_all_plans()
+    if not all_plans:
+        st.info("אין פרויקטים במערכת")
+    else:
+        plan_options = [f"{p['plan_name']} (ID: {p['id']})" for p in all_plans]
+        selected_plan_invoice = st.selectbox(
+            "בחר פרויקט:", plan_options, key="invoice_plan_select"
+        )
+        plan_id = int(selected_plan_invoice.split("ID: ")[1].strip(")"))
+
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            st.markdown("### 📅 בחר טווח תאריכים")
+
+            quick_range = st.radio(
+                "בחירה מהירה:",
+                ["שבוע אחרון", "חודש אחרון", "טווח מותאם אישית"],
+                horizontal=True,
+            )
+
+            from datetime import timedelta
+
+            if quick_range == "שבוע אחרון":
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=7)
+            elif quick_range == "חודש אחרון":
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=30)
+            else:
+                col_date1, col_date2 = st.columns(2)
+                with col_date1:
+                    start_date = st.date_input(
+                        "מתאריך:",
+                        value=datetime.now() - timedelta(days=30),
+                        key="start_date_picker",
                     )
+                with col_date2:
+                    end_date = st.date_input(
+                        "עד תאריך:", value=datetime.now(), key="end_date_picker"
+                    )
+
+            start_str = start_date.strftime("%Y-%m-%d")
+            end_str = end_date.strftime("%Y-%m-%d")
+
+            st.info(f"📊 תקופת החשבון: {start_str} עד {end_str}")
+
+            st.markdown("### 💵 מחירי יחידה")
+
+            work_types = get_all_work_types_for_plan(plan_id)
+
+            if not work_types:
+                st.warning("אין דיווחים לפרויקט זה עדיין")
+            else:
+                st.caption("ערוך את המחירים לפי הצורך. המחירים המוצגים הם ברירות מחדל.")
+
+                unit_prices = {}
+
+                for work_type in work_types:
+                    if "ריצוף" in work_type.lower() or "חיפוי" in work_type.lower():
+                        default_price = 250
+                        unit = 'מ"ר'
+                    elif "בטון" in work_type.lower():
+                        default_price = 1200
+                        unit = "מ'"
+                    elif "בלוק" in work_type.lower():
+                        default_price = 600
+                        unit = "מ'"
+                    else:
+                        default_price = 800
+                        unit = "מ'"
+
+                    col_type, col_price = st.columns([2, 1])
+                    with col_type:
+                        st.markdown(f"**{work_type}** ({unit})")
+                    with col_price:
+                        price = st.number_input(
+                            "מחיר:",
+                            value=float(default_price),
+                            step=50.0,
+                            key=f"price_{work_type}",
+                            label_visibility="collapsed",
+                        )
+                        unit_prices[work_type] = price
+
+        with col2:
+            st.markdown("### 👷 פרטי קבלן")
+            st.caption("שדות אלה יופיעו בחשבונית")
+
+            contractor_name = st.text_input(
+                "שם הקבלן:",
+                value="",
+                placeholder="ישראל ישראלי",
+                key="contractor_name",
+            )
+
+            contractor_company = st.text_input(
+                "שם חברה:",
+                value="",
+                placeholder='בניית ישראל בע"מ',
+                key="contractor_company",
+            )
+
+            contractor_vat = st.text_input(
+                "ח.פ / ע.מ:", value="", placeholder="123456789", key="contractor_vat"
+            )
+
+            contractor_address = st.text_area(
+                "כתובת:",
+                value="",
+                placeholder="רחוב הבניינים 1, תל אביב",
+                height=80,
+                key="contractor_address",
+            )
+
+            st.markdown("---")
+
+            if st.button("🧾 צור חשבונית", type="primary", use_container_width=True):
+                if not contractor_name or not contractor_vat:
+                    st.error("❌ יש למלא שם קבלן ומספר עוסק")
+                else:
+                    with st.spinner("מכין חשבונית..."):
+                        try:
+                            invoice_data = get_payment_invoice_data(
+                                plan_id, start_str, end_str, unit_prices
+                            )
+
+                            if invoice_data.get("error"):
+                                st.error(f"❌ {invoice_data['error']}")
+                            elif not invoice_data["items"]:
+                                st.warning("⚠️ אין דיווחים בטווח התאריכים הזה")
+                            else:
+                                contractor_info = {
+                                    "name": contractor_name,
+                                    "company": contractor_company,
+                                    "vat_id": contractor_vat,
+                                    "address": contractor_address,
+                                }
+
+                                pdf_buffer = generate_payment_invoice_pdf(
+                                    invoice_data, contractor_info
+                                )
+
+                                st.success("✅ החשבונית הוכנה בהצלחה!")
+
+                                st.markdown("### 📋 סיכום החשבונית")
+
+                                df_items = pd.DataFrame(
+                                    [
+                                        {
+                                            "סוג עבודה": item["work_type"],
+                                            "כמות": f"{item['quantity']:.2f}",
+                                            "יחידה": item["unit"],
+                                            "מחיר יחידה": f"{item['unit_price']:,.0f} ₪",
+                                            'סה"כ': f"{item['subtotal']:,.2f} ₪",
+                                        }
+                                        for item in invoice_data["items"]
+                                    ]
+                                )
+
+                                st.dataframe(
+                                    df_items, use_container_width=True, hide_index=True
+                                )
+
+                                col_sum1, col_sum2, col_sum3 = st.columns(3)
+                                with col_sum1:
+                                    st.metric(
+                                        "סכום ביניים",
+                                        f"{invoice_data['total_amount']:,.2f} ₪",
+                                    )
+                                with col_sum2:
+                                    st.metric(
+                                        'מע"מ (17%)', f"{invoice_data['vat']:,.2f} ₪"
+                                    )
+                                with col_sum3:
+                                    st.metric(
+                                        '**סה"כ לתשלום**',
+                                        f"{invoice_data['total_with_vat']:,.2f} ₪",
+                                    )
+
+                                st.download_button(
+                                    label="📥 הורד חשבונית (PDF)",
+                                    data=pdf_buffer,
+                                    file_name=f"invoice_{invoice_data['plan']['plan_name']}_{start_str}_{end_str}.pdf",
+                                    mime="application/pdf",
+                                    type="primary",
+                                    use_container_width=True,
+                                )
+
+                        except Exception as e:
+                            st.error(f"❌ שגיאה ביצירת חשבונית: {str(e)}")
+                            import traceback
+
+                            with st.expander("פרטי שגיאה"):
+                                st.code(traceback.format_exc())
+
+        st.markdown("---")
+        with st.expander("📊 דיווחים בטווח התאריכים"):
+            summary = get_progress_summary_by_date_range(plan_id, start_str, end_str)
+            if summary:
+                df_summary = pd.DataFrame(
+                    [
+                        {
+                            "סוג עבודה": item["work_type"],
+                            "כמות כוללת": f"{item['total_quantity']:.2f}",
+                            "יחידה": item["unit"],
+                            "מספר דיווחים": item["report_count"],
+                        }
+                        for item in summary
+                    ]
+                )
+                st.dataframe(df_summary, use_container_width=True, hide_index=True)
+            else:
+                st.info("אין דיווחים בטווח זה")

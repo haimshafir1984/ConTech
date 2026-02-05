@@ -30,10 +30,17 @@ def get_anthropic_client():
     return anthropic.Anthropic(api_key=api_key), None
 
 
-def process_plan_metadata(raw_text):
+def def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
     """
-    ✨ עם Prompt Caching - חוסך 90% מהעלות!
-    משתמש במודלים העדכניים של 2025
+    ✨ מנוע היברידי: Google Vision OCR + Claude AI
+    
+    Args:
+        raw_text: טקסט שחולץ מ-PDF (PyMuPDF fallback)
+        use_google_ocr: האם להשתמש ב-Google OCR (ברירת מחדל: כן)
+        pdf_bytes: bytes של ה-PDF (אם רוצים Google OCR)
+    
+    Returns:
+        dict עם המידע המחולץ
     """
     client, error = get_anthropic_client()
     if error:
@@ -48,16 +55,42 @@ def process_plan_metadata(raw_text):
             "quantities_hint": {"wall_types_mentioned": [], "material_hints": []},
         }
 
-    # ===== מודלים עדכניים 2025 =====
+    # ===== שלב 1: חילוץ טקסט (Google OCR או PyMuPDF) =====
+    ocr_source = "pymupdf"
+    text_to_analyze = raw_text
+    
+    if use_google_ocr and pdf_bytes:
+        try:
+            from ocr_google import ocr_pdf_google_vision
+            
+            ocr_result = ocr_pdf_google_vision(
+                pdf_bytes,
+                dpi=300,
+                language_hints=["he", "en"]  # עברית + אנגלית
+            )
+            
+            text_to_analyze = ocr_result["full_text"]
+            ocr_source = "google_vision"
+            
+            # Debug info
+            print(f"✅ Google Vision OCR: {len(text_to_analyze)} תווים")
+            
+        except Exception as e:
+            print(f"⚠️ Google Vision נכשל, חוזר ל-PyMuPDF: {e}")
+            # נשאר עם raw_text המקורי
+            ocr_source = "pymupdf_fallback"
+    
+    # ===== שלב 2: ניתוח עם Claude =====
+    # (שאר הקוד נשאר זהה מפה)
+    
     models = [
-        "claude-3-5-sonnet-20241022",  # הכי חדש
-        "claude-3-7-sonnet-20250219",  # Claude 3.7 Sonnet (אם קיים)
-        "claude-3-5-haiku-20241022",  # Haiku חדש
-        "claude-3-opus-20240229",  # Opus (יקר)
-        "claude-3-haiku-20240307",  # Haiku ישן (fallback)
+        "claude-3-5-sonnet-20241022",
+        "claude-3-7-sonnet-20250219",
+        "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229",
+        "claude-3-haiku-20240307",
     ]
 
-    # ===== System Prompt עם Cache Breakpoint =====
     system_prompt = [
         {
             "type": "text",
@@ -119,24 +152,22 @@ def process_plan_metadata(raw_text):
 - ריצוף: "קרמיקה", "פרקט", "שיש", "גרניט"
 - תקרה: "גבס", "טרוול", "תקרה אקוסטית"
 """,
-            "cache_control": {"type": "ephemeral"},  # ← Cache breakpoint!
+            "cache_control": {"type": "ephemeral"},
         }
     ]
 
-    # ===== User Message =====
-    user_message = f"""**טקסט מהתוכנית (חולץ מ-PDF):**
+    user_message = f"""**טקסט מהתוכנית:**
 
-{raw_text[:3500]}
+{text_to_analyze[:3500]}
 
 **התחל - החזר רק JSON:**"""
 
     for model in models:
         try:
-            # ===== שימוש ב-Prompt Caching =====
             message = client.messages.create(
                 model=model,
                 max_tokens=6000,
-                system=system_prompt,  # ← System עם cache
+                system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
             )
 
@@ -150,17 +181,16 @@ def process_plan_metadata(raw_text):
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
 
-            # חילוץ JSON
             if "{" in response_text and "}" in response_text:
                 start = response_text.find("{")
                 end = response_text.rfind("}") + 1
                 response_text = response_text[start:end]
 
-            # פרסור
             try:
                 result = json.loads(response_text)
                 result["status"] = "success"
                 result["_model_used"] = model
+                result["_ocr_source"] = ocr_source  # ← מקור ה-OCR
                 result["_cache_stats"] = {
                     "cache_creation_input_tokens": getattr(
                         message.usage, "cache_creation_input_tokens", 0
@@ -173,30 +203,24 @@ def process_plan_metadata(raw_text):
                 }
                 return result
             except json.JSONDecodeError:
-                # תיקון אוטומטי
                 fixed = response_text.replace(",]", "]").replace(",}", "}")
                 try:
                     result = json.loads(fixed)
                     result["status"] = "success"
                     result["_model_used"] = model
+                    result["_ocr_source"] = ocr_source
                     result["_auto_fixed"] = True
                     return result
                 except:
-                    # JSON לא תקין - נסה מודל הבא
                     continue
 
         except anthropic.NotFoundError:
-            # Model לא קיים (404) - נסה הבא
             continue
         except anthropic.BadRequestError as e:
-            # Bad request (אולי prompt ארוך מדי)
             error_str = str(e)
             if "prompt is too long" in error_str.lower():
-                # נסה עם טקסט קצר יותר
                 try:
-                    short_message = (
-                        f"**טקסט (חלקי):**\n{raw_text[:2000]}\n\n**החזר JSON:**"
-                    )
+                    short_message = f"**טקסט (חלקי):**\n{text_to_analyze[:2000]}\n\n**החזר JSON:**"
                     message = client.messages.create(
                         model=model,
                         max_tokens=6000,
@@ -205,7 +229,6 @@ def process_plan_metadata(raw_text):
                     )
                     response_text = message.content[0].text.strip()
 
-                    # ניקוי ופרסור (אותו קוד כמו למעלה)
                     if "```json" in response_text:
                         response_text = (
                             response_text.split("```json")[1].split("```")[0].strip()
@@ -225,6 +248,7 @@ def process_plan_metadata(raw_text):
                     )
                     result["status"] = "success"
                     result["_model_used"] = model
+                    result["_ocr_source"] = ocr_source
                     result["_warning"] = "Used shorter text due to length limit"
                     return result
                 except:
@@ -232,25 +256,21 @@ def process_plan_metadata(raw_text):
             else:
                 continue
         except anthropic.RateLimitError:
-            # Rate limit - נסה מודל הבא
             continue
-        except Exception as e:
-            # שגיאה כללית - נסה הבא
+        except Exception:
             continue
 
-    # כשלון בכל המודלים
     return {
         "status": "extraction_failed",
-        "error": "כל המודלים נכשלו - ייתכן שה-API key לא תקין או שאין חיבור",
+        "error": "כל המודלים נכשלו",
+        "_ocr_source": ocr_source,
         "document": {},
         "rooms": [],
         "heights_and_levels": {},
         "execution_notes": {},
-        "limitations": [
-            "Failed to extract data with all models - check API key and network"
-        ],
+        "limitations": ["Failed to extract data with all models"],
         "quantities_hint": {"wall_types_mentioned": [], "material_hints": []},
-    }
+    }   }
 
 
 def analyze_legend_image(image_bytes):

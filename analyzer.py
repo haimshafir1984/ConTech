@@ -788,12 +788,33 @@ class FloorPlanAnalyzer:
             overlay = cv2.addWeighted(overlay, 0.7, confidence_visual, 0.3, 0)
 
             cv2.addWeighted(overlay, 0.5, debug_img, 0.5, 0, debug_img)
-
+            # ← הוסף את זה כאן:
+        # שמירת PDF bytes למטרות Google Vision OCR
+        pdf_bytes_for_ocr = None
+        if pdf_path and os.path.exists(pdf_path):
+            try:
+                with open(pdf_path, "rb") as f:
+                    pdf_bytes_for_ocr = f.read()
+            except Exception as e:
+                print(f"⚠️ Failed to read PDF bytes: {e}")
+                pdf_bytes_for_ocr = None
         # === חישובים ונתונים ===
         skel = self._skeletonize(final_walls)
         pix = cv2.countNonZero(skel)
 
-        meta = {"plan_name": os.path.basename(pdf_path), "raw_text": ""}
+        meta = {
+            "plan_name": os.path.basename(pdf_path),
+            "raw_text": "",
+            "pdf_bytes": pdf_bytes_for_ocr,
+        }
+        if pdf_path and os.path.exists(pdf_path):
+            try:
+                with open(pdf_path, "rb") as f:
+                    pdf_bytes_for_ocr = f.read()
+            except:
+                pdf_bytes_for_ocr = None
+        else:
+            pdf_bytes_for_ocr = None
         try:
             doc = fitz.open(pdf_path)
             page = doc[0]

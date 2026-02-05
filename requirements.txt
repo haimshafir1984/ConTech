@@ -9,6 +9,7 @@ pymupdf
 psycopg2-binary
 reportlab
 scikit-learn>=1.0.0
+sqlalchemy
 
 # Phase 1: Smart Measurements + Quantity Calculator
 plotly>=5.0.0

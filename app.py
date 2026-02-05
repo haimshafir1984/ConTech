@@ -45,6 +45,9 @@ with st.sidebar:
         "ניווט", ["🏢 מנהל פרויקט", "👷 דיווח שטח"], label_visibility="collapsed"
     )
     st.markdown("---")
+
+    # נשאר כמו שהיה: ווידג'ט DB בסיידבר
+    # השיפור בזיכרון/ביצועים נעשה בתוך db_monitor.py (cache + SQLAlchemy בפוסטגרס)
     show_db_widget_sidebar()
 
     with st.expander("⚙️ הגדרות גלובליות"):

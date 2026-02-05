@@ -622,7 +622,7 @@ def render_workshop_tab():
                                 st.error(f"שגיאה בניתוח: {str(e)}")
                                 import traceback
 
-                                st.markdown("פרטי שגיאה"):
+                                st.markdown("פרטי שגיאה")
                                 st.code(traceback.format_exc())
                 else:
                     st.info("👆 צייר ריבוע סביב המקרא בתוכנית ולחץ על הכפתור")

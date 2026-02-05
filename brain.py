@@ -92,7 +92,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
     system_prompt = [
         {
             "type": "text",
-            "text": """אתה מומחה בחילוץ מידע מתוכניות בניה ישראליות.
+            "text": r"""אתה מומחה בחילוץ מידע מתוכניות בניה ישראליות.
 המשימה: לחלץ **כל** המידע הזמין מהטקסט ולארגן אותו ב-JSON מובנה.
 
 **חשוב מאוד:**
@@ -118,7 +118,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
   "rooms": [
     {
       "name": {"value": "חדר שינה 1", "confidence": 95, "evidence": ["חדר שינה 1"]},
-      "area_m2": {"value": 15.5, "confidence": 90, "evidence": ["15.5 מ\\"ר"]},
+      "area_m2": {"value": 15.5, "confidence": 90, "evidence": ["15.5 מ\"ר"]},
       "ceiling_height_m": {"value": 2.70, "confidence": 85, "evidence": ["H=2.70"]},
       "flooring_notes": {"value": "פרקט", "confidence": 80, "evidence": ["פרקט"]},
       "ceiling_notes": {"value": null, "confidence": 0, "evidence": []},
@@ -139,7 +139,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
   },
   "limitations": ["רשום כאן בעיות/מגבלות אם יש"],
   "quantities_hint": {
-    "wall_types_mentioned": ["קיר בטון 20 ס\\"מ"],
+    "wall_types_mentioned": ["קיר בטון 20 ס\"מ"],
     "material_hints": ["גרניט פורצלן"]
   }
 }

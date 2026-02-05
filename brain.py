@@ -270,7 +270,7 @@ def def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
         "execution_notes": {},
         "limitations": ["Failed to extract data with all models"],
         "quantities_hint": {"wall_types_mentioned": [], "material_hints": []},
-    }   }
+    }   
 
 
 def analyze_legend_image(image_bytes):

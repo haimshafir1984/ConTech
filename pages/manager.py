@@ -238,8 +238,8 @@ def render_workshop_tab():
                             st.error(f"שגיאה: {str(e)}")
                             import traceback
 
-                            with st.expander("פרטי שגיאה"):
-                                st.code(traceback.format_exc())
+                            st.error("פרטים נוספים:")
+                            st.code(traceback.format_exc())
 
     if st.session_state.projects:
         st.markdown("---")
@@ -622,8 +622,8 @@ def render_workshop_tab():
                                 st.error(f"שגיאה בניתוח: {str(e)}")
                                 import traceback
 
-                                with st.expander("פרטי שגיאה"):
-                                    st.code(traceback.format_exc())
+                                st.markdown("פרטי שגיאה"):
+                                st.code(traceback.format_exc())
                 else:
                     st.info("👆 צייר ריבוע סביב המקרא בתוכנית ולחץ על הכפתור")
 

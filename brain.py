@@ -32,15 +32,8 @@ def get_anthropic_client():
 
 def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
     """
-    ✨ מנוע היברידי: Google Vision OCR + Claude AI
-
-    Args:
-        raw_text: טקסט שחולץ מ-PDF (PyMuPDF fallback)
-        use_google_ocr: האם להשתמש ב-Google OCR (ברירת מחדל: כן)
-        pdf_bytes: bytes של ה-PDF (אם רוצים Google OCR)
-
-    Returns:
-        dict עם המידע המחולץ
+    [UPGRADED] מנוע היברידי: Google Vision OCR + Claude AI
+    משתמש ב-Prompt Caching - חוסך 90% מהעלות!
     """
     client, error = get_anthropic_client()
     if error:
@@ -64,23 +57,19 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
             from ocr_google import ocr_pdf_google_vision
 
             ocr_result = ocr_pdf_google_vision(
-                pdf_bytes, dpi=300, language_hints=["he", "en"]  # עברית + אנגלית
+                pdf_bytes, dpi=300, language_hints=["he", "en"]
             )
 
             text_to_analyze = ocr_result["full_text"]
             ocr_source = "google_vision"
 
-            # Debug info
-            print(f"✅ Google Vision OCR: {len(text_to_analyze)} תווים")
+            print(f"[INFO] Google Vision OCR: {len(text_to_analyze)} chars")
 
         except Exception as e:
-            print(f"⚠️ Google Vision נכשל, חוזר ל-PyMuPDF: {e}")
-            # נשאר עם raw_text המקורי
+            print(f"[WARNING] Google Vision failed, fallback to PyMuPDF: {e}")
             ocr_source = "pymupdf_fallback"
 
-    # ===== שלב 2: ניתוח עם Claude =====
-    # (שאר הקוד נשאר זהה מפה)
-
+    # ===== מודלים עדכניים 2025 =====
     models = [
         "claude-3-5-sonnet-20241022",
         "claude-3-7-sonnet-20250219",
@@ -89,6 +78,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
         "claude-3-haiku-20240307",
     ]
 
+    # ===== System Prompt עם Cache Breakpoint =====
     system_prompt = [
         {
             "type": "text",
@@ -97,11 +87,10 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
 
 **חשוב מאוד:**
 - החזר **רק** JSON תקין, ללא טקסט נוסף
-- ודא שאין פסיקים מיותרים לפני ] או }}
+- ודא שאין פסיקים מיותרים לפני ] או }
 - חלץ **כל** מידע זמין, במיוחד **מידות חדרים** ו**שטחים**
 
 **מבנה JSON נדרש:**
-"""
 
 {
   "document": {
@@ -146,7 +135,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
 
 **חיפוש חדרים:**
 - שמות: "חדר שינה", "סלון", "מטבח", "שירותים"
-- שטחים: "15 מ\\"ר", "15.5 m²", "15 sqm", או מספר ליד שם חדר
+- שטחים: "15 מ\"ר", "15.5 m^2", "15 sqm", או מספר ליד שם חדר
 - גבהים: "H=2.80", "גובה 2.70", "ceiling height 2.80m"
 - ריצוף: "קרמיקה", "פרקט", "שיש", "גרניט"
 - תקרה: "גבס", "טרוול", "תקרה אקוסטית"
@@ -155,6 +144,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
         }
     ]
 
+    # ===== User Message =====
     user_message = f"""**טקסט מהתוכנית:**
 
 {text_to_analyze[:3500]}
@@ -189,7 +179,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
                 result = json.loads(response_text)
                 result["status"] = "success"
                 result["_model_used"] = model
-                result["_ocr_source"] = ocr_source  # ← מקור ה-OCR
+                result["_ocr_source"] = ocr_source
                 result["_cache_stats"] = {
                     "cache_creation_input_tokens": getattr(
                         message.usage, "cache_creation_input_tokens", 0
@@ -276,7 +266,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
 
 def analyze_legend_image(image_bytes):
     """
-    ✨ ניתוח מקרא עם Vision API
+    [VISION API] ניתוח מקרא תוכנית בניה ומזהה סוג תוכנית וחומרים
     """
     client, error = get_anthropic_client()
     if error:
@@ -302,13 +292,13 @@ def analyze_legend_image(image_bytes):
 }
 
 **דוגמה - תקרה:**
-אם רואה "מקרא תקרה", "לוחות מינרלים", "60X60" → plan_type: "תקרה", confidence: 95
+אם רואה "מקרא תקרה", "לוחות מינרלים", "60X60" => plan_type: "תקרה", confidence: 95
 
 **דוגמה - קירות:**
-אם רואה "קיר בטון", "C11" → plan_type: "קירות"
+אם רואה "קיר בטון", "C11" => plan_type: "קירות"
 
 **דוגמה - ריצוף:**
-אם רואה "גרניט פורצלן", "קרמיקה" → plan_type: "ריצוף"
+אם רואה "גרניט פורצלן", "קרמיקה" => plan_type: "ריצוף"
 
 החזר רק JSON, ללא טקסט נוסף."""
 
@@ -337,7 +327,6 @@ def analyze_legend_image(image_bytes):
 
             response_text = message.content[0].text.strip()
 
-            # ניקוי
             if "```json" in response_text:
                 response_text = (
                     response_text.split("```json")[1].split("```")[0].strip()

@@ -11,20 +11,9 @@ from styles import apply_all_styles
 from database import init_database, reset_all_data
 from db_monitor import show_db_widget_sidebar
 
-# ייבוא דפים
-from pages.manager import (
-    render_workshop_tab,
-    render_corrections_tab,
-    render_dashboard_tab,
-    render_invoices_tab,
-    render_plan_data_tab,
-    render_floor_analysis_tab,
-)
-from pages.worker import render_worker_page
-
 # --- אתחול המערכת ---
 apply_all_styles()
-Image.MAX_IMAGE_PIXELS = None
+Image.MAX_IMAGE_PIXELS = 250_000_000
 init_database()
 
 # --- Session State ---
@@ -75,6 +64,15 @@ with st.sidebar:
 # 🏢 מצב מנהל
 # ==========================================
 if mode == "🏢 מנהל פרויקט":
+    from pages.manager import (
+        render_workshop_tab,
+        render_corrections_tab,
+        render_dashboard_tab,
+        render_invoices_tab,
+        render_plan_data_tab,
+        render_floor_analysis_tab,
+    )
+
     st.title("ניהול פרויקטים")
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
         [
@@ -109,4 +107,6 @@ if mode == "🏢 מנהל פרויקט":
 # 👷 מצב דיווח
 # ==========================================
 elif mode == "👷 דיווח שטח":
+    from pages.worker import render_worker_page
+
     render_worker_page()

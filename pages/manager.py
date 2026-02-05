@@ -125,7 +125,11 @@ def render_workshop_tab():
                             # 🆕 CHANGE 2: העברת pdf_bytes לפונקציית metadata
                             # ==========================================
                             # חילוץ מטא-דאטה + ניתוח חכם עם Google Vision OCR
-                            if meta.get("raw_text"):
+                            run_ai = st.button(
+                                f"🧠 נתח מטא-דאטה עם AI עבור {f.name}",
+                                key=f"ai_{f.name}",
+                            )
+                            if run_ai and meta.get("raw_text"):
                                 llm_data = safe_process_metadata(
                                     meta=meta,
                                     pdf_bytes=meta.get("pdf_bytes"),  # ← העברת ה-bytes

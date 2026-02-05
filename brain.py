@@ -30,15 +30,15 @@ def get_anthropic_client():
     return anthropic.Anthropic(api_key=api_key), None
 
 
-def def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
+def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
     """
     ✨ מנוע היברידי: Google Vision OCR + Claude AI
-    
+
     Args:
         raw_text: טקסט שחולץ מ-PDF (PyMuPDF fallback)
         use_google_ocr: האם להשתמש ב-Google OCR (ברירת מחדל: כן)
         pdf_bytes: bytes של ה-PDF (אם רוצים Google OCR)
-    
+
     Returns:
         dict עם המידע המחולץ
     """
@@ -58,31 +58,29 @@ def def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
     # ===== שלב 1: חילוץ טקסט (Google OCR או PyMuPDF) =====
     ocr_source = "pymupdf"
     text_to_analyze = raw_text
-    
+
     if use_google_ocr and pdf_bytes:
         try:
             from ocr_google import ocr_pdf_google_vision
-            
+
             ocr_result = ocr_pdf_google_vision(
-                pdf_bytes,
-                dpi=300,
-                language_hints=["he", "en"]  # עברית + אנגלית
+                pdf_bytes, dpi=300, language_hints=["he", "en"]  # עברית + אנגלית
             )
-            
+
             text_to_analyze = ocr_result["full_text"]
             ocr_source = "google_vision"
-            
+
             # Debug info
             print(f"✅ Google Vision OCR: {len(text_to_analyze)} תווים")
-            
+
         except Exception as e:
             print(f"⚠️ Google Vision נכשל, חוזר ל-PyMuPDF: {e}")
             # נשאר עם raw_text המקורי
             ocr_source = "pymupdf_fallback"
-    
+
     # ===== שלב 2: ניתוח עם Claude =====
     # (שאר הקוד נשאר זהה מפה)
-    
+
     models = [
         "claude-3-5-sonnet-20241022",
         "claude-3-7-sonnet-20250219",
@@ -103,6 +101,7 @@ def def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
 - חלץ **כל** מידע זמין, במיוחד **מידות חדרים** ו**שטחים**
 
 **מבנה JSON נדרש:**
+"""
 
 {
   "document": {
@@ -220,7 +219,9 @@ def def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
             error_str = str(e)
             if "prompt is too long" in error_str.lower():
                 try:
-                    short_message = f"**טקסט (חלקי):**\n{text_to_analyze[:2000]}\n\n**החזר JSON:**"
+                    short_message = (
+                        f"**טקסט (חלקי):**\n{text_to_analyze[:2000]}\n\n**החזר JSON:**"
+                    )
                     message = client.messages.create(
                         model=model,
                         max_tokens=6000,
@@ -270,7 +271,7 @@ def def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
         "execution_notes": {},
         "limitations": ["Failed to extract data with all models"],
         "quantities_hint": {"wall_types_mentioned": [], "material_hints": []},
-    }   
+    }
 
 
 def analyze_legend_image(image_bytes):

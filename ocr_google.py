@@ -91,42 +91,47 @@ load_gcp_credentials()
 def ocr_pdf_google_vision(
     pdf_bytes: bytes,
     *,
-    dpi: int = 300,
+    dpi: int = 150,
     language_hints: Optional[List[str]] = None,
+    max_pages: int = 2,
 ) -> Dict[str, Any]:
     """
-    OCR ל-PDF באמצעות Google Vision.
-    מחזיר:
-      - full_text: טקסט מאוחד
-      - pages: רשימת דפים (טקסט לכל דף)
+    OCR ל-PDF באמצעות Google Vision בצורה חסכונית בזיכרון:
+    - מעבד דף-דף (לא טוען את כל התמונות יחד)
+    - מגביל מספר דפים
     """
     if language_hints is None:
         language_hints = ["he", "en"]
 
-    # בדיקה שיש credentials
     if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
         raise RuntimeError(
             "Google Cloud credentials not configured. Please set GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable."
         )
 
-    # PDF -> Images
-    images = convert_from_bytes(pdf_bytes, dpi=dpi)
-
     client = vision.ImageAnnotatorClient()
+    image_context = vision.ImageContext(language_hints=language_hints)
 
     pages_text: List[str] = []
     full_text_parts: List[str] = []
 
-    image_context = vision.ImageContext(language_hints=language_hints)
+    # המרה דף-דף כדי לא לשרוף RAM
+    page_index = 1
+    while page_index <= max_pages:
+        images = convert_from_bytes(
+            pdf_bytes,
+            dpi=dpi,
+            first_page=page_index,
+            last_page=page_index,
+        )
+        if not images:
+            break
 
-    for img in images:
+        img = images[0]
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         content = buf.getvalue()
 
         gimg = vision.Image(content=content)
-
-        # Document OCR
         resp = client.document_text_detection(image=gimg, image_context=image_context)
 
         if resp.error.message:
@@ -136,9 +141,18 @@ def ocr_pdf_google_vision(
         pages_text.append(page_text)
         full_text_parts.append(page_text)
 
+        # שחרור מוקדם
+        del images
+        del img
+        del content
+        del buf
+
+        page_index += 1
+
     return {
         "full_text": "\n\n".join(full_text_parts).strip(),
         "pages": pages_text,
         "dpi": dpi,
         "language_hints": language_hints,
+        "max_pages": max_pages,
     }

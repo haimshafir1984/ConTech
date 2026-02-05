@@ -53,21 +53,25 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
     text_to_analyze = raw_text
 
     if use_google_ocr and pdf_bytes:
-        try:
-            from ocr_google import ocr_pdf_google_vision
+        if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+            print("[WARNING] Google Cloud credentials not found - skipping Google OCR")
+            ocr_source = "pymupdf_no_credentials"
+        else:
+            try:
+                from ocr_google import ocr_pdf_google_vision
 
-            ocr_result = ocr_pdf_google_vision(
-                pdf_bytes, dpi=300, language_hints=["he", "en"]
-            )
+                ocr_result = ocr_pdf_google_vision(
+                    pdf_bytes, dpi=300, language_hints=["he", "en"]
+                )
 
-            text_to_analyze = ocr_result["full_text"]
-            ocr_source = "google_vision"
+                text_to_analyze = ocr_result["full_text"]
+                ocr_source = "google_vision"
 
-            print(f"[INFO] Google Vision OCR: {len(text_to_analyze)} chars")
+                print(f"[INFO] Google Vision OCR: {len(text_to_analyze)} chars")
 
-        except Exception as e:
-            print(f"[WARNING] Google Vision failed, fallback to PyMuPDF: {e}")
-            ocr_source = "pymupdf_fallback"
+            except Exception as e:
+                print(f"[WARNING] Google Vision failed, fallback to PyMuPDF: {e}")
+                ocr_source = "pymupdf_fallback"
 
     # ===== מודלים עדכניים 2025 =====
     models = [

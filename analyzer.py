@@ -289,7 +289,7 @@ class FloorPlanAnalyzer:
 
         return skeleton
 
-    def pdf_to_image(self, pdf_path: str, target_max_dim: int = 4000) -> np.ndarray:
+    def pdf_to_image(self, pdf_path: str, target_max_dim: int = 2000) -> np.ndarray:
         """
         המרת PDF לתמונה במלוא הרזולוציה (ללא חיתוך)
 
@@ -304,8 +304,8 @@ class FloorPlanAnalyzer:
         page = doc[0]
 
         # חישוב scale לרזולוציה גבוהה (עד 4000px)
-        # מוגבל ל-4.0 כדי לא להגזים
-        scale = min(4.0, target_max_dim / max(page.rect.width, page.rect.height))
+        # מוגבל ל-2.0 כדי לא להגזים
+        scale = min(2.0, target_max_dim / max(page.rect.width, page.rect.height))
 
         # יצירת pixmap ללא crop (clip=None)
         pix = page.get_pixmap(

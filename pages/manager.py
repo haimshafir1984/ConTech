@@ -125,6 +125,8 @@ def render_workshop_tab():
                             # 🆕 CHANGE 2: העברת pdf_bytes לפונקציית metadata
                             # ==========================================
                             # חילוץ מטא-דאטה + ניתוח חכם עם Google Vision OCR
+                            llm_data = {}
+
                             run_ai = st.button(
                                 f"🧠 נתח מטא-דאטה עם AI עבור {f.name}",
                                 key=f"ai_{f.name}",
@@ -135,6 +137,7 @@ def render_workshop_tab():
                                     pdf_bytes=meta.get("pdf_bytes"),  # ← העברת ה-bytes
                                 )
                                 meta.update({k: v for k, v in llm_data.items() if v})
+                            meta.pop("pdf_bytes", None)
 
                             st.session_state.projects[f.name] = {
                                 "skeleton": skel,

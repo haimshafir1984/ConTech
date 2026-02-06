@@ -520,7 +520,7 @@ def render_workshop_tab():
                                 else:
                                     st.info(f"ℹ️ {ocr_label}")
 
-                        except Exception as e:
+                            except Exception as e:
                             st.error(f"שגיאה: {str(e)}")
                             import traceback
 

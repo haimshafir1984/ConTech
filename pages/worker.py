@@ -729,11 +729,11 @@ def render_worker_page():
     """
     st.title("👷 דיווח ביצוע מהשטח")
     st.caption("מערכת דיווח מקצועית | גרסה 2.3")
-    
+
     # אתחול projects אם לא קיים
-    if 'projects' not in st.session_state:
+    if "projects" not in st.session_state:
         st.session_state.projects = {}
-    
+
     if not st.session_state.projects:
         st.error("📂 אין תוכניות זמינות במערכת")
         st.info("💡 **מה עושים עכשיו?** לך למצב 'מנהל פרויקט' והעלה קובץ PDF של תוכנית")
@@ -744,25 +744,59 @@ def render_worker_page():
     # 📋 שלב 1 מתוך 3: הכנת עבודה
     # ==========================================
     st.divider()
-    st.info("🔹 **שלב 1 מתוך 3:** בחירת תוכנית והגדרות ראשוניות | **הבא:** סימון ביצוע ↓")
-    
+    st.info(
+        "🔹 **שלב 1 מתוך 3:** בחירת תוכנית והגדרות ראשוניות | **הבא:** סימון ביצוע ↓"
+    )
+
     st.header("📋 שלב 1: הכנת עבודה")
-    
+
     # === בחירת פרויקט ===
     st.markdown("### 1️⃣ בחר תוכנית")
     plan_name = st.selectbox(
         "איזו תוכנית אתה עובד עליה היום?",
         list(st.session_state.projects.keys()),
-        help="בחר את התוכנית שאתה רוצה לדווח עליה"
+        help="בחר את התוכנית שאתה רוצה לדווח עליה",
     )
     proj = st.session_state.projects[plan_name]
+    # ========== METADATA AWARENESS - תוספת חדשה ==========
+    with st.expander("🔒 הגדרות Metadata", expanded=False):
+        if proj.get("_from_metadata"):
+            st.success("✅ תוכנית נטענה מ-Metadata - דיוק גבוה!")
+            md = proj.get("_metadata_object", {})
+            # אם זה אובייקט (לא dict) – ננסה לספור קירות בצורה בטוחה
+            walls_count = 0
+            try:
+                if hasattr(md, "walls"):
+                    walls_count = len(md.walls)
+                elif isinstance(md, dict):
+                    walls_count = len(md.get("walls", []))
+            except:
+                walls_count = 0
+
+            st.caption(f"📦 {walls_count} קירות מוגדרים")
+
+            show_metadata_overlay = st.checkbox(
+                "🎨 הצג קירות כ-overlay",
+                value=True,
+                help="מציג את הקירות שנטענו מ-metadata כקווים על השרטוט",
+                key=f"show_metadata_overlay_{plan_name}",
+            )
+            st.session_state[f"show_metadata_overlay_{plan_name}"] = (
+                show_metadata_overlay
+            )
+        else:
+            st.info("ℹ️ תוכנית לא נטענה מ-metadata - זיהוי OpenCV רגיל")
+            st.session_state[f"show_metadata_overlay_{plan_name}"] = False
+    # ========== סוף תוספת ==========
 
     # === בדיקת scale עם fallback ===
     scale_value, is_fallback = get_scale_with_fallback(proj)
     proj["scale"] = scale_value  # עדכון לשימוש
 
     if is_fallback:
-        st.warning("⚠️ לא נמצאה סקלה מדויקת - המערכת משתמשת בברירת מחדל (דף A4, קנה 1:50)")
+        st.warning(
+            "⚠️ לא נמצאה סקלה מדויקת - המערכת משתמשת בברירת מחדל (דף A4, קנה 1:50)"
+        )
         st.caption("💡 לתוצאות מדויקות יותר, בקש ממנהל הפרויקט להגדיר סקלה")
     else:
         st.success("✅ הסקלה מוגדרת ומדויקת")
@@ -790,8 +824,7 @@ def render_worker_page():
 
                 # SmartMeasurements (אם המודול קיים)
                 st.session_state[smart_key] = SmartMeasurements(
-                    detected_segments=segments,
-                    scale=scale_value
+                    detected_segments=segments, scale=scale_value
                 )
 
                 # בניית snap points (תומך בשני פורמטים של segments)
@@ -810,8 +843,7 @@ def render_worker_page():
                         snap_points.append((int(x2), int(y2)))
 
                 st.session_state[snap_key] = SimpleSnapEngine(
-                    snap_points=snap_points,
-                    tolerance_px=15
+                    snap_points=snap_points, tolerance_px=15
                 )
 
             except Exception as e:
@@ -821,7 +853,9 @@ def render_worker_page():
 
     # === Schema Editor (Expander למנהל) ===
     with st.expander("🔧 הגדרות מתקדמות (למנהלים)", expanded=False):
-        st.caption("⚠️ אזור זה מיועד למנהלי פרויקט - עובדי שטח רגילים לא צריכים לגעת כאן")
+        st.caption(
+            "⚠️ אזור זה מיועד למנהלי פרויקט - עובדי שטח רגילים לא צריכים לגעת כאן"
+        )
         render_schema_editor(plan_name, proj)
 
     # === תאריך ומשמרת ===
@@ -831,23 +865,23 @@ def render_worker_page():
         report_date = st.date_input(
             "תאריך הדיווח:",
             value=datetime.now().date(),
-            help="באיזה תאריך בוצעה העבודה?"
+            help="באיזה תאריך בוצעה העבודה?",
         )
     with col_shift:
         shift = st.selectbox(
-            "משמרת:",
-            ["בוקר", "צהריים", "לילה"],
-            help="באיזו משמרת עבדת?"
+            "משמרת:", ["בוקר", "צהריים", "לילה"], help="באיזו משמרת עבדת?"
         )
-    
+
     st.success("✅ שלב 1 הושלם | עבור למטה לשלב 2 ↓")
 
     # ==========================================
     # 🛠️ שלב 2 מתוך 3: סימון ביצוע
     # ==========================================
     st.divider()
-    st.info("🔹 **שלב 2 מתוך 3:** סמן את העבודה שביצעת על התוכנית | **הבא:** בדיקה ושמירה ↓")
-    
+    st.info(
+        "🔹 **שלב 2 מתוך 3:** סמן את העבודה שביצעת על התוכנית | **הבא:** בדיקה ושמירה ↓"
+    )
+
     st.header("🛠️ שלב 2: סימון ביצוע")
 
     # === בחירת מצב עבודה ===
@@ -856,7 +890,7 @@ def render_worker_page():
         "בחר את סוג העבודה:",
         ["🧱 בניית קירות", "🔲 ריצוף/חיפוי"],
         horizontal=True,
-        help="בחר את סוג העבודה שביצעת היום"
+        help="בחר את סוג העבודה שביצעת היום",
     )
 
     # === בחירת מצב ציור ===
@@ -868,7 +902,7 @@ def render_worker_page():
             "בחר כלי ציור:",
             ["✏️ קו ישר", "🖊️ ציור חופשי", "▭ ריבוע"],
             horizontal=True,
-            help="בחר את הכלי המתאים"
+            help="בחר את הכלי המתאים",
         )
 
     with col_mode2:
@@ -900,13 +934,13 @@ def render_worker_page():
     # === DEBUG - הוסף כאן ===
     st.write("🔍 Debug:")
     st.write(f"proj keys: {list(proj.keys())}")
-    
+
     if "thick_walls" in proj:
         st.write(f"✅ thick_walls: {proj['thick_walls'].shape}")
         st.write(f"יש פיקסלים: {np.any(proj['thick_walls'] > 0)}")
     else:
         st.error("❌ thick_walls לא קיים!")
-    
+
     if corrected_walls is not None:
         st.write(f"✅ corrected_walls: {corrected_walls.shape}")
         st.write(f"יש פיקסלים: {np.any(corrected_walls > 0)}")
@@ -918,6 +952,60 @@ def render_worker_page():
     img_resized = Image.fromarray(rgb).resize(
         (int(w * scale_factor), int(h * scale_factor))
     )
+    # ========== METADATA OVERLAY - תוספת חדשה ==========
+
+    img_resized_with_overlay = img_resized
+
+    try:
+        if proj.get("_from_metadata") and st.session_state.get(
+            f"show_metadata_overlay_{plan_name}", False
+        ):
+            # נצייר על תמונת הרקע (RGB) ואז נהפוך ל-PIL
+            bg_rgb = np.array(img_resized).copy()
+
+            md = proj.get("_metadata_object")
+            # scale לתצוגה (תואם ל-resize שעשית)
+            display_w = int(w * scale_factor)
+            display_h = int(h * scale_factor)
+
+            # פונקציה בטוחה להבאת walls
+            walls = None
+            if hasattr(md, "walls"):
+                walls = md.walls
+            elif isinstance(md, dict):
+                walls = md.get("walls")
+
+            if walls:
+                for wall in walls:
+                    # תומך בשני פורמטים:
+                    # 1) wall.points (רשימת (x,y))
+                    # 2) dict עם key 'points'
+                    pts = None
+                    if hasattr(wall, "points"):
+                        pts = wall.points
+                    elif isinstance(wall, dict):
+                        pts = wall.get("points")
+
+                    if not pts:
+                        continue
+
+                    scaled_points = [
+                        (int(p[0] * scale_factor), int(p[1] * scale_factor))
+                        for p in pts
+                    ]
+                    points_array = np.array(scaled_points, dtype=np.int32)
+
+                    # שים לב: OpenCV מצייר BGR, אבל bg_rgb הוא RGB.
+                    # לא נוגעים בצבעים “מדויקים” כדי לא להסתבך — העיקר שיופיע.
+                    cv2.polylines(
+                        bg_rgb, [points_array], False, (0, 0, 255), thickness=2
+                    )
+
+                img_resized_with_overlay = Image.fromarray(bg_rgb)
+    except Exception:
+        # אם משהו לא תואם – לא שוברים כלום, פשוט בלי overlay
+        img_resized_with_overlay = img_resized
+    # ========== סוף תוספת ==========
 
     # === כלי כיול סקלה ===
     # כיון שה-scale הנוכחי הוא FALLBACK (A4+1:50) ולא נכון לתוכנית,
@@ -931,7 +1019,7 @@ def render_worker_page():
             fill_color="rgba(0,0,0,0)",
             stroke_color="#FF00FF",
             stroke_width=3,
-            background_image=img_resized,
+            background_image=img_resized_with_overlay,
             height=int(h * scale_factor),
             width=int(w * scale_factor),
             drawing_mode="line",
@@ -1176,6 +1264,45 @@ def render_worker_page():
                             corrected_walls,
                             (int(w * scale_factor), int(h * scale_factor)),
                         )
+                        # ========== CONFIDENCE (SNAP-LIKE) - תוספת חדשה ==========
+                        try:
+                            # רק לקירות
+                            drawn_px = int(np.count_nonzero(mask))
+                            if drawn_px > 0 and walls_resized is not None:
+                                # tolerance במטרים -> לפיקסלים לפי scale
+                                snap_tolerance_m = (
+                                    0.20  # אפשר לשנות בהמשך, כרגע קבוע כדי לא לשבור UI
+                                )
+                                snap_radius_px = max(
+                                    1,
+                                    int(
+                                        snap_tolerance_m * proj["scale"] * scale_factor
+                                    ),
+                                )
+
+                                kernel = np.ones(
+                                    (snap_radius_px * 2 + 1, snap_radius_px * 2 + 1),
+                                    np.uint8,
+                                )
+                                snap_mask = cv2.dilate(
+                                    (walls_resized > 0).astype(np.uint8) * 255, kernel
+                                )
+
+                                snapped_drawn = np.logical_and(mask > 0, snap_mask > 0)
+                                intersection = np.logical_and(
+                                    snapped_drawn, walls_resized > 0
+                                )
+
+                                matched_px = int(np.count_nonzero(intersection))
+                                confidence = (matched_px / drawn_px) * 100.0
+
+                                st.session_state[f"last_confidence_{plan_name}"] = (
+                                    confidence
+                                )
+                        except Exception:
+                            pass
+                        # ========== סוף תוספת ==========
+
                         item = auto_enrich_item(item, mask, walls_resized, proj)
 
                         items_data.append(item)
@@ -1239,26 +1366,42 @@ def render_worker_page():
 
             # === סיכום + שלב 3 ===
             st.success("✅ שלב 2 הושלם | עבור למטה לשלב 3 ↓")
-            
+
             st.divider()
             st.info("🔹 **שלב 3 מתוך 3:** בדוק את הדיווח ושמור למערכת")
-            
+
             st.header("💾 שלב 3: בדיקה ושמירה")
-            
+
             # סיכום מספרי
             if "קירות" in report_type:
                 st.success(f"📏 סה\"כ: {total_length:.2f} מ'")
             else:
                 st.success(f'📐 סה"כ: {total_area:.2f} מ"ר')
-            
+
             # תיאור סיפורי
             st.markdown(f"### 👁️ תצוגה מקדימה")
             if len(items_data) == 1:
                 st.write(f"✓ נמצא **פריט אחד** לדיווח")
             else:
                 st.write(f"✓ נמצאו **{len(items_data)} פריטים** לדיווח")
-            
+
             st.metric("פריטים", len(items_data))
+            # ========== CONFIDENCE DISPLAY - תוספת חדשה ==========
+            confidence = st.session_state.get(f"last_confidence_{plan_name}", 0)
+
+            if proj.get("_from_metadata") and confidence > 0:
+                col_c1, col_c2 = st.columns([3, 1])
+                with col_c1:
+                    if confidence >= 80:
+                        st.success(f"🟢 דיוק מצוין: {confidence:.1f}%")
+                    elif confidence >= 60:
+                        st.warning(f"🟡 דיוק טוב: {confidence:.1f}%")
+                    else:
+                        st.error(f"🔴 דיוק נמוך: {confidence:.1f}%")
+                        st.caption("⚠️ צייר מעל הקירות המסומנים")
+                with col_c2:
+                    st.metric("דיוק", f"{confidence:.0f}%")
+            # ========== סוף תוספת ==========
 
             # === טעינת schema ===
             schema = load_form_schema(plan_name, proj)
@@ -1321,156 +1464,231 @@ def render_worker_page():
                 else:
                     st.info("👆 בחר פריט מהרשימה לעריכה")
 
-              
-
-    # ===== PHASE 1: חישוב כמויות (expander) =====
+                # ===== PHASE 1: חישוב כמויות (expander) =====
                 with st.expander("📊 חישוב כמויות מפורט", expanded=False):
                     if PHASE1_AVAILABLE and items_data:
-                        st.caption("💡 חישוב מקיף: בלוקים, בטון, ריצוף, טיח, צבע ובידוד")
-                        
+                        st.caption(
+                            "💡 חישוב מקיף: בלוקים, בטון, ריצוף, טיח, צבע ובידוד"
+                        )
+
                         st.markdown("---")
                         st.markdown("#### ⚙️ הגדרות חישוב")
-                        
+
                         col_set1, col_set2, col_set3 = st.columns(3)
-                        
+
                         with col_set1:
                             st.markdown("**מידות קירות:**")
-                            cfg_h = st.number_input("גובה (מ')", value=2.5, min_value=0.1, max_value=10.0, step=0.1, key=f"h_{plan_name}")
-                            cfg_t = st.number_input("עובי (מ')", value=0.20, min_value=0.05, max_value=1.0, step=0.05, key=f"t_{plan_name}")
-                        
+                            cfg_h = st.number_input(
+                                "גובה (מ')",
+                                value=2.5,
+                                min_value=0.1,
+                                max_value=10.0,
+                                step=0.1,
+                                key=f"h_{plan_name}",
+                            )
+                            cfg_t = st.number_input(
+                                "עובי (מ')",
+                                value=0.20,
+                                min_value=0.05,
+                                max_value=1.0,
+                                step=0.05,
+                                key=f"t_{plan_name}",
+                            )
+
                         with col_set2:
                             st.markdown("**בלוקים ובטון:**")
-                            cfg_b = st.number_input("בלוקים/מ\"ר", value=12.5, min_value=1.0, max_value=50.0, step=0.5, key=f"b_{plan_name}")
-                            cfg_w = st.number_input("בזבוז %", value=5.0, min_value=0.0, max_value=50.0, step=1.0, key=f"w_{plan_name}")
-                        
+                            cfg_b = st.number_input(
+                                'בלוקים/מ"ר',
+                                value=12.5,
+                                min_value=1.0,
+                                max_value=50.0,
+                                step=0.5,
+                                key=f"b_{plan_name}",
+                            )
+                            cfg_w = st.number_input(
+                                "בזבוז %",
+                                value=5.0,
+                                min_value=0.0,
+                                max_value=50.0,
+                                step=1.0,
+                                key=f"w_{plan_name}",
+                            )
+
                         with col_set3:
                             st.markdown("**ריצוף וטיח:**")
-                            cfg_tile = st.number_input("גודל אריח (מ\"ר)", value=0.36, min_value=0.01, max_value=2.0, step=0.01, key=f"tile_{plan_name}", help="ברירת מחדל: 60x60cm = 0.36")
-                            cfg_plaster = st.number_input("עובי טיח (ס\"מ)", value=1.5, min_value=0.5, max_value=5.0, step=0.1, key=f"plaster_{plan_name}")
-                        
+                            cfg_tile = st.number_input(
+                                'גודל אריח (מ"ר)',
+                                value=0.36,
+                                min_value=0.01,
+                                max_value=2.0,
+                                step=0.01,
+                                key=f"tile_{plan_name}",
+                                help="ברירת מחדל: 60x60cm = 0.36",
+                            )
+                            cfg_plaster = st.number_input(
+                                'עובי טיח (ס"מ)',
+                                value=1.5,
+                                min_value=0.5,
+                                max_value=5.0,
+                                step=0.1,
+                                key=f"plaster_{plan_name}",
+                            )
+
                         config = {
-                            'blocks_per_sqm': cfg_b,
-                            'waste_factor': 1.0 + (cfg_w / 100.0),
-                            'default_wall_height': cfg_h,
-                            'default_wall_thickness': cfg_t,
-                            'tile_size_sqm': cfg_tile,
-                            'plaster_thickness_m': cfg_plaster / 100.0  # המרה לmeter
+                            "blocks_per_sqm": cfg_b,
+                            "waste_factor": 1.0 + (cfg_w / 100.0),
+                            "default_wall_height": cfg_h,
+                            "default_wall_thickness": cfg_t,
+                            "tile_size_sqm": cfg_tile,
+                            "plaster_thickness_m": cfg_plaster / 100.0,  # המרה לmeter
                         }
-                        
-                        
+
                         from building_elements import Wall
+
                         try:
                             try:
                                 calc = QuantityCalculator(config=config)
                             except TypeError:
                                 calc = QuantityCalculator(config)
 
-                            
                             # הוספת קירות
                             for item in items_data:
-                                if item.get('material') and item.get('measurement'):
+                                if item.get("material") and item.get("measurement"):
                                     wall = Wall(
-                                        uid=item['uid'],
+                                        uid=item["uid"],
                                         start=(0, 0),
-                                        end=(item['measurement'], 0),
+                                        end=(item["measurement"], 0),
                                         thickness=cfg_t,
                                         height=cfg_h,
-                                        material=item['material'],
-                                        status='planned'
+                                        material=item["material"],
+                                        status="planned",
                                     )
                                     calc.add_wall(wall)
-                            
+
                             # חישוב
                             quantities = calc.calculate_all()
-                            
+
                             # ===== תצוגה מורחבת =====
                             st.markdown("#### 📋 תוצאות חישוב")
-                            
+
                             # שורה 1: בסיסי
                             col1, col2, col3 = st.columns(3)
                             with col1:
-                                st.metric("🧱 קירות", quantities['summary']['total_walls'])
+                                st.metric(
+                                    "🧱 קירות", quantities["summary"]["total_walls"]
+                                )
                             with col2:
-                                blocks = quantities['blocks']
-                                if blocks['wall_count'] > 0:
-                                    st.metric("🔲 בלוקים", f"{blocks['blocks_needed']:,}")
-                                    st.caption(f"🚛 {blocks['blocks_needed']/60:.1f} פלטות")
+                                blocks = quantities["blocks"]
+                                if blocks["wall_count"] > 0:
+                                    st.metric(
+                                        "🔲 בלוקים", f"{blocks['blocks_needed']:,}"
+                                    )
+                                    st.caption(
+                                        f"🚛 {blocks['blocks_needed']/60:.1f} פלטות"
+                                    )
                                 else:
                                     st.info("אין בלוקים")
                             with col3:
-                                concrete = quantities['concrete']
-                                if concrete['wall_count'] > 0:
-                                    st.metric("🏗️ בטון", f"{concrete['total_volume_cubic_meters']:.2f} מ\"ק")
+                                concrete = quantities["concrete"]
+                                if concrete["wall_count"] > 0:
+                                    st.metric(
+                                        "🏗️ בטון",
+                                        f"{concrete['total_volume_cubic_meters']:.2f} מ\"ק",
+                                    )
                                 else:
                                     st.info("אין בטון")
-                            
+
                             # שורה 2: גימור
                             st.markdown("---")
                             st.markdown("**גימור ותשטיחים:**")
                             col4, col5, col6 = st.columns(3)
-                            
+
                             with col4:
-                                flooring = quantities['flooring']
-                                if flooring['wall_count'] > 0:
-                                    st.metric("🔳 ריצוף", f"{flooring['total_area_sqm']} מ\"ר")
-                                    st.caption(f"📦 {flooring['boxes_needed']} אריזות ({flooring['tiles_needed']} אריחים)")
+                                flooring = quantities["flooring"]
+                                if flooring["wall_count"] > 0:
+                                    st.metric(
+                                        "🔳 ריצוף", f"{flooring['total_area_sqm']} מ\"ר"
+                                    )
+                                    st.caption(
+                                        f"📦 {flooring['boxes_needed']} אריזות ({flooring['tiles_needed']} אריחים)"
+                                    )
                                 else:
                                     st.info("אין ריצוף")
-                            
+
                             with col5:
-                                plaster = quantities['plaster']
-                                if plaster['wall_count'] > 0:
-                                    st.metric("🧱 טיח", f"{plaster['total_area_sqm']} מ\"ר")
+                                plaster = quantities["plaster"]
+                                if plaster["wall_count"] > 0:
+                                    st.metric(
+                                        "🧱 טיח", f"{plaster['total_area_sqm']} מ\"ר"
+                                    )
                                     st.caption(f"📦 {plaster['bags_needed']} שקים")
                                 else:
                                     st.info("טיח: מחושב על כל הקירות")
-                            
+
                             with col6:
-                                paint = quantities['paint']
-                                if paint['wall_count'] > 0:
-                                    st.metric("🎨 צבע", f"{paint['liters_needed']} ליטר")
-                                    st.caption(f"🪣 {paint['buckets_needed']} דליים ({paint['coats']} שכבות)")
+                                paint = quantities["paint"]
+                                if paint["wall_count"] > 0:
+                                    st.metric(
+                                        "🎨 צבע", f"{paint['liters_needed']} ליטר"
+                                    )
+                                    st.caption(
+                                        f"🪣 {paint['buckets_needed']} דליים ({paint['coats']} שכבות)"
+                                    )
                                 else:
                                     st.info("צבע: מחושב על כל הקירות")
-                            
+
                             # שורה 3: בידוד (אם יש)
-                            insulation = quantities['insulation']
-                            if insulation['wall_count'] > 0:
+                            insulation = quantities["insulation"]
+                            if insulation["wall_count"] > 0:
                                 st.markdown("---")
                                 st.markdown("**בידוד:**")
                                 col7, col8, col9 = st.columns(3)
                                 with col7:
-                                    st.metric("🛡️ שטח בידוד", f"{insulation['total_area_sqm']} מ\"ר")
+                                    st.metric(
+                                        "🛡️ שטח בידוד",
+                                        f"{insulation['total_area_sqm']} מ\"ר",
+                                    )
                                 with col8:
-                                    st.metric("📋 פאנלים", insulation['panels_needed'])
+                                    st.metric("📋 פאנלים", insulation["panels_needed"])
                                 with col9:
-                                    st.caption(f"גודל פאנל: {insulation['panel_size_sqm']} מ\"ר")
-                            
+                                    st.caption(
+                                        f"גודל פאנל: {insulation['panel_size_sqm']} מ\"ר"
+                                    )
+
                             # פירוט מלא
                             with st.expander("📊 פירוט מלא (JSON)", expanded=False):
                                 st.json(quantities)
-                            
+
                             # הערות תחתונות
-                            st.caption(f"⚙️ מבוסס על: גובה {cfg_h}m, עובי {cfg_t}m, בזבוז {cfg_w}%, טיח {cfg_plaster}cm")
+                            st.caption(
+                                f"⚙️ מבוסס על: גובה {cfg_h}m, עובי {cfg_t}m, בזבוז {cfg_w}%, טיח {cfg_plaster}cm"
+                            )
                             st.caption("💡 החישוב כולל שתי פאות לטיח וצבע")
-                            
+
                         except Exception as e:
                             st.error(f"❌ שגיאה בחישוב כמויות: {str(e)}")
 
-                            show_debug_q = st.checkbox("🐛 הצג Debug", value=False, key=f"dbg_q_{plan_name}")
+                            show_debug_q = st.checkbox(
+                                "🐛 הצג Debug", value=False, key=f"dbg_q_{plan_name}"
+                            )
                             if show_debug_q:
                                 st.code(str(e))
                                 import traceback
-                                st.code(traceback.format_exc())
 
+                                st.code(traceback.format_exc())
 
             # === כפתור שליחה ===
             st.markdown("---")
             st.markdown("### ✅ שמור דיווח")
-            
+
             if len(items_data) == 0:
                 st.warning("⚠️ אין פריטים לשמירה - צייר על התוכנית קודם")
-            elif st.button("🚀 שמור דיווח", type="primary", use_container_width=True, help="שמור את כל הפריטים למערכת"):
+            elif st.button(
+                "🚀 שמור דיווח",
+                type="primary",
+                use_container_width=True,
+                help="שמור את כל הפריטים למערכת",
+            ):
                 # JSON סופי
                 json_final = {
                     "project_name": plan_name,
@@ -1512,15 +1730,24 @@ def render_worker_page():
                 note_text = f"{report_type} | {shift} | {len(items_data)} פריטים"
 
                 try:
-                    save_progress_report(pid, measured, note_text)
+                    final_note = note_text
+                    confidence = st.session_state.get(f"last_confidence_{plan_name}", 0)
+                    if confidence > 0:
+                        final_note += f" (דיוק: {confidence:.0f}%)"
+
+                    save_progress_report(pid, measured, final_note)
+
                     st.success(f"✅ **הדיווח נשמר בהצלחה!**")
-                    st.info(f"📋 **סיכום:** {len(items_data)} פריטים | {report_date.strftime('%d/%m/%Y')} | {shift}")
+                    st.info(
+                        f"📋 **סיכום:** {len(items_data)} פריטים | {report_date.strftime('%d/%m/%Y')} | {shift}"
+                    )
                     st.balloons()
                     st.caption("💡 תוכל למצוא את הדיווח בדשבורד של המנהל")
 
                     # ניקוי
                     st.session_state[report_key] = []
                     st.session_state[answers_key] = {}
+                    st.session_state.pop(f"last_confidence_{plan_name}", None)
                     if selected_key in st.session_state:
                         st.session_state[selected_key] = None
 

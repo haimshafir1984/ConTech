@@ -1486,3 +1486,61 @@ class FloorPlanAnalyzer:
                 "edge_sensitivity": "medium",
                 "description": "פרמטרים סטנדרטיים",
             }
+
+
+# ==========================================
+# METADATA EXPORT
+# ==========================================
+
+
+def export_walls_to_metadata(
+    self,
+    thick_walls: np.ndarray,
+    pdf_path: str,
+    pixels_per_meter: float,
+    scale_text: str = "1:50",
+) -> str:
+    """
+    יצירת קובץ metadata מתוצאת זיהוי
+
+    Args:
+        thick_walls: מסכת קירות (binary)
+        pdf_path: נתיב ל-PDF המקורי
+        pixels_per_meter: כיול
+        scale_text: טקסט סקייל
+
+    Returns:
+        נתיב לקובץ metadata שנוצר
+    """
+    from contech_metadata import (
+        ContechMetadata,
+        calculate_pdf_checksum,
+        extract_walls_from_opencv_mask,
+        get_metadata_filepath,
+    )
+
+    # חישוב checksum
+    checksum = calculate_pdf_checksum(pdf_path)
+
+    # יצירת metadata
+    import os
+
+    filename = os.path.basename(pdf_path)
+    metadata = ContechMetadata(filename, checksum)
+
+    # הוספת כיול
+    metadata.pixels_per_meter = pixels_per_meter
+    metadata.scale_text = scale_text
+    metadata.image_width = thick_walls.shape[1]
+    metadata.image_height = thick_walls.shape[0]
+
+    # חילוץ קירות
+    walls = extract_walls_from_opencv_mask(thick_walls)
+    for wall in walls:
+        metadata.add_wall(wall)
+
+    # שמירה
+    metadata_path = get_metadata_filepath(pdf_path)
+    metadata.save(metadata_path)
+
+    return metadata_path

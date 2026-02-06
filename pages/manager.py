@@ -570,7 +570,14 @@ def render_workshop_tab():
             ):
                 proj["metadata"]["plan_name"] = p_name
                 proj["metadata"]["scale"] = p_scale_text
-                meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
+                meta_json = json.dumps(
+                    {
+                        k: v
+                        for k, v in proj["metadata"].items()
+                        if not isinstance(v, bytes)
+                    },
+                    ensure_ascii=False,
+                )
                 materials = json.dumps(
                     {
                         "concrete_length": conc_len,
@@ -979,7 +986,12 @@ def render_corrections_tab():
                         proj["raw_pixels"] = corrected_pixels
                         proj["total_length"] = corrected_length
 
-                        meta_json = json.dumps(proj["metadata"], ensure_ascii=False)
+                        from utils import clean_metadata_for_json
+
+                        meta_json = json.dumps(
+                            clean_metadata_for_json(proj["metadata"]),
+                            ensure_ascii=False,
+                        )
                         save_plan(
                             selected_plan,
                             proj["metadata"].get("plan_name"),

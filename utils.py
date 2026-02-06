@@ -866,3 +866,10 @@ def crop_relative(image, bbox_rel):
     except Exception as e:
         print(f"שגיאה ב-crop_relative: {e}")
         return None
+
+
+def clean_metadata_for_json(metadata: dict) -> dict:
+    """מנקה metadata מ-bytes"""
+    if not metadata:
+        return {}
+    return {k: v for k, v in metadata.items() if not isinstance(v, (bytes, bytearray))}

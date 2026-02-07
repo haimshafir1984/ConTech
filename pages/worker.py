@@ -1090,12 +1090,12 @@ def render_worker_page():
             fill_color=fill,
             stroke_color=stroke,
             stroke_width=stroke_width if not two_point_mode else 1,
-            background_image=img_resized,
+            background_image=img_resized_with_overlay,
             height=int(h * scale_factor),
             width=int(w * scale_factor),
             drawing_mode=drawing_mode,
             point_display_radius=5 if two_point_mode else 0,
-            key=f"canvas_{plan_name}_{report_type}_{drawing_mode}_{two_point_mode}",
+            key=f"canvas_{plan_name}_{w}x{h}_sf{scale_factor:.4f}_ov{int(overlay_on)}_{report_type}_{drawing_mode}_{two_point_mode}",
             update_streamlit=True,
         )
         # === הוסף כאן ===

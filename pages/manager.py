@@ -714,7 +714,7 @@ def render_workshop_tab():
                     },
                     ensure_ascii=False,
                 )
-
+                corrected_pixels = int(np.count_nonzero(corrected_walls))
                 plan_id = save_plan(
                     selected,
                     p_name,

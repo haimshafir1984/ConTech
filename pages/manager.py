@@ -602,8 +602,8 @@ def render_workshop_tab():
 
             # שימוש בגרסה המתוקנת
             corrected_walls = get_corrected_walls(selected, proj)
-            corrected_pixels = np.count_nonzero(corrected_walls)
-            total_len = corrected_pixels / scale_val
+            segments = extract_segments_from_mask(corrected_walls, scale_val)
+            total_len = sum(seg.get("length_px", 0) for seg in segments) / scale_val
 
             # חישוב חומרים מהגרסה המתוקנת
             kernel = np.ones((6, 6), np.uint8)
@@ -612,8 +612,14 @@ def render_workshop_tab():
             )
             block_corrected = cv2.subtract(corrected_walls, conc_corrected)
 
-            conc_len = np.count_nonzero(conc_corrected) / scale_val
-            block_len = np.count_nonzero(block_corrected) / scale_val
+            conc_segments = extract_segments_from_mask(conc_corrected, scale_val)
+            block_segments = extract_segments_from_mask(block_corrected, scale_val)
+
+            conc_len = sum(seg.get("length_px", 0) for seg in conc_segments) / scale_val
+            block_len = (
+                sum(seg.get("length_px", 0) for seg in block_segments) / scale_val
+            )
+
             floor_area = proj["metadata"].get("pixels_flooring_area", 0) / (
                 scale_val**2
             )

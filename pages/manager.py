@@ -42,6 +42,7 @@ from utils import (
     safe_analyze_legend,
     load_stats_df,
     create_colored_overlay,
+    extract_segments_from_mask,
 )
 
 

@@ -20,6 +20,8 @@ from database import (
     get_plan_by_id,
     update_plan_metadata,
 )
+from utils import extract_segments_from_mask
+
 
 try:
     from smart_measurements import SmartMeasurements
@@ -116,51 +118,6 @@ def get_corrected_walls(selected_plan, proj):
         return corrected
     else:
         return proj["thick_walls"]
-
-
-def extract_segments_from_mask(walls_mask, scale):
-    """
-    מחלץ segments מתוך מסכה קיימת ללא Hough כפול
-
-    Args:
-        walls_mask: מסכת קירות (numpy array)
-        scale: פיקסלים למטר
-
-    Returns:
-        רשימת segments: [{'start': (x,y), 'end': (x,y), 'length_px': ...}]
-    """
-    segments = []
-
-    # שיטה 1: שימוש ב-contours (יותר יציב מ-Hough)
-    contours, _ = cv2.findContours(
-        walls_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
-
-    for contour in contours:
-        # פישוט הקונטור לקווים
-        epsilon = 0.01 * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, epsilon, True)
-
-        # המרה לקטעים
-        for i in range(len(approx)):
-            p1 = approx[i][0]
-            p2 = approx[(i + 1) % len(approx)][0]
-
-            length_px = np.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2)
-
-            # סינון קטעים קצרים מדי
-            if length_px > 20:  # מינימום 20 פיקסלים
-                segments.append(
-                    {
-                        "start": tuple(p1),
-                        "end": tuple(p2),
-                        "length_px": length_px,
-                        "length_m": length_px / scale,
-                        "source": "contours",
-                    }
-                )
-
-    return segments
 
 
 def build_snap_points(segments):

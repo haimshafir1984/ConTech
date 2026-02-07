@@ -1161,9 +1161,305 @@ def render_corrections_tab():
 # TAB 3: נתונים מהשרטוט (Placeholder)
 # ==========================================
 def render_plan_data_tab():
-    """טאב הצגת נתונים שחולצו מהתוכנית"""
+    """טאב חישוב נתונים לפי גודל דף וסקייל"""
     st.markdown("## 📄 נתונים מהשרטוט")
-    st.info("🚧 תכונה בפיתוח - יציג נתונים מובנים שחולצו מה-PDF")
+
+    if not st.session_state.projects:
+        st.info("📂 אנא העלה תוכנית תחילה בטאב 'סדנת עבודה'")
+        return
+
+    selected = st.selectbox(
+        "בחר תוכנית לניתוח:",
+        list(st.session_state.projects.keys()),
+        key="plan_data_selector",
+    )
+
+    proj = st.session_state.projects[selected]
+
+    st.markdown("---")
+
+    # ========== חלק 1: מידע בסיסי ==========
+    st.markdown("### 📊 מידע בסיסי")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "גודל תמונה",
+            f"{proj['original'].shape[1]} × {proj['original'].shape[0]} px",
+        )
+
+    with col2:
+        scale = proj.get("scale", 200.0)
+        st.metric("סקייל", f"{scale:.1f} px/מ'")
+
+    with col3:
+        scale_text = proj["metadata"].get("scale", "לא ידוע")
+        st.metric("קנה מידה", scale_text)
+
+    # ========== חלק 2: חישוב לפי גודל דף ==========
+    st.markdown("---")
+    st.markdown("### 📐 חישוב אורך קירות לפי גודל דף פיזי")
+
+    st.caption(
+        """
+    💡 אם אתה יודע את גודל הדף המודפס (למשל A3, A2), 
+    ניתן לחשב את הסקייל האמיתי ולקבל מדידה מדויקת.
+    """
+    )
+
+    with st.expander("🔧 הגדרות חישוב", expanded=True):
+        col_size, col_orient = st.columns(2)
+
+        with col_size:
+            paper_sizes = {
+                "A4": (210, 297),  # מ"מ
+                "A3": (297, 420),
+                "A2": (420, 594),
+                "A1": (594, 841),
+                "A0": (841, 1189),
+                "מותאם אישית": None,
+            }
+
+            paper_choice = st.selectbox(
+                "גודל דף:", list(paper_sizes.keys()), key="paper_size_choice"
+            )
+
+        with col_orient:
+            orientation = st.radio(
+                "כיוון:", ["לאורך", "לרוחב"], horizontal=True, key="paper_orientation"
+            )
+
+        # קבלת מידות
+        if paper_choice == "מותאם אישית":
+            col_w, col_h = st.columns(2)
+            with col_w:
+                paper_width_mm = st.number_input(
+                    'רוחב (מ"מ):', min_value=100, max_value=2000, value=420, step=10
+                )
+            with col_h:
+                paper_height_mm = st.number_input(
+                    'גובה (מ"מ):', min_value=100, max_value=2000, value=594, step=10
+                )
+        else:
+            w, h = paper_sizes[paper_choice]
+            if orientation == "לרוחב":
+                paper_width_mm = max(w, h)
+                paper_height_mm = min(w, h)
+            else:
+                paper_width_mm = min(w, h)
+                paper_height_mm = max(w, h)
+
+        st.info(f'📄 גודל דף: {paper_width_mm} × {paper_height_mm} מ"מ')
+
+    # ========== חישובים ==========
+    if st.button("🧮 חשב סקייל אמיתי", type="primary"):
+        # המרה ממ"מ למטרים
+        paper_width_m = paper_width_mm / 1000
+        paper_height_m = paper_height_mm / 1000
+
+        # גודל תמונה בפיקסלים
+        img_width_px = proj["original"].shape[1]
+        img_height_px = proj["original"].shape[0]
+
+        # חישוב פיקסלים למטר של הדף
+        pixels_per_meter_width = img_width_px / paper_width_m
+        pixels_per_meter_height = img_height_px / paper_height_m
+
+        # ממוצע
+        calculated_scale = (pixels_per_meter_width + pixels_per_meter_height) / 2
+
+        st.markdown("---")
+        st.markdown("### 📊 תוצאות חישוב")
+
+        col_r1, col_r2, col_r3 = st.columns(3)
+
+        with col_r1:
+            st.metric(
+                "סקייל מחושב",
+                f"{calculated_scale:.1f} px/מ'",
+                help="מבוסס על גודל הדף הפיזי",
+            )
+
+        with col_r2:
+            current_scale = proj.get("scale", 200.0)
+            diff = calculated_scale - current_scale
+            st.metric(
+                "סקייל נוכחי",
+                f"{current_scale:.1f} px/מ'",
+                delta=f"{diff:+.1f}",
+                delta_color="off",
+            )
+
+        with col_r3:
+            error_pct = (
+                abs(diff / calculated_scale * 100) if calculated_scale > 0 else 0
+            )
+            st.metric(
+                "סטייה", f"{error_pct:.1f}%", help="הפרש בין הסקייל הנוכחי למחושב"
+            )
+
+        # חישוב אורכים מחדש
+        st.markdown("---")
+        st.markdown("### 📏 אורכי קירות מתוקנים")
+
+        from pages.manager import get_corrected_walls
+
+        corrected_walls = get_corrected_walls(selected, proj)
+
+        # עם הסקייל הנוכחי
+        pixels_current = np.count_nonzero(corrected_walls)
+        length_current = pixels_current / current_scale
+
+        # עם הסקייל המחושב
+        length_calculated = pixels_current / calculated_scale
+
+        col_l1, col_l2 = st.columns(2)
+
+        with col_l1:
+            st.info(
+                f"""
+            **עם סקייל נוכחי ({current_scale:.1f}):**
+            - אורך כולל: **{length_current:.2f} מ'**
+            """
+            )
+
+        with col_l2:
+            st.success(
+                f"""
+            **עם סקייל מחושב ({calculated_scale:.1f}):**
+            - אורך כולל: **{length_calculated:.2f} מ'**
+            - הפרש: **{(length_calculated - length_current):.2f} מ'**
+            """
+            )
+
+        # אפשרות לעדכון
+        st.markdown("---")
+
+        if st.button("✅ עדכן סקייל לערך המחושב", type="secondary"):
+            proj["scale"] = calculated_scale
+            st.success(f"✅ הסקייל עודכן ל-{calculated_scale:.1f} px/מ'")
+            st.balloons()
+            st.rerun()
+
+    # ========== חלק 3: נתוני מטא-דאטה ==========
+    st.markdown("---")
+    st.markdown("### 🗂️ מטא-דאטה")
+
+    metadata = proj.get("metadata", {})
+
+    if metadata:
+        col_m1, col_m2 = st.columns(2)
+
+        with col_m1:
+            st.markdown("**מידע מהתוכנית:**")
+            st.write(f"- שם: {metadata.get('plan_name', 'לא ידוע')}")
+            st.write(f"- קנה מידה: {metadata.get('scale', 'לא ידוע')}")
+
+        with col_m2:
+            st.markdown("**מקור:**")
+            if proj.get("_from_metadata"):
+                st.success("✅ נטען מ-Metadata JSON")
+                metadata_obj = proj.get("_metadata_object")
+                if metadata_obj:
+                    st.write(f"- מספר קירות: {len(metadata_obj.walls)}")
+                    st.write(f"- נוצר: {metadata_obj.created_at[:10]}")
+            else:
+                st.info("ℹ️ זיהוי OpenCV")
+
+    # ========== חלק 4: חומרים ==========
+    st.markdown("---")
+    st.markdown("### 🧱 פירוט חומרים")
+
+    # קבלת נתוני חומרים
+    from pages.manager import get_corrected_walls
+
+    corrected_walls = get_corrected_walls(selected, proj)
+
+    scale = proj.get("scale", 200.0)
+
+    # חישוב חלוקה לחומרים
+    kernel = np.ones((6, 6), np.uint8)
+    concrete = cv2.dilate(
+        cv2.erode(corrected_walls, kernel, iterations=1), kernel, iterations=2
+    )
+    blocks = cv2.subtract(corrected_walls, concrete)
+
+    concrete_len = np.count_nonzero(concrete) / scale
+    blocks_len = np.count_nonzero(blocks) / scale
+    total_len = concrete_len + blocks_len
+
+    col_mat1, col_mat2, col_mat3 = st.columns(3)
+
+    with col_mat1:
+        st.metric("🔵 בטון", f"{concrete_len:.1f} מ'")
+
+    with col_mat2:
+        st.metric("🟠 בלוקים", f"{blocks_len:.1f} מ'")
+
+    with col_mat3:
+        st.metric('📏 סה"כ', f"{total_len:.1f} מ'")
+
+    # תרשים
+    import pandas as pd
+
+    df_materials = pd.DataFrame(
+        {"חומר": ["בטון", "בלוקים"], "אורך (מ')": [concrete_len, blocks_len]}
+    )
+
+    st.bar_chart(df_materials.set_index("חומר"))
+
+    # ========== חלק 5: ייצוא ==========
+    st.markdown("---")
+    st.markdown("### 📤 ייצוא נתונים")
+
+    col_exp1, col_exp2 = st.columns(2)
+
+    with col_exp1:
+        # CSV
+        csv_data = f"""סוג,כמות,יחידה
+קירות בטון,{concrete_len:.2f},מ'
+קירות בלוקים,{blocks_len:.2f},מ'
+סה"כ קירות,{total_len:.2f},מ'
+"""
+        st.download_button(
+            "📥 הורד CSV",
+            data=csv_data,
+            file_name=f"{selected}_data.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+    with col_exp2:
+        # JSON
+        import json
+
+        json_data = json.dumps(
+            {
+                "plan_name": metadata.get("plan_name", selected),
+                "scale": scale,
+                "scale_text": metadata.get("scale", ""),
+                "materials": {
+                    "concrete_meters": concrete_len,
+                    "blocks_meters": blocks_len,
+                    "total_meters": total_len,
+                },
+                "image_size": {
+                    "width": proj["original"].shape[1],
+                    "height": proj["original"].shape[0],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+        st.download_button(
+            "📥 הורד JSON",
+            data=json_data,
+            file_name=f"{selected}_data.json",
+            mime="application/json",
+            use_container_width=True,
+        )
 
 
 # ==========================================

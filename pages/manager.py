@@ -312,47 +312,69 @@ def render_workshop_tab():
                             # ========== METADATA CHECK - תוספת חדשה ==========
                             metadata_path = get_metadata_filepath(path)
                             metadata_loaded = False
-                            
+
                             if metadata_exists(path):
                                 try:
                                     metadata = ContechMetadata.load(metadata_path)
-                                    
+
                                     if validate_metadata_checksum(metadata, path):
-                                        st.info(f"✅ נמצא metadata (נוצר {metadata.created_at[:10]})")
-                                        
+                                        st.info(
+                                            f"✅ נמצא metadata (נוצר {metadata.created_at[:10]})"
+                                        )
+
                                         use_metadata = st.checkbox(
                                             f"🔒 טען מ-metadata [{f.name}]",
                                             value=True,
                                             key=f"use_meta_{f.name}",
-                                            help="נתונים מדויקים מהפעם הקודמת"
+                                            help="נתונים מדויקים מהפעם הקודמת",
                                         )
-                                        
+
                                         if use_metadata:
                                             st.success("📥 טוען מ-metadata...")
-                                            
+
                                             analyzer = FloorPlanAnalyzer()
                                             img_temp = analyzer.pdf_to_image(path)
                                             h, w = img_temp.shape[:2]
-                                            
-                                            thick_walls = np.zeros((h, w), dtype=np.uint8)
-                                            
+
+                                            thick_walls = np.zeros(
+                                                (h, w), dtype=np.uint8
+                                            )
+
                                             for wall in metadata.walls:
-                                                points = np.array(wall.points, dtype=np.int32)
-                                                cv2.polylines(thick_walls, [points], False, 255, thickness=5)
-                                            
-                                            pix = int(metadata.get_total_length_meters() * metadata.pixels_per_meter)
-                                            
+                                                points = np.array(
+                                                    wall.points, dtype=np.int32
+                                                )
+                                                cv2.polylines(
+                                                    thick_walls,
+                                                    [points],
+                                                    False,
+                                                    255,
+                                                    thickness=5,
+                                                )
+
+                                            pix = int(
+                                                metadata.get_total_length_meters()
+                                                * metadata.pixels_per_meter
+                                            )
+
                                             meta_dict = {
-                                                "plan_name": metadata.plan_name or f.name.replace(".pdf", ""),
+                                                "plan_name": metadata.plan_name
+                                                or f.name.replace(".pdf", ""),
                                                 "scale": metadata.scale_text,
-                                                "raw_text": ""
+                                                "raw_text": "",
                                             }
-                                            
-                                            kernel = np.ones((6,6), np.uint8)
-                                            conc = cv2.dilate(cv2.erode(thick_walls, kernel, iterations=1), kernel, iterations=2)
+
+                                            kernel = np.ones((6, 6), np.uint8)
+                                            conc = cv2.dilate(
+                                                cv2.erode(
+                                                    thick_walls, kernel, iterations=1
+                                                ),
+                                                kernel,
+                                                iterations=2,
+                                            )
                                             blok = cv2.subtract(thick_walls, conc)
                                             floor = np.zeros_like(thick_walls)
-                                            
+
                                             st.session_state.projects[f.name] = {
                                                 "skeleton": thick_walls,
                                                 "thick_walls": thick_walls,
@@ -367,38 +389,42 @@ def render_workshop_tab():
                                                 "llm_suggestions": {},
                                                 "debug_layers": {},
                                                 "_from_metadata": True,
-                                                "_metadata_object": metadata
+                                                "_metadata_object": metadata,
                                             }
-                                            
-                                            st.success(f"✅ טעינה מ-metadata ({len(metadata.walls)} קירות)")
+
+                                            st.success(
+                                                f"✅ טעינה מ-metadata ({len(metadata.walls)} קירות)"
+                                            )
                                             metadata_loaded = True
-                                    
+
                                     else:
                                         st.warning("⚠️ PDF השתנה. מריץ זיהוי מחדש.")
-                                
+
                                 except Exception as e:
                                     st.error(f"❌ שגיאה בטעינת metadata: {str(e)}")
-                            
+                                    metadata_loaded = False
                             # ========== אם לא טענו מ-metadata, ממשיכים לקוד הקיים ==========
-                    if not metadata_loaded:  
+                            if not metadata_loaded:
 
-                            analyzer = FloorPlanAnalyzer()
-                            (
-                                pix,
-                                skel,
-                                thick,
-                                orig,
-                                meta,
-                                conc,
-                                blok,
-                                floor,
-                                debug_img,
-                            ) = analyzer.process_file(path, save_debug=show_debug)
+                                analyzer = FloorPlanAnalyzer()
+                                (
+                                    pix,
+                                    skel,
+                                    thick,
+                                    orig,
+                                    meta,
+                                    conc,
+                                    blok,
+                                    floor,
+                                    debug_img,
+                                ) = analyzer.process_file(path, save_debug=show_debug)
 
-                            if not meta.get("plan_name"):
-                                meta["plan_name"] = (
-                                    f.name.replace(".pdf", "").replace("-", " ").strip()
-                                )
+                                if not meta.get("plan_name"):
+                                    meta["plan_name"] = (
+                                        f.name.replace(".pdf", "")
+                                        .replace("-", " ")
+                                        .strip()
+                                    )
 
                             # ==========================================
                             # 🆕 CHANGE 2: העברת pdf_bytes לפונקציית metadata
@@ -520,7 +546,7 @@ def render_workshop_tab():
                                 else:
                                     st.info(f"ℹ️ {ocr_label}")
 
-                            except Exception as e:
+                        except Exception as e:
                             st.error(f"שגיאה: {str(e)}")
                             import traceback
 
@@ -558,7 +584,7 @@ def render_workshop_tab():
             )
 
             st.markdown("#### כיול")
-            
+
             # ========== נעילת סקייל אם מ-metadata - תוספת חדשה ==========
             if proj.get("_from_metadata"):
                 st.warning("🔒 הסקייל נעול (טעון מ-metadata)")
@@ -566,10 +592,11 @@ def render_workshop_tab():
                 st.metric("פיקסלים למטר", f"{scale_val:.1f}")
             else:
                 scale_val = st.slider(
-                    "פיקסלים למטר", 
-                    10.0, 1000.0, 
-                    float(proj["scale"]), 
-                    key=f"scale_slider_{selected}"
+                    "פיקסלים למטר",
+                    10.0,
+                    1000.0,
+                    float(proj["scale"]),
+                    key=f"scale_slider_{selected}",
                 )
                 proj["scale"] = scale_val
 
@@ -699,22 +726,23 @@ def render_workshop_tab():
                 if not proj.get("_from_metadata"):
                     try:
                         analyzer = FloorPlanAnalyzer()
-                        
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
+
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=".pdf"
+                        ) as temp_pdf:
                             temp_path = temp_pdf.name
-                        
+
                         metadata_filepath = analyzer.export_walls_to_metadata(
-                            corrected_walls,
-                            temp_path,
-                            scale_val,
-                            p_scale_text
+                            corrected_walls, temp_path, scale_val, p_scale_text
                         )
-                        
-                        st.info(f"📦 נוצר metadata: {os.path.basename(metadata_filepath)}")
-                        
+
+                        st.info(
+                            f"📦 נוצר metadata: {os.path.basename(metadata_filepath)}"
+                        )
+
                         if os.path.exists(temp_path):
                             os.unlink(temp_path)
-                    
+
                     except Exception as e:
                         st.warning(f"⚠️ לא ניתן ליצור metadata: {str(e)}")
         with col_preview:

@@ -1466,9 +1466,304 @@ def render_plan_data_tab():
 # TAB 4: ניתוח שטחים (Placeholder)
 # ==========================================
 def render_floor_analysis_tab():
-    """טאב ניתוח שטחים וחדרים"""
-    st.markdown("## 📐 ניתוח שטחים")
-    st.info("🚧 תכונה בפיתוח - ניתוח אוטומטי של חדרים ושטחים")
+    """
+    טאב חדש: ניתוח שטחי רצפה והיקפים
+    מבוסס על סגמנטציה של חדרים מתוך מסכת קירות
+    """
+    import pandas as pd
+    import cv2
+    import numpy as np
+    from floor_extractor import analyze_floor_and_rooms
+
+    st.markdown("## 📐 ניתוח שטחי רצפה והיקפים")
+    st.caption("חישוב אוטומטי של שטחי חדרים, היקפים ופאנלים על בסיס זיהוי קירות")
+
+    if not st.session_state.projects:
+        st.info("📂 אין תוכניות במערכת. העלה תוכנית בטאב 'סדנת עבודה'")
+        return
+
+    # בחירת תוכנית
+    selected_plan = st.selectbox(
+        "בחר תוכנית:",
+        list(st.session_state.projects.keys()),
+        key="floor_analysis_plan_select",
+    )
+
+    if not selected_plan:
+        return
+
+    proj = st.session_state.projects[selected_plan]
+
+    st.markdown("---")
+
+    # הגדרות ניתוח
+    with st.expander("⚙️ הגדרות מתקדמות", expanded=False):
+        col_set1, col_set2 = st.columns(2)
+
+        with col_set1:
+            seg_method = st.radio(
+                "שיטת סגמנטציה:",
+                ["watershed", "cc"],
+                index=0,
+                help="watershed מומלץ - מפריד חדרים מחוברים | cc - פשוט יותר",
+            )
+
+        with col_set2:
+            auto_min_area = st.checkbox(
+                "סף חדרים אוטומטי",
+                value=True,
+                help="מחשב סף דינאמי לפי גודל השטח הפנימי",
+            )
+            min_area = st.number_input(
+                "שטח מינימלי לחדר (פיקסלים):",
+                min_value=100,
+                max_value=5000,
+                value=500,
+                step=100,
+                help="חדרים קטנים מזה יתעלמו",
+                disabled=auto_min_area,
+            )
+
+    # כפתור ניתוח
+    if st.button(
+        "🔍 חשב שטחים והיקפים מהשרטוט", type="primary", use_container_width=True
+    ):
+
+        with st.spinner("מנתח... זה עשוי לקחת מספר שניות"):
+            try:
+                # שלב 1: הכן נתונים
+                walls_mask = proj.get("thick_walls")
+                original_img = proj.get("original")
+
+                if walls_mask is None:
+                    st.error("❌ לא נמצאה מסכת קירות. נסה לעבד את התוכנית מחדש.")
+                    return
+
+                # שלב 2: חלץ meters_per_pixel
+                meta = proj.get("metadata", {})
+                meters_per_pixel = meta.get("meters_per_pixel")
+                meters_per_pixel_x = meta.get("meters_per_pixel_x")
+                meters_per_pixel_y = meta.get("meters_per_pixel_y")
+
+                if meters_per_pixel is None:
+                    st.warning("⚠️ אין קנה מידה מוגדר - התוצאות יהיו בפיקסלים בלבד")
+
+                # שלב 3: חלץ LLM rooms (אם יש)
+                llm_data = proj.get("llm_data") or proj.get("llm_suggestions")
+                llm_rooms = None
+                if llm_data and isinstance(llm_data, dict):
+                    llm_rooms = llm_data.get("rooms", [])
+
+                # שלב 4: ניתוח!
+                result = analyze_floor_and_rooms(
+                    walls_mask=walls_mask,
+                    original_image=original_img,
+                    meters_per_pixel=meters_per_pixel,
+                    meters_per_pixel_x=meters_per_pixel_x,
+                    meters_per_pixel_y=meters_per_pixel_y,
+                    llm_rooms=llm_rooms,
+                    segmentation_method=seg_method,
+                    min_room_area_px=0 if auto_min_area else int(min_area),
+                )
+
+                # שמור בפרויקט
+                proj["floor_analysis"] = result
+
+                # שיפור מסכת ריצוף לפי מסכות חדרים (אם קיימות)
+                try:
+                    refined_flooring = refine_flooring_mask_with_rooms(
+                        proj.get("flooring_mask"),
+                        result.get("visualizations", {}).get("masks"),
+                    )
+                    if refined_flooring is not None:
+                        proj["flooring_mask_refined"] = refined_flooring
+                        meta = proj.get("metadata", {})
+                        meta["pixels_flooring_area_refined"] = int(
+                            np.count_nonzero(refined_flooring)
+                        )
+                except Exception:
+                    pass
+
+                # שלב 5: הצג תוצאות
+                if not result["success"]:
+                    st.error("❌ הניתוח נכשל")
+                    if result.get("limitations"):
+                        for lim in result["limitations"]:
+                            st.warning(f"⚠️ {lim}")
+                    return
+
+                st.success(
+                    f"✅ הניתוח הושלם! נמצאו {result['totals']['num_rooms']} אזורים/חדרים"
+                )
+
+                # תקציר
+                st.markdown("### 📊 תקציר")
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    st.metric("מספר חדרים", result["totals"]["num_rooms"])
+
+                with col2:
+                    if result["totals"]["total_area_m2"] is not None:
+                        st.metric(
+                            'סה"כ שטח רצפה',
+                            f'{result["totals"]["total_area_m2"]:.2f} מ"ר',
+                        )
+                    else:
+                        st.metric('סה"כ שטח רצפה', "N/A")
+
+                with col3:
+                    if result["totals"]["total_perimeter_m"] is not None:
+                        st.metric(
+                            'סה"כ היקף',
+                            f'{result["totals"]["total_perimeter_m"]:.1f} מ\'',
+                        )
+                    else:
+                        st.metric('סה"כ היקף', "N/A")
+
+                with col4:
+                    if result["totals"]["total_baseboard_m"] is not None:
+                        st.metric(
+                            'סה"כ פאנלים (MVP)',
+                            f'{result["totals"]["total_baseboard_m"]:.1f} מ\'',
+                        )
+                    else:
+                        st.metric('סה"כ פאנלים', "N/A")
+
+                # טבלת חדרים
+                st.markdown("---")
+                st.markdown("### 🏠 פירוט לפי חדרים")
+
+                if result["rooms"]:
+                    rooms_data = []
+                    for room in result["rooms"]:
+                        row = {
+                            "מזהה": f"#{room['room_id']}",
+                        }
+
+                        # שם (אם matched)
+                        if room.get("matched_name"):
+                            row["שם חדר"] = room["matched_name"]
+                        else:
+                            row["שם חדר"] = "-"
+
+                        # שטחים
+                        if room["area_m2"] is not None:
+                            row['שטח (מ"ר)'] = f"{room['area_m2']:.2f}"
+
+                            if room.get("area_text_m2"):
+                                row["שטח מטקסט"] = f"{room['area_text_m2']:.2f}"
+                                row["הפרש"] = f"{room['diff_m2']:+.2f}"
+                            else:
+                                row["שטח מטקסט"] = "-"
+                                row["הפרש"] = "-"
+                        else:
+                            row["שטח (פיקסלים)"] = room["area_px"]
+
+                        # היקף
+                        if room["perimeter_m"] is not None:
+                            row["היקף (מ')"] = f"{room['perimeter_m']:.1f}"
+                        else:
+                            row["היקף (פיקסלים)"] = f"{room['perimeter_px']:.0f}"
+
+                        # פאנלים
+                        if room["baseboard_m"] is not None:
+                            row["פאנלים (מ')"] = f"{room['baseboard_m']:.1f}"
+
+                        # ביטחון
+                        if (
+                            room.get("match_confidence") is not None
+                            and room["match_confidence"] > 0
+                        ):
+                            row["התאמה"] = f"{room['match_confidence']:.0%}"
+
+                        rooms_data.append(row)
+
+                    df = pd.DataFrame(rooms_data)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+
+                    # מגבלות
+                    if result.get("limitations"):
+                        st.markdown("---")
+                        st.markdown("### ⚠️ מגבלות וזיהוי בעיות")
+                        for lim in result["limitations"]:
+                            st.warning(lim)
+
+                    # ויזואליזציה
+                    st.markdown("---")
+                    st.markdown("### 🎨 ויזואליזציה")
+
+                    overlay = result["visualizations"].get("overlay")
+                    if overlay is not None:
+                        st.image(
+                            overlay,
+                            caption="חדרים מסומנים בצבעים",
+                            use_column_width=True,
+                        )
+
+                    # Debug data
+                    with st.expander("🔍 JSON מלא (Debug)", expanded=False):
+                        # הכן גרסה JSON-safe
+                        result_json = {
+                            "success": result["success"],
+                            "totals": result["totals"],
+                            "rooms": [
+                                {
+                                    k: v for k, v in room.items() if k not in ["mask"]
+                                }  # הסר numpy arrays
+                                for room in result["rooms"]
+                            ],
+                            "limitations": result["limitations"],
+                        }
+                        st.json(result_json)
+
+                else:
+                    st.info("לא נמצאו חדרים")
+
+            except Exception as e:
+                st.error(f"❌ שגיאה בניתוח: {str(e)}")
+                import traceback
+
+                with st.expander("פרטי שגיאה מפורטים"):
+                    st.code(traceback.format_exc())
+
+    # הצג תוצאות קיימות (אם יש)
+    elif "floor_analysis" in proj:
+        st.info("💾 יש ניתוח קיים. לחץ על הכפתור למעלה לניתוח מחדש.")
+
+        result = proj["floor_analysis"]
+
+        if result.get("success"):
+            st.markdown("### 📊 תוצאות אחרונות")
+
+            # תקציר מהיר
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("חדרים שנמצאו", result["totals"]["num_rooms"])
+            with col2:
+                if result["totals"]["total_area_m2"]:
+                    st.metric(
+                        'סה"כ שטח', f'{result["totals"]["total_area_m2"]:.1f} מ"ר'
+                    )
+
+            # טבלה מקוצרת
+            if result["rooms"]:
+                quick_data = []
+                for room in result["rooms"][:5]:  # רק 5 ראשונים
+                    row = {"#": room["room_id"]}
+                    if room.get("matched_name"):
+                        row["שם"] = room["matched_name"]
+                    if room["area_m2"]:
+                        row["שטח"] = f"{room['area_m2']:.1f} מ\"ר"
+                    quick_data.append(row)
+
+                st.dataframe(pd.DataFrame(quick_data), hide_index=True)
+
+                if len(result["rooms"]) > 5:
+                    st.caption(
+                        f"מציג 5 מתוך {len(result['rooms'])} חדרים. לחץ 'חשב מחדש' לתצוגה מלאה."
+                    )
 
 
 # ==========================================

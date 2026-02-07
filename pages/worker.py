@@ -1085,6 +1085,8 @@ def render_worker_page():
     with col_left:
         st.markdown("### 🎨 אזור ציור")
 
+        overlay_on = st.session_state.get(f"show_metadata_overlay_{plan_name}", False)
+
         # Canvas ציור
         canvas = st_canvas(
             fill_color=fill,

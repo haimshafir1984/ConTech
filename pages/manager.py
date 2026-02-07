@@ -1392,19 +1392,19 @@ def render_plan_data_tab():
     col_mat1, col_mat2, col_mat3 = st.columns(3)
 
     with col_mat1:
-        st.metric("🔵 בטון", f"{concrete_len:.1f} מ'")
+        st.metric("🔵 בטון", f"{concrete_len:.1f} מטר")
 
     with col_mat2:
-        st.metric("🟠 בלוקים", f"{blocks_len:.1f} מ'")
+        st.metric("🟠 בלוקים", f"{blocks_len:.1f} מטר")
 
     with col_mat3:
-        st.metric('📏 סה"כ', f"{total_len:.1f} מ'")
+        st.metric('📏 סה"כ', f"{total_len:.1f} מטר")
 
     # תרשים
     import pandas as pd
 
     df_materials = pd.DataFrame(
-        {"חומר": ["בטון", "בלוקים"], "אורך (מ')": [concrete_len, blocks_len]}
+        {"חומר": ["בטון", "בלוקים"], "אורך במטרים": [concrete_len, blocks_len]}
     )
 
     st.bar_chart(df_materials.set_index("חומר"))
@@ -1418,9 +1418,9 @@ def render_plan_data_tab():
     with col_exp1:
         # CSV
         csv_data = f"""סוג,כמות,יחידה
-קירות בטון,{concrete_len:.2f},מ'
-קירות בלוקים,{blocks_len:.2f},מ'
-סה"כ קירות,{total_len:.2f},מ'
+קירות בטון,{concrete_len:.2f},מטר
+קירות בלוקים,{blocks_len:.2f},מטר
+סה"כ קירות,{total_len:.2f},מטר
 """
         st.download_button(
             "📥 הורד CSV",

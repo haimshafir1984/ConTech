@@ -12,6 +12,7 @@ import json
 from datetime import datetime
 import uuid
 import re
+import io
 
 from database import (
     save_progress_report,
@@ -905,7 +906,7 @@ def render_worker_page():
         st.error("❌ corrected_walls הוא None!")
     st.write("---")
     # === סוף DEBUG ==
-    MAX_W = 900
+    MAX_W = 700
     MAX_H = 650  # אפשר לשנות לפי הטעם
     scale_w = MAX_W / w if w > MAX_W else 1.0
     scale_h = MAX_H / h if h > MAX_H else 1.0
@@ -1049,30 +1050,15 @@ def render_worker_page():
 
         overlay_on = st.session_state.get(f"show_metadata_overlay_{plan_name}", False)
 
-        st.write("DEBUG original type:", type(proj.get("original")).__name__)
-        orig_dbg = proj.get("original")
-        if orig_dbg is None:
-            st.error("DEBUG: proj['original'] is None")
-        else:
-            st.write("DEBUG shape:", getattr(orig_dbg, "shape", None))
-            st.write("DEBUG dtype:", getattr(orig_dbg, "dtype", None))
-            try:
-                st.image(orig_dbg, caption="DEBUG: original preview")
-            except Exception as e:
-                st.error(f"DEBUG st.image failed: {e}")
         img_resized_with_overlay = img_resized_with_overlay.convert("RGB")
-        import io
 
         buf = io.BytesIO()
         img_resized_with_overlay.save(buf, format="PNG")
         bg_bytes = buf.getvalue()
-        bg_img = Image.open(io.BytesIO(bg_bytes)).convert(
-            "RGB"
-        )  # ✅ פתיחה מחדש מבייטים
-        bg_img.load()  # ✅ מכריח טעינה מלאה לזיכרון
-        buf.seek(0)
-        st.image(bg_img, caption="DEBUG: bg_img")
-        # Canvas ציור
+
+        bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB")
+        bg_img.load()
+
         canvas = st_canvas(
             fill_color=fill,
             stroke_color=stroke,

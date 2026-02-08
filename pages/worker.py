@@ -1061,12 +1061,18 @@ def render_worker_page():
             except Exception as e:
                 st.error(f"DEBUG st.image failed: {e}")
         img_resized_with_overlay = img_resized_with_overlay.convert("RGB")
+        import io
+
+        buf = io.BytesIO()
+        img_resized_with_overlay.save(buf, format="PNG")
+        buf.seek(0)
+
         # Canvas ציור
         canvas = st_canvas(
             fill_color=fill,
             stroke_color=stroke,
             stroke_width=stroke_width if not two_point_mode else 1,
-            background_image=img_resized_with_overlay,
+            background_image=Image.open(buf),
             height=int(h * scale_factor),
             width=int(w * scale_factor),
             drawing_mode=drawing_mode,

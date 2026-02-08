@@ -1049,7 +1049,7 @@ def render_worker_page():
 
         overlay_on = st.session_state.get(f"show_metadata_overlay_{plan_name}", False)
 
-        st.write("DEBUG original:", type(proj.get("original")))
+        st.write("DEBUG original type:", type(proj.get("original")).__name__)
         orig_dbg = proj.get("original")
         if orig_dbg is None:
             st.error("DEBUG: proj['original'] is None")
@@ -1065,20 +1065,25 @@ def render_worker_page():
 
         buf = io.BytesIO()
         img_resized_with_overlay.save(buf, format="PNG")
+        bg_bytes = buf.getvalue()
+        bg_img = Image.open(io.BytesIO(bg_bytes)).convert(
+            "RGB"
+        )  # ✅ פתיחה מחדש מבייטים
+        bg_img.load()  # ✅ מכריח טעינה מלאה לזיכרון
         buf.seek(0)
-
+        st.image(bg_img, caption="DEBUG: bg_img")
         # Canvas ציור
         canvas = st_canvas(
             fill_color=fill,
             stroke_color=stroke,
             stroke_width=stroke_width if not two_point_mode else 1,
-            background_image=Image.open(buf),
+            background_image=bg_img,
             height=int(h * scale_factor),
             width=int(w * scale_factor),
             drawing_mode=drawing_mode,
             point_display_radius=5 if two_point_mode else 0,
             key=f"canvas_{plan_name}_{w}x{h}_sf{scale_factor:.4f}_ov{int(overlay_on)}_{report_type}_{drawing_mode}_{two_point_mode}_bgfix1",
-            update_streamlit=False,
+            update_streamlit=True,
         )
         # === הוסף כאן ===
         # Snap Indicator (אינדיקציה ויזואלית)

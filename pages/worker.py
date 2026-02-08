@@ -905,7 +905,12 @@ def render_worker_page():
         st.error("❌ corrected_walls הוא None!")
     st.write("---")
     # === סוף DEBUG ==
-    scale_factor = 800 / w if w > 800 else 1.0
+    MAX_W = 900
+    MAX_H = 650  # אפשר לשנות לפי הטעם
+    scale_w = MAX_W / w if w > MAX_W else 1.0
+    scale_h = MAX_H / h if h > MAX_H else 1.0
+    scale_factor = min(scale_w, scale_h, 1.0)
+
     img_resized = Image.fromarray(rgb).resize(
         (int(w * scale_factor), int(h * scale_factor))
     )
@@ -1067,7 +1072,7 @@ def render_worker_page():
             drawing_mode=drawing_mode,
             point_display_radius=5 if two_point_mode else 0,
             key=f"canvas_{plan_name}_{w}x{h}_sf{scale_factor:.4f}_ov{int(overlay_on)}_{report_type}_{drawing_mode}_{two_point_mode}_bgfix1",
-            update_streamlit=False,
+            update_streamlit=True,
         )
         # === הוסף כאן ===
         # Snap Indicator (אינדיקציה ויזואלית)

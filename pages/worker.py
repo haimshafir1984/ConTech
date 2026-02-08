@@ -1078,7 +1078,7 @@ def render_worker_page():
             drawing_mode=drawing_mode,
             point_display_radius=5 if two_point_mode else 0,
             key=f"canvas_{plan_name}_{w}x{h}_sf{scale_factor:.4f}_ov{int(overlay_on)}_{report_type}_{drawing_mode}_{two_point_mode}_bgfix1",
-            update_streamlit=True,
+            update_streamlit=False,
         )
         # === הוסף כאן ===
         # Snap Indicator (אינדיקציה ויזואלית)

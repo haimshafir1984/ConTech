@@ -1055,11 +1055,14 @@ def render_worker_page():
         st.write("DEBUG: overlay_on =", overlay_on)
 
         st.write(
-            "DEBUG: img_resized_with_overlay before convert:",
-            type(img_resized_with_overlay),
-            getattr(img_resized_with_overlay, "mode", None),
-            getattr(img_resized_with_overlay, "size", None),
+            "DEBUG: img_resized_with_overlay",
+            {
+                "type": str(type(img_resized_with_overlay)),
+                "mode": getattr(img_resized_with_overlay, "mode", None),
+                "size": getattr(img_resized_with_overlay, "size", None),
+            },
         )
+
         img_resized_with_overlay = img_resized_with_overlay.convert("RGB")
         st.write("DEBUG: after convert OK")
 

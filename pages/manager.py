@@ -335,6 +335,19 @@ def render_workshop_tab():
 
                                             analyzer = FloorPlanAnalyzer()
                                             img_temp = analyzer.pdf_to_image(path)
+                                            # הבטחת RGB תקין ל-worker
+                                            if img_temp is not None:
+                                                if img_temp.ndim == 2:
+                                                    # grayscale → RGB
+                                                    img_temp = cv2.cvtColor(
+                                                        img_temp, cv2.COLOR_GRAY2RGB
+                                                    )
+                                                elif img_temp.shape[2] == 3:
+                                                    # BGR → RGB
+                                                    img_temp = cv2.cvtColor(
+                                                        img_temp, cv2.COLOR_BGR2RGB
+                                                    )
+
                                             h, w = img_temp.shape[:2]
 
                                             thick_walls = np.zeros(
@@ -379,7 +392,7 @@ def render_workshop_tab():
                                             st.session_state.projects[f.name] = {
                                                 "skeleton": thick_walls,
                                                 "thick_walls": thick_walls,
-                                                "original": img_temp,
+                                                "original": orig,
                                                 "raw_pixels": pix,
                                                 "scale": metadata.pixels_per_meter,
                                                 "metadata": meta_dict,

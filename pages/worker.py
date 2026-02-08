@@ -1044,6 +1044,18 @@ def render_worker_page():
 
         overlay_on = st.session_state.get(f"show_metadata_overlay_{plan_name}", False)
 
+        st.write("DEBUG original:", type(proj.get("original")))
+        orig_dbg = proj.get("original")
+        if orig_dbg is None:
+            st.error("DEBUG: proj['original'] is None")
+        else:
+            st.write("DEBUG shape:", getattr(orig_dbg, "shape", None))
+            st.write("DEBUG dtype:", getattr(orig_dbg, "dtype", None))
+            try:
+                st.image(orig_dbg, caption="DEBUG: original preview")
+            except Exception as e:
+                st.error(f"DEBUG st.image failed: {e}")
+
         # Canvas ציור
         canvas = st_canvas(
             fill_color=fill,

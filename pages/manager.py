@@ -261,7 +261,7 @@ def render_workshop_tab():
                                     st.session_state.projects[file_key] = {
                                         "skeleton": skel,
                                         "thick_walls": thick,
-                                        "original": orig_for_worker,
+                                        "original": orig,
                                         "raw_pixels": pix,
                                         "scale": 200.0,
                                         "metadata": meta,

@@ -261,7 +261,7 @@ def render_workshop_tab():
                                     st.session_state.projects[file_key] = {
                                         "skeleton": skel,
                                         "thick_walls": thick,
-                                        "original": orig,
+                                        "original": orig_for_worker,
                                         "raw_pixels": pix,
                                         "scale": 200.0,
                                         "metadata": meta,
@@ -275,6 +275,8 @@ def render_workshop_tab():
                                         "debug_layers": getattr(
                                             analyzer, "debug_layers", {}
                                         ),
+                                        "crop_bbox": bbox,
+                                        "_is_cropped": True,
                                     }
 
                                     os.unlink(path)
@@ -392,7 +394,7 @@ def render_workshop_tab():
                                             st.session_state.projects[f.name] = {
                                                 "skeleton": thick_walls,
                                                 "thick_walls": thick_walls,
-                                                "original": orig,
+                                                "original": img_temp,
                                                 "raw_pixels": pix,
                                                 "scale": metadata.pixels_per_meter,
                                                 "metadata": meta_dict,

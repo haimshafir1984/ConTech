@@ -6,13 +6,13 @@ ConTech Pro - Worker Page v2.2
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import json
 from datetime import datetime
 import uuid
 import re
 import io
+from PIL import Image
 
 from database import (
     save_progress_report,
@@ -924,7 +924,7 @@ def render_worker_page():
             f"show_metadata_overlay_{plan_name}", False
         ):
             # נצייר על תמונת הרקע (RGB) ואז נהפוך ל-PIL
-            bg_rgb = np.array(img_resized).copy()
+            bg_rgb = np.array(img_resized.convert("RGB")).copy()
 
             md = proj.get("_metadata_object")
             # scale לתצוגה (תואם ל-resize שעשית)
@@ -1048,17 +1048,31 @@ def render_worker_page():
     with col_left:
         st.markdown("### 🎨 אזור ציור")
 
-        overlay_on = st.session_state.get(f"show_metadata_overlay_{plan_name}", False)
+    try:
+        st.info("DEBUG: start canvas prep")
 
+        overlay_on = st.session_state.get(f"show_metadata_overlay_{plan_name}", False)
+        st.write("DEBUG: overlay_on =", overlay_on)
+
+        st.write(
+            "DEBUG: img_resized_with_overlay before convert:",
+            type(img_resized_with_overlay),
+            getattr(img_resized_with_overlay, "mode", None),
+            getattr(img_resized_with_overlay, "size", None),
+        )
         img_resized_with_overlay = img_resized_with_overlay.convert("RGB")
+        st.write("DEBUG: after convert OK")
 
         buf = io.BytesIO()
         img_resized_with_overlay.save(buf, format="PNG")
         bg_bytes = buf.getvalue()
+        st.write("DEBUG: bg_bytes length =", len(bg_bytes))
 
         bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB")
         bg_img.load()
+        st.write("DEBUG: bg_img loaded OK", bg_img.size)
 
+        st.info("DEBUG: calling st_canvas...")
         canvas = st_canvas(
             fill_color=fill,
             stroke_color=stroke,
@@ -1071,6 +1085,15 @@ def render_worker_page():
             key=f"canvas_{plan_name}_{w}x{h}_sf{scale_factor:.4f}_ov{int(overlay_on)}_{report_type}_{drawing_mode}_{two_point_mode}_bgfix1",
             update_streamlit=True,
         )
+        st.success("DEBUG: st_canvas returned OK")
+
+    except Exception as e:
+        st.error(f"❌ DEBUG canvas failed: {type(e).__name__}: {e}")
+        import traceback
+
+        st.code(traceback.format_exc())
+        st.stop()
+
         # === הוסף כאן ===
         # Snap Indicator (אינדיקציה ויזואלית)
         if PHASE1_AVAILABLE and f"snap_engine_{plan_name}" in st.session_state:

@@ -1048,32 +1048,16 @@ def render_worker_page():
     with col_left:
         st.markdown("### 🎨 אזור ציור")
 
-    try:
-        st.info("DEBUG: start canvas prep")
-
         overlay_on = st.session_state.get(f"show_metadata_overlay_{plan_name}", False)
-        st.write("DEBUG: overlay_on =", overlay_on)
-
-        st.write(
-            "DEBUG: img_resized_with_overlay",
-            {
-                "type": str(type(img_resized_with_overlay)),
-                "mode": getattr(img_resized_with_overlay, "mode", None),
-                "size": getattr(img_resized_with_overlay, "size", None),
-            },
-        )
 
         img_resized_with_overlay = img_resized_with_overlay.convert("RGB")
-        st.write("DEBUG: after convert OK")
 
         buf = io.BytesIO()
         img_resized_with_overlay.save(buf, format="PNG")
         bg_bytes = buf.getvalue()
-        st.write("DEBUG: bg_bytes length =", len(bg_bytes))
 
         bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB")
         bg_img.load()
-        st.write("DEBUG: bg_img loaded OK", bg_img.size)
 
         st.info("DEBUG: calling st_canvas...")
         canvas = st_canvas(
@@ -1088,11 +1072,6 @@ def render_worker_page():
             key=f"canvas_{plan_name}_{w}x{h}_sf{scale_factor:.4f}_ov{int(overlay_on)}_{report_type}_{drawing_mode}_{two_point_mode}_bgfix1",
             update_streamlit=True,
         )
-        st.success("DEBUG: st_canvas returned OK")
-
-    except Exception as e:
-        st.error(f"❌ DEBUG canvas failed: {type(e).__name__}: {e}")
-        import traceback
 
         st.code(traceback.format_exc())
         st.stop()

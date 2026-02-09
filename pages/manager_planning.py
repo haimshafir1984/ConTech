@@ -7,6 +7,43 @@ from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 
 from pages.worker import compute_line_length_px, px_to_m  # שימוש 1:1 כמו Worker
+import cv2
+
+
+def _build_bg_image_from_proj(proj, max_width=900):
+    """יוצר background_image יציב ל-st_canvas + ממדי תצוגה + scale_factor"""
+    img0 = proj.get("original")
+    if img0 is None:
+        raise ValueError("proj['original'] missing")
+
+    if not isinstance(img0, np.ndarray):
+        raise ValueError(f"proj['original'] must be np.ndarray, got {type(img0)}")
+
+    # אם זה BGR (ברוב המקרים אצלך), נהפוך ל-RGB
+    if img0.ndim == 3 and img0.shape[2] == 3:
+        rgb = cv2.cvtColor(img0, cv2.COLOR_BGR2RGB)
+    elif img0.ndim == 2:
+        rgb = cv2.cvtColor(img0, cv2.COLOR_GRAY2RGB)
+    else:
+        raise ValueError(f"Unsupported image shape: {img0.shape}")
+
+    h, w = rgb.shape[:2]
+    if w <= 0 or h <= 0:
+        raise ValueError("Invalid image size")
+
+    scale_factor = min(1.0, float(max_width) / float(w))
+    disp_w = max(1, int(w * scale_factor))
+    disp_h = max(1, int(h * scale_factor))
+
+    pil = Image.fromarray(rgb).resize((disp_w, disp_h), Image.Resampling.LANCZOS)
+
+    # טריק יציב כמו Worker: BytesIO + reopen + load()
+    buf = io.BytesIO()
+    pil.save(buf, format="PNG")
+    bg = Image.open(io.BytesIO(buf.getvalue())).convert("RGB")
+    bg.load()
+
+    return bg, disp_w, disp_h, scale_factor
 
 
 def _safe_get_metadata(proj):
@@ -74,52 +111,31 @@ def render_manager_planning_tab():
     )
 
     try:
-        rgb0 = proj.get("original")
-        if rgb0 is None:
-            raise ValueError("proj['original'] is missing")
-
-        if isinstance(rgb0, np.ndarray):
-            rgb_preview = (
-                rgb0[:, :, ::-1].copy()
-                if (len(rgb0.shape) == 3 and rgb0.shape[2] == 3)
-                else rgb0.copy()
-            )
-        else:
-            raise ValueError("proj['original'] is not numpy array")
-
-        h0, w0 = rgb_preview.shape[:2]
-        max_width = 900
-        scale_factor = min(1.0, max_width / w0)
-        disp_w, disp_h = int(w0 * scale_factor), int(h0 * scale_factor)
-
-        img_preview = Image.fromarray(rgb_preview).resize(
-            (disp_w, disp_h), Image.Resampling.LANCZOS
+        bg_img, disp_w, disp_h, scale_factor = _build_bg_image_from_proj(
+            proj, max_width=900
         )
-        img_preview.load()
     except Exception:
-        st.error("❌ לא הצלחתי להכין תמונת רקע לכיול.")
+        st.error("❌ לא הצלחתי להכין תמונת רקע לכיול (בדוק proj['original']).")
         st.code(traceback.format_exc())
-        img_preview = None
-        scale_factor = 1.0
-        disp_w = disp_h = 0
+        bg_img, disp_w, disp_h, scale_factor = None, 0, 0, 1.0
 
     with st.expander("📏 כיול סקלה (חשוב לדיוק!)", expanded=is_fallback):
         st.caption(
             "צייר קו על אלמנט עם אורך ידוע בתוכנית → הזן אורך אמיתי → הסקייל יחושב."
         )
 
-        if img_preview is None:
+        if bg_img is None:
             st.info("אין תמונה זמינה לכיול כרגע.")
         else:
             cal_canvas = st_canvas(
                 fill_color="rgba(0,0,0,0)",
                 stroke_color="#FF00FF",
                 stroke_width=3,
-                background_image=img_preview,
+                background_image=bg_img,
                 height=disp_h,
                 width=disp_w,
                 drawing_mode="line",
-                key=f"planning_cal_canvas_{plan_name}_{proj.get('scale',0)}",
+                key=f"planning_cal_canvas_{plan_name}",
                 update_streamlit=True,
             )
 
@@ -134,9 +150,8 @@ def render_manager_planning_tab():
                     cal_px = compute_line_length_px(cal_lines[-1])
 
             if cal_px > 0:
-                st.info(f"📐 אורך הקו שציירת: {cal_px:.0f} פיקסלים (על הקנבס)")
+                st.info(f"📐 אורך הקו שציירת: {cal_px:.0f} px (על הקנבס)")
                 col_real, col_btn = st.columns([2, 1])
-
                 with col_real:
                     real_length_m = st.number_input(
                         "אורך אמיתי (מטר):",
@@ -146,7 +161,6 @@ def render_manager_planning_tab():
                         step=0.5,
                         key=f"planning_cal_real_{plan_name}",
                     )
-
                 with col_btn:
                     st.write("")
                     if st.button(
@@ -156,19 +170,11 @@ def render_manager_planning_tab():
                         key=f"planning_fix_scale_{plan_name}",
                     ):
                         cal_px_original = cal_px / scale_factor
-                        new_scale = cal_px_original / real_length_m
-                        proj["scale"] = new_scale
-
-                        verify = px_to_m(cal_px, scale_factor, new_scale)
-                        st.success(
-                            f"✅ סקייל עודכן! {new_scale:.1f} px/m (בדיקה: {verify:.2f}m)"
-                        )
+                        proj["scale"] = cal_px_original / real_length_m
+                        st.success(f"✅ סקייל עודכן: {proj['scale']:.1f} px/m")
                         st.rerun()
             else:
-                st.info("👆 צייר קו ישר על אלמנט עם אורך ידוע בתוכנית")
-
-        st.caption(f"Scale נוכחי: {proj.get('scale',0):.1f} px/m")
-
+                st.info("👆 צייר קו ישר על אלמנט עם אורך ידוע")
     st.markdown("---")
 
     # ======================================================
@@ -200,6 +206,10 @@ def render_manager_planning_tab():
     st.caption(
         "הלקוח ביקש: אפשר לחלק את אותו שרטוט למספר אזורים עם נתונים שונים (חומר/גובה וכו')."
     )
+    # storage per plan
+    zones_key = f"planning_zones_{plan_name}"
+    if zones_key not in st.session_state:
+        st.session_state[zones_key] = []
 
     with st.expander("🗺️ יצירה/ניהול אזורים", expanded=True):
         st.info("שלד UI. בהמשך נוסיף Canvas לאזור (rect/polygon) + שמירה לאזורי תכולה.")
@@ -219,30 +229,23 @@ def render_manager_planning_tab():
                 "גובה ברירת מחדל (מ')", value=2.6, step=0.1, key="zone_default_height"
             )
 
-        st.button("➕ הוסף אזור (שלד)", key="add_zone_stub")
+        if st.button("➕ הוסף אזור", key=f"add_zone_{plan_name}"):
+            st.session_state[zones_key].append(
+                {
+                    "שם": st.session_state.zone_name_input,
+                    "סוג": st.session_state.zone_work_type,
+                    "חומר": st.session_state.zone_default_material,
+                    "גובה": st.session_state.zone_default_height,
+                    "פריטים": 0,
+                }
+            )
+            st.toast("✅ אזור נוסף")
+            st.rerun()
 
-        st.markdown("#### רשימת אזורים (שלד)")
+        st.markdown("#### רשימת אזורים")
         st.dataframe(
-            [
-                {
-                    "שם": "אזור 1",
-                    "סוג": "קירות",
-                    "חומר": "בטון",
-                    "גובה": 2.6,
-                    "פריטים": 0,
-                },
-                {
-                    "שם": "אזור 2",
-                    "סוג": "קירות",
-                    "חומר": "גבס",
-                    "גובה": 2.8,
-                    "פריטים": 0,
-                },
-            ],
-            use_container_width=True,
-            hide_index=True,
+            st.session_state[zones_key], use_container_width=True, hide_index=True
         )
-
     st.markdown("---")
 
     # ======================================================
@@ -270,25 +273,22 @@ def render_manager_planning_tab():
         stroke_width = 6
 
         try:
-            img_rgb = img_preview.convert("RGB")
-            buf = io.BytesIO()
-            img_rgb.save(buf, format="PNG")
-            bg_img = Image.open(io.BytesIO(buf.getvalue())).convert("RGB")
-            bg_img.load()
-
+            bg_img2, disp_w2, disp_h2, scale_factor2 = _build_bg_image_from_proj(
+                proj, max_width=900
+            )
             canvas = st_canvas(
                 fill_color=fill,
                 stroke_color=stroke,
                 stroke_width=stroke_width,
-                background_image=bg_img,
-                height=disp_h,
-                width=disp_w,
+                background_image=bg_img2,
+                height=disp_h2,
+                width=disp_w2,
                 drawing_mode=drawing_mode,
-                key=f"planning_canvas_{plan_name}_{disp_w}x{disp_h}_{drawing_mode}",
+                key=f"planning_canvas_{plan_name}_{disp_w2}x{disp_h2}_{drawing_mode}",
                 update_streamlit=True,
             )
         except Exception:
-            st.error("❌ לא הצלחתי להכין רקע לקנבס.")
+            st.error("❌ לא הצלחתי להכין רקע לקנבס (סימון תכולה).")
             st.code(traceback.format_exc())
             canvas = None
 

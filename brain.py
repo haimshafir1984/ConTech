@@ -61,7 +61,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
                 from ocr_google import ocr_pdf_google_vision
 
                 ocr_result = ocr_pdf_google_vision(
-                    pdf_bytes, dpi=300, language_hints=["he", "en"]
+                    pdf_bytes, dpi=150, language_hints=["he", "en"]
                 )
 
                 text_to_analyze = ocr_result["full_text"]

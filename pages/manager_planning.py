@@ -1,5 +1,12 @@
 import streamlit as st
 import json
+import io
+import traceback
+import numpy as np
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
+
+from pages.worker import compute_line_length_px, px_to_m  # שימוש 1:1 כמו Worker
 
 
 def _safe_get_metadata(proj):
@@ -16,8 +23,8 @@ def _safe_get_metadata(proj):
 
 def render_manager_planning_tab():
     """
-    🧱 הגדרת תכולה לבנייה (שלד UI)
-    בשלב הזה: רק מבנה/UX. לוגיקה תתווסף לאחר אישור.
+    🧱 הגדרת תכולה לבנייה
+    בשלב הזה: מעבירים 1:1 את כיול + ציור מה-Worker (לוגיקה בסיסית).
     """
 
     st.header("🧱 הגדרת תכולה לבנייה")
@@ -58,20 +65,109 @@ def render_manager_planning_tab():
     st.markdown("---")
 
     # ======================================================
-    # שלב 1: כיול (UI בלבד כרגע)
+    # שלב 1: כיול סקייל (הועתק מה-Worker 1:1)
     # ======================================================
     st.subheader("שלב 1: כיול סקייל")
-    with st.expander("📏 כיול (יעבור למנהל כחלק מהשינוי הגדול)", expanded=True):
-        st.info(
-            "בשלב הזה זה שלד. בהמשך נוסיף כאן את כלי הכיול (קו ידוע + אורך אמיתי) ונשמור ל־DB/metadata."
+
+    is_fallback = proj.get("_scale_is_fallback", False) or (
+        proj.get("scale", 0) in (0, None)
+    )
+
+    try:
+        rgb0 = proj.get("original")
+        if rgb0 is None:
+            raise ValueError("proj['original'] is missing")
+
+        if isinstance(rgb0, np.ndarray):
+            rgb_preview = (
+                rgb0[:, :, ::-1].copy()
+                if (len(rgb0.shape) == 3 and rgb0.shape[2] == 3)
+                else rgb0.copy()
+            )
+        else:
+            raise ValueError("proj['original'] is not numpy array")
+
+        h0, w0 = rgb_preview.shape[:2]
+        max_width = 900
+        scale_factor = min(1.0, max_width / w0)
+        disp_w, disp_h = int(w0 * scale_factor), int(h0 * scale_factor)
+
+        img_preview = Image.fromarray(rgb_preview).resize(
+            (disp_w, disp_h), Image.Resampling.LANCZOS
         )
-        st.radio(
-            "סטטוס כיול:",
-            ["יש סקייל מוגדר", "אין סקייל – נדרש כיול"],
-            index=0 if scale_val else 1,
-            key="planning_calibration_status",
+        img_preview.load()
+    except Exception:
+        st.error("❌ לא הצלחתי להכין תמונת רקע לכיול.")
+        st.code(traceback.format_exc())
+        img_preview = None
+        scale_factor = 1.0
+        disp_w = disp_h = 0
+
+    with st.expander("📏 כיול סקלה (חשוב לדיוק!)", expanded=is_fallback):
+        st.caption(
+            "צייר קו על אלמנט עם אורך ידוע בתוכנית → הזן אורך אמיתי → הסקייל יחושב."
         )
-        st.caption("בהמשך: Canvas לציור קו + הזנת אורך אמיתי + כפתור 'שמור כיול'.")
+
+        if img_preview is None:
+            st.info("אין תמונה זמינה לכיול כרגע.")
+        else:
+            cal_canvas = st_canvas(
+                fill_color="rgba(0,0,0,0)",
+                stroke_color="#FF00FF",
+                stroke_width=3,
+                background_image=img_preview,
+                height=disp_h,
+                width=disp_w,
+                drawing_mode="line",
+                key=f"planning_cal_canvas_{plan_name}_{proj.get('scale',0)}",
+                update_streamlit=True,
+            )
+
+            cal_px = 0.0
+            if cal_canvas.json_data and cal_canvas.json_data.get("objects"):
+                cal_lines = [
+                    o
+                    for o in cal_canvas.json_data["objects"]
+                    if o.get("type") == "line"
+                ]
+                if cal_lines:
+                    cal_px = compute_line_length_px(cal_lines[-1])
+
+            if cal_px > 0:
+                st.info(f"📐 אורך הקו שציירת: {cal_px:.0f} פיקסלים (על הקנבס)")
+                col_real, col_btn = st.columns([2, 1])
+
+                with col_real:
+                    real_length_m = st.number_input(
+                        "אורך אמיתי (מטר):",
+                        value=1.0,
+                        min_value=0.1,
+                        max_value=100.0,
+                        step=0.5,
+                        key=f"planning_cal_real_{plan_name}",
+                    )
+
+                with col_btn:
+                    st.write("")
+                    if st.button(
+                        "✅ תקן סקלה",
+                        type="primary",
+                        use_container_width=True,
+                        key=f"planning_fix_scale_{plan_name}",
+                    ):
+                        cal_px_original = cal_px / scale_factor
+                        new_scale = cal_px_original / real_length_m
+                        proj["scale"] = new_scale
+
+                        verify = px_to_m(cal_px, scale_factor, new_scale)
+                        st.success(
+                            f"✅ סקייל עודכן! {new_scale:.1f} px/m (בדיקה: {verify:.2f}m)"
+                        )
+                        st.rerun()
+            else:
+                st.info("👆 צייר קו ישר על אלמנט עם אורך ידוע בתוכנית")
+
+        st.caption(f"Scale נוכחי: {proj.get('scale',0):.1f} px/m")
 
     st.markdown("---")
 
@@ -154,21 +250,52 @@ def render_manager_planning_tab():
     # ======================================================
     st.subheader("שלב 4: סימון תכולה (Planned Items)")
     st.caption(
-        "כאן נמחזר את ה־Canvas מה־Worker: line / path / rect / polygon + Snap לקירות."
+        "כאן נמחזר את ה־Canvas מה־Worker: line / freedraw / rect / polygon + Snap לקירות."
     )
 
     col_left, col_right = st.columns([1.6, 1])
 
     with col_left:
         st.markdown("### 🎨 אזור ציור")
-        st.info(
-            "שלד UI. בהמשך נכניס כאן st_canvas עם כל המצבים (line/path/rect/polygon) + Snap."
+
+        drawing_mode = st.selectbox(
+            "מצב ציור:",
+            ["line", "freedraw", "rect", "polygon"],
+            index=0,
+            key=f"planning_drawing_mode_{plan_name}",
         )
+
+        fill = "rgba(0,0,0,0)"
+        stroke = "#00FF00"
+        stroke_width = 6
+
+        try:
+            img_rgb = img_preview.convert("RGB")
+            buf = io.BytesIO()
+            img_rgb.save(buf, format="PNG")
+            bg_img = Image.open(io.BytesIO(buf.getvalue())).convert("RGB")
+            bg_img.load()
+
+            canvas = st_canvas(
+                fill_color=fill,
+                stroke_color=stroke,
+                stroke_width=stroke_width,
+                background_image=bg_img,
+                height=disp_h,
+                width=disp_w,
+                drawing_mode=drawing_mode,
+                key=f"planning_canvas_{plan_name}_{disp_w}x{disp_h}_{drawing_mode}",
+                update_streamlit=True,
+            )
+        except Exception:
+            st.error("❌ לא הצלחתי להכין רקע לקנבס.")
+            st.code(traceback.format_exc())
+            canvas = None
+
         st.checkbox("✅ הצמדה לקירות (Snap)", value=True, key="planning_snap_on")
         st.checkbox(
             "✅ תיקון אוטומטי לקו שיצא מהקיר", value=True, key="planning_auto_correct"
         )
-        st.caption("בהמשך: תצוגת שרטוט + ציור.")
 
     with col_right:
         st.markdown("### ⚙️ מאפייני פריט")
@@ -178,9 +305,24 @@ def render_manager_planning_tab():
             "החל על כל הפריטים המסומנים", value=False, key="planning_apply_to_selected"
         )
         st.button("➕ הוסף לתכולה (שלד)", key="planning_add_items_stub")
-        st.button(
-            "💾 שמור תכולה לשרטוט (שלד)", type="primary", key="planning_save_stub"
-        )
+
+        if st.button(
+            "💾 שמור תכולה לשרטוט", type="primary", key=f"planning_save_{plan_name}"
+        ):
+            meta = _safe_get_metadata(proj)
+            meta.setdefault("planning", {})
+            meta["planning"]["canvas_json"] = canvas.json_data if canvas else None
+            meta["planning"]["plan_type"] = st.session_state.get(
+                "planning_plan_type", "קירות"
+            )
+            meta["planned_items_count"] = (
+                len((canvas.json_data or {}).get("objects", [])) if canvas else 0
+            )
+            proj["metadata"] = meta
+            st.success(
+                "✅ נשמר! (כרגע רק JSON של הקנבס; בהמשך נחשב כמויות ונבנה פריטים אמיתיים)"
+            )
+            st.rerun()
 
     st.markdown("---")
 

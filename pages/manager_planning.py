@@ -3,30 +3,15 @@ import json
 import io
 import traceback
 import numpy as np
-import cv2
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
+import cv2
 
-from pages.worker import compute_line_length_px, px_to_m  # 1:1 מה-Worker
-
-
-def _safe_get_metadata(proj):
-    meta = proj.get("metadata", {})
-    if isinstance(meta, str):
-        try:
-            meta = json.loads(meta)
-        except Exception:
-            meta = {}
-    if not isinstance(meta, dict):
-        meta = {}
-    return meta
+from worker import compute_line_length_px, px_to_m  # ✅
 
 
 def _build_bg_image_from_proj(proj, max_width=900):
-    """
-    יוצר background_image יציב ל-st_canvas + ממדי תצוגה + scale_factor
-    תלוי ב-proj["original"] (np.ndarray).
-    """
+    """יוצר background_image יציב ל-st_canvas + ממדי תצוגה + scale_factor"""
     img0 = proj.get("original")
     if img0 is None:
         raise ValueError("proj['original'] missing")
@@ -34,7 +19,7 @@ def _build_bg_image_from_proj(proj, max_width=900):
     if not isinstance(img0, np.ndarray):
         raise ValueError(f"proj['original'] must be np.ndarray, got {type(img0)}")
 
-    # Convert to RGB for PIL
+    # אם זה BGR (ברוב המקרים אצלך), נהפוך ל-RGB
     if img0.ndim == 3 and img0.shape[2] == 3:
         rgb = cv2.cvtColor(img0, cv2.COLOR_BGR2RGB)
     elif img0.ndim == 2:
@@ -47,12 +32,12 @@ def _build_bg_image_from_proj(proj, max_width=900):
         raise ValueError("Invalid image size")
 
     scale_factor = min(1.0, float(max_width) / float(w))
-    disp_w = max(50, int(w * scale_factor))
-    disp_h = max(50, int(h * scale_factor))
+    disp_w = max(1, int(w * scale_factor))
+    disp_h = max(1, int(h * scale_factor))
 
     pil = Image.fromarray(rgb).resize((disp_w, disp_h), Image.Resampling.LANCZOS)
 
-    # stable bg: BytesIO -> reopen -> load()
+    # טריק יציב כמו Worker: BytesIO + reopen + load()
     buf = io.BytesIO()
     pil.save(buf, format="PNG")
     bg = Image.open(io.BytesIO(buf.getvalue())).convert("RGB")
@@ -61,10 +46,28 @@ def _build_bg_image_from_proj(proj, max_width=900):
     return bg, disp_w, disp_h, scale_factor
 
 
+def _safe_get_metadata(proj):
+    meta = proj.get("metadata", {})
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except:
+            meta = {}
+    if not isinstance(meta, dict):
+        meta = {}
+    return meta
+
+
 def render_manager_planning_tab():
+    """
+    🧱 הגדרת תכולה לבנייה
+    בשלב הזה: מעבירים 1:1 את כיול + ציור מה-Worker (לוגיקה בסיסית).
+    """
+
     st.header("🧱 הגדרת תכולה לבנייה")
     st.caption("המנהל מגדיר מה צריך להיבנות; העובד ידווח מה בוצע בפועל.")
 
+    # --- Guard: אין פרויקטים ---
     if "projects" not in st.session_state or not st.session_state.projects:
         st.info("אין תוכניות זמינות. קודם העלה תוכנית ב'📂 סדנת עבודה'.")
         return
@@ -83,14 +86,6 @@ def render_manager_planning_tab():
     proj = st.session_state.projects[plan_name]
     meta = _safe_get_metadata(proj)
 
-    # DEBUG קטן שיעזור לנו להבין מייד למה אין קנבס (לא מפריע לדמו)
-    with st.expander("🔎 Debug (אפשר לסגור)", expanded=False):
-        o = proj.get("original")
-        st.write("original type:", type(o))
-        if isinstance(o, np.ndarray):
-            st.write("original shape:", o.shape, "dtype:", o.dtype)
-        st.write("keys in proj:", list(proj.keys()))
-
     col_a, col_b, col_c = st.columns(3)
     with col_a:
         st.metric(
@@ -107,9 +102,10 @@ def render_manager_planning_tab():
     st.markdown("---")
 
     # ======================================================
-    # שלב 1: כיול סקייל (קנבס אמיתי)
+    # שלב 1: כיול סקייל (הועתק מה-Worker 1:1)
     # ======================================================
     st.subheader("שלב 1: כיול סקייל")
+
     is_fallback = proj.get("_scale_is_fallback", False) or (
         proj.get("scale", 0) in (0, None)
     )
@@ -118,19 +114,18 @@ def render_manager_planning_tab():
         bg_img, disp_w, disp_h, scale_factor = _build_bg_image_from_proj(
             proj, max_width=900
         )
-        bg_err = None
     except Exception:
+        st.error("❌ לא הצלחתי להכין תמונת רקע לכיול (בדוק proj['original']).")
+        st.code(traceback.format_exc())
         bg_img, disp_w, disp_h, scale_factor = None, 0, 0, 1.0
-        bg_err = traceback.format_exc()
 
-    with st.expander(
-        "📏 כיול סקלה (חשוב לדיוק!)", expanded=True
-    ):  # זמנית תמיד פתוח עד שזה יציב
+    with st.expander("📏 כיול סקלה (חשוב לדיוק!)", expanded=True):
+        st.caption(
+            "צייר קו על אלמנט עם אורך ידוע בתוכנית → הזן אורך אמיתי → הסקייל יחושב."
+        )
+
         if bg_img is None:
-            st.error(
-                "❌ אין תמונת רקע לכיול. זה אומר ש-proj['original'] לא זמין למנהל."
-            )
-            st.code(bg_err or "")
+            st.info("אין תמונה זמינה לכיול כרגע.")
         else:
             cal_canvas = st_canvas(
                 fill_color="rgba(0,0,0,0)",
@@ -155,7 +150,7 @@ def render_manager_planning_tab():
                     cal_px = compute_line_length_px(cal_lines[-1])
 
             if cal_px > 0:
-                st.info(f"📐 אורך הקו: {cal_px:.0f}px (על הקנבס)")
+                st.info(f"📐 אורך הקו שציירת: {cal_px:.0f} px (על הקנבס)")
                 col_real, col_btn = st.columns([2, 1])
                 with col_real:
                     real_length_m = st.number_input(
@@ -176,65 +171,71 @@ def render_manager_planning_tab():
                     ):
                         cal_px_original = cal_px / scale_factor
                         proj["scale"] = cal_px_original / real_length_m
-                        verify = px_to_m(cal_px, scale_factor, proj["scale"])
-                        st.success(
-                            f"✅ עודכן: {proj['scale']:.1f} px/m | בדיקה: {verify:.2f}m"
-                        )
+                        st.success(f"✅ סקייל עודכן: {proj['scale']:.1f} px/m")
                         st.rerun()
             else:
                 st.info("👆 צייר קו ישר על אלמנט עם אורך ידוע")
-
-        st.caption(f"Scale נוכחי: {proj.get('scale', 0):.1f} px/m")
-
     st.markdown("---")
 
     # ======================================================
     # שלב 2: סוג תוכנית
     # ======================================================
     st.subheader("שלב 2: סוג תוכנית")
+    detected_type = (
+        meta.get("legend_analysis", {}).get("plan_type")
+        if isinstance(meta.get("legend_analysis"), dict)
+        else None
+    )
+    if detected_type:
+        st.success(f"✅ זוהה אוטומטית (מהמקרא): {detected_type}")
+
     plan_type = st.selectbox(
-        "בחר סוג תוכנית:", ["קירות", "ריצוף", "גג"], key="planning_plan_type"
+        "בחר סוג תוכנית:",
+        ["קירות", "ריצוף", "גג"],
+        index=0,
+        key="planning_plan_type",
+        help="בהמשך: נשתמש בזה כדי להפעיל כלים וחישובים מתאימים.",
     )
 
     st.markdown("---")
 
     # ======================================================
-    # שלב 3: ניהול אזורים (Zones) - שמירה אמיתית ל-session_state
+    # שלב 3: ניהול אזורים (Zones)
     # ======================================================
     st.subheader("שלב 3: חלוקת שרטוט לאזורים (Zones)")
+    st.caption(
+        "הלקוח ביקש: אפשר לחלק את אותו שרטוט למספר אזורים עם נתונים שונים (חומר/גובה וכו')."
+    )
+    # storage per plan
     zones_key = f"planning_zones_{plan_name}"
     if zones_key not in st.session_state:
         st.session_state[zones_key] = []
 
     with st.expander("🗺️ יצירה/ניהול אזורים", expanded=True):
+        st.info("שלד UI. בהמשך נוסיף Canvas לאזור (rect/polygon) + שמירה לאזורי תכולה.")
         col1, col2 = st.columns(2)
         with col1:
-            st.text_input("שם אזור", value="אזור 1", key=f"zone_name_input_{plan_name}")
+            st.text_input("שם אזור", value="אזור 1", key="zone_name_input")
             st.selectbox(
-                "סוג עבודה באזור",
-                ["קירות", "ריצוף", "גג"],
-                key=f"zone_work_type_{plan_name}",
+                "סוג עבודה באזור", ["קירות", "ריצוף", "גג"], key="zone_work_type"
             )
         with col2:
             st.selectbox(
                 "חומר ברירת מחדל (קירות)",
                 ["בטון", "בלוקים", "גבס"],
-                key=f"zone_default_material_{plan_name}",
+                key="zone_default_material",
             )
             st.number_input(
-                "גובה ברירת מחדל (מ')",
-                value=2.6,
-                step=0.1,
-                key=f"zone_default_height_{plan_name}",
+                "גובה ברירת מחדל (מ')", value=2.6, step=0.1, key="zone_default_height"
             )
 
         if st.button("➕ הוסף אזור", key=f"add_zone_{plan_name}"):
             st.session_state[zones_key].append(
                 {
-                    "שם": st.session_state[f"zone_name_input_{plan_name}"],
-                    "סוג": st.session_state[f"zone_work_type_{plan_name}"],
-                    "חומר": st.session_state[f"zone_default_material_{plan_name}"],
-                    "גובה": st.session_state[f"zone_default_height_{plan_name}"],
+                    "שם": st.session_state.zone_name_input,
+                    "סוג": st.session_state.zone_work_type,
+                    "חומר": st.session_state.zone_default_material,
+                    "גובה": st.session_state.zone_default_height,
                     "פריטים": 0,
                 }
             )
@@ -245,11 +246,10 @@ def render_manager_planning_tab():
         st.dataframe(
             st.session_state[zones_key], use_container_width=True, hide_index=True
         )
-
     st.markdown("---")
 
     # ======================================================
-    # שלב 4: סימון תכולה (קנבס אמיתי)
+    # שלב 4: סימון תכולה בתוך אזור
     # ======================================================
     st.subheader("שלב 4: סימון תכולה (Planned Items)")
     st.caption(
@@ -301,6 +301,10 @@ def render_manager_planning_tab():
         st.markdown("### ⚙️ מאפייני פריט")
         st.selectbox("סוג קיר", ["בטון", "בלוקים", "גבס"], key="planning_wall_type")
         st.number_input("גובה (מ')", value=2.6, step=0.1, key="planning_wall_height")
+        st.checkbox(
+            "החל על כל הפריטים המסומנים", value=False, key="planning_apply_to_selected"
+        )
+        st.button("➕ הוסף לתכולה (שלד)", key="planning_add_items_stub")
 
         if st.button(
             "💾 שמור תכולה לשרטוט", type="primary", key=f"planning_save_{plan_name}"
@@ -315,7 +319,57 @@ def render_manager_planning_tab():
                 len((canvas.json_data or {}).get("objects", [])) if canvas else 0
             )
             proj["metadata"] = meta
-            st.success("✅ נשמר! (כרגע רק JSON של הקנבס)")
+            st.success(
+                "✅ נשמר! (כרגע רק JSON של הקנבס; בהמשך נחשב כמויות ונבנה פריטים אמיתיים)"
+            )
             st.rerun()
 
     st.markdown("---")
+
+    # ======================================================
+    # שלב 5: טבלת פריטים מתוכננים (שלד)
+    # ======================================================
+    st.subheader("שלב 5: פריטים מתוכננים")
+    st.dataframe(
+        [
+            {
+                "#": 1,
+                "אזור": "אזור 1",
+                "סוג": plan_type,
+                "חומר": "בטון",
+                "גובה": 2.6,
+                "כמות": "12.4 מ'",
+                "סטטוס": "מתוכנן",
+            },
+            {
+                "#": 2,
+                "אזור": "אזור 2",
+                "סוג": plan_type,
+                "חומר": "גבס",
+                "גובה": 2.8,
+                "כמות": "8.1 מ'",
+                "סטטוס": "מתוכנן",
+            },
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("---")
+
+    # ======================================================
+    # שלב 6: סיכום + נעילה (שלד)
+    # ======================================================
+    st.subheader("שלב 6: סיכום")
+    k1, k2, k3 = st.columns(3)
+    with k1:
+        st.metric("סה״כ קירות בטון", "12.4 מ׳")
+    with k2:
+        st.metric("סה״כ קירות גבס", "8.1 מ׳")
+    with k3:
+        st.metric("סה״כ פריטים", "2")
+
+    st.button("✅ נעל תכולה והעבר לדיווח שטח (שלד)", key="planning_lock_stub")
+    st.caption(
+        "בהמשך: נציג ב־Worker overlay של התכולה + התאמת סימון ביצוע לפריטים מתוכננים."
+    )

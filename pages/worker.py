@@ -1089,7 +1089,7 @@ def render_worker_page():
             snap_engine = st.session_state[f"snap_engine_{plan_name}"]
 
             # בדיקה אם יש אובייקטים בקנבס
-            if canvas.json_data and canvas.json_data.get("objects"):
+            if canvas and canvas.json_data and canvas.json_data.get("objects"):
                 last_obj = canvas.json_data["objects"][-1]
 
                 # אם זה קו - בדוק snap בנקודות הקצה
@@ -1116,7 +1116,7 @@ def render_worker_page():
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 if st.button("🔄 המר לקווים", use_container_width=True):
-                    if canvas.json_data and canvas.json_data.get("objects"):
+                    if canvas and canvas.json_data and canvas.json_data.get("objects"):
                         points = [
                             obj
                             for obj in canvas.json_data["objects"]
@@ -1179,7 +1179,7 @@ def render_worker_page():
         items_data = []
 
         # === בניית report_objects מקנבס (מקור אמת יחיד) ===
-        if canvas.json_data and canvas.json_data.get("objects"):
+        if canvas and canvas.json_data and canvas.json_data.get("objects"):
             canvas_objects = canvas.json_data["objects"]
 
             if two_point_mode:

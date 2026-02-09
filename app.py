@@ -30,13 +30,21 @@ if "manual_corrections" not in st.session_state:
 with st.sidebar:
     st.markdown("## 🏗️ ConTech Pro v2.0")
     st.caption("✨ Multi-pass Detection + Manual Corrections")
+
     mode = st.radio(
-        "ניווט", ["🏢 מנהל פרויקט", "👷 דיווח שטח"], label_visibility="collapsed"
+        "ניווט",
+        [
+            "🏢 מנהל",
+            "📂 נתונים",
+            "💰 הנהלת חשבונות",
+            "👷 דיווח שטח",
+        ],
+        label_visibility="collapsed",
     )
+
     st.markdown("---")
 
-    # נשאר כמו שהיה: ווידג'ט DB בסיידבר
-    # השיפור בזיכרון/ביצועים נעשה בתוך db_monitor.py (cache + SQLAlchemy בפוסטגרס)
+    # ווידג'ט DB בסיידבר
     show_db_widget_sidebar()
 
     with st.expander("⚙️ הגדרות גלובליות"):
@@ -60,28 +68,24 @@ with st.sidebar:
             st.success("המערכת אופסה")
             st.rerun()
 
-# ==========================================
-# 🏢 מצב מנהל
-# ==========================================
-if mode == "🏢 מנהל פרויקט":
+
+# ==========================================================
+# 🏢 מצב: מנהל (סדנת עבודה + תכולה + דשבורד)
+# ==========================================================
+if mode == "🏢 מנהל":
     from pages.manager import (
         render_workshop_tab,
-        render_corrections_tab,
         render_dashboard_tab,
-        render_invoices_tab,
-        render_plan_data_tab,
-        render_floor_analysis_tab,
     )
+    from pages.manager_planning import render_manager_planning_tab
 
-    st.title("ניהול פרויקטים")
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    st.title("🏢 מנהל פרויקט")
+
+    tab1, tab2, tab3 = st.tabs(
         [
             "📂 סדנת עבודה",
-            "🎨 תיקונים ידניים",
-            "📄 נתונים מהשרטוט",
-            "📐 ניתוח שטחים",
+            "🧱 הגדרת תכולה",
             "📊 דשבורד",
-            "💰 חשבונות",
         ]
     )
 
@@ -89,23 +93,58 @@ if mode == "🏢 מנהל פרויקט":
         render_workshop_tab()
 
     with tab2:
-        render_corrections_tab()
+        render_manager_planning_tab()
 
     with tab3:
-        render_plan_data_tab()
-
-    with tab4:
-        render_floor_analysis_tab()
-
-    with tab5:
         render_dashboard_tab()
 
-    with tab6:
+
+# ==========================================================
+# 📂 מצב: נתונים (תיקונים + נתונים מהשרטוט + ניתוח שטחים)
+# ==========================================================
+elif mode == "📂 נתונים":
+    from pages.manager import (
+        render_corrections_tab,
+        render_plan_data_tab,
+        render_floor_analysis_tab,
+    )
+
+    st.title("📂 נתונים")
+
+    tab1, tab2, tab3 = st.tabs(
+        [
+            "🎨 תיקונים ידניים",
+            "📄 נתונים מהשרטוט",
+            "📐 ניתוח שטחים",
+        ]
+    )
+
+    with tab1:
+        render_corrections_tab()
+
+    with tab2:
+        render_plan_data_tab()
+
+    with tab3:
+        render_floor_analysis_tab()
+
+
+# ==========================================================
+# 💰 מצב: הנהלת חשבונות (חשבונות)
+# ==========================================================
+elif mode == "💰 הנהלת חשבונות":
+    from pages.manager import render_invoices_tab
+
+    st.title("💰 הנהלת חשבונות")
+
+    tab1 = st.tabs(["💰 חשבונות"])[0]
+    with tab1:
         render_invoices_tab()
 
-# ==========================================
-# 👷 מצב דיווח
-# ==========================================
+
+# ==========================================================
+# 👷 מצב: דיווח שטח (נשאר זהה)
+# ==========================================================
 elif mode == "👷 דיווח שטח":
     from pages.worker import render_worker_page
 

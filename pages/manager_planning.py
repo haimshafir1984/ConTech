@@ -119,7 +119,7 @@ def render_manager_planning_tab():
         st.code(traceback.format_exc())
         bg_img, disp_w, disp_h, scale_factor = None, 0, 0, 1.0
 
-    with st.expander("📏 כיול סקלה (חשוב לדיוק!)", expanded=is_fallback):
+    with st.expander("📏 כיול סקלה (חשוב לדיוק!)", expanded=True):
         st.caption(
             "צייר קו על אלמנט עם אורך ידוע בתוכנית → הזן אורך אמיתי → הסקייל יחושב."
         )

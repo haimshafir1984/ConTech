@@ -6,8 +6,7 @@ import numpy as np
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import cv2
-
-from worker import compute_line_length_px, px_to_m  # ✅
+from .worker import compute_line_length_px, px_to_m  # ✅
 
 
 def _build_bg_image_from_proj(proj, max_width=900):

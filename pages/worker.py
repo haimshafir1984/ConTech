@@ -1059,7 +1059,6 @@ def render_worker_page():
         bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB")
         bg_img.load()
 
-        st.info("DEBUG: calling st_canvas...")
         canvas = st_canvas(
             fill_color=fill,
             stroke_color=stroke,
@@ -1072,10 +1071,6 @@ def render_worker_page():
             key=f"canvas_{plan_name}_{w}x{h}_sf{scale_factor:.4f}_ov{int(overlay_on)}_{report_type}_{drawing_mode}_{two_point_mode}_bgfix1",
             update_streamlit=True,
         )
-
-        st.code(traceback.format_exc())
-        st.stop()
-
         # === הוסף כאן ===
         # Snap Indicator (אינדיקציה ויזואלית)
         if PHASE1_AVAILABLE and f"snap_engine_{plan_name}" in st.session_state:

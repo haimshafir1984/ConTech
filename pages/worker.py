@@ -12,6 +12,7 @@ from datetime import datetime
 import uuid
 import re
 import io
+import traceback
 from PIL import Image
 
 from database import (
@@ -1050,27 +1051,38 @@ def render_worker_page():
 
         overlay_on = st.session_state.get(f"show_metadata_overlay_{plan_name}", False)
 
-        img_resized_with_overlay = img_resized_with_overlay.convert("RGB")
+        try:
+            # ודא PIL RGB
+            if img_resized_with_overlay is None:
+                raise ValueError("img_resized_with_overlay is None")
 
-        buf = io.BytesIO()
-        img_resized_with_overlay.save(buf, format="PNG")
-        bg_bytes = buf.getvalue()
+            img_rgb = img_resized_with_overlay.convert("RGB")
 
-        bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGB")
-        bg_img.load()
+            # טריק יציב: להפוך לבייטים ולפתוח מחדש (מונע מצבים שה-PIL לא נטען כמו שצריך)
+            buf = io.BytesIO()
+            img_rgb.save(buf, format="PNG")
+            bg_img = Image.open(io.BytesIO(buf.getvalue())).convert("RGB")
+            bg_img.load()
 
-        canvas = st_canvas(
-            fill_color=fill,
-            stroke_color=stroke,
-            stroke_width=stroke_width if not two_point_mode else 1,
-            background_image=bg_img,
-            height=int(h * scale_factor),
-            width=int(w * scale_factor),
-            drawing_mode=drawing_mode,
-            point_display_radius=5 if two_point_mode else 0,
-            key=f"canvas_{plan_name}_{w}x{h}_sf{scale_factor:.4f}_ov{int(overlay_on)}_{report_type}_{drawing_mode}_{two_point_mode}_bgfix1",
-            update_streamlit=True,
-        )
+            canvas = st_canvas(
+                fill_color=fill,
+                stroke_color=stroke,
+                stroke_width=stroke_width if not two_point_mode else 1,
+                background_image=bg_img,
+                height=int(h * scale_factor),
+                width=int(w * scale_factor),
+                drawing_mode=drawing_mode,
+                point_display_radius=5 if two_point_mode else 0,
+                key=f"canvas_{plan_name}_{w}x{h}_sf{scale_factor:.4f}_ov{int(overlay_on)}_{report_type}_{drawing_mode}_{two_point_mode}_bgfix1",
+                update_streamlit=True,
+            )
+
+        except Exception:
+            # לא דיבאג חופר – רק הודעת כשל + traceback כדי שלא "ייעלם" בשקט
+            st.error("❌ לא הצלחתי להכין רקע לקנבס. בדוק תמונה/חיתוך/scale.")
+            st.code(traceback.format_exc())
+            canvas = None
+
         # === הוסף כאן ===
         # Snap Indicator (אינדיקציה ויזואלית)
         if PHASE1_AVAILABLE and f"snap_engine_{plan_name}" in st.session_state:

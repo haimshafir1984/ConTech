@@ -670,13 +670,15 @@ def render_manager_planning_tab():
                 if st.button(
                     "💾 שמור פריטים חדשים",
                     type="primary",
-                    key=f"save_items_btn_{plan_name}",
+                    key="planning_save_new_items_btn",
                 ):
                     scale = proj.get("scale", 200)
                     bbox = _get_drawing_bbox(proj)
                     clip_enabled = st.session_state.get("planning_clip_to_bounds", True)
 
                     saved_count = 0
+
+                    st.write("🐛 נכנסתי לכפתור השמירה!")
 
                     for obj in new_objects[existing_count:]:
                         # Clip אם מבוקש
@@ -720,7 +722,7 @@ def render_manager_planning_tab():
                             "area_m2": round(area_m2, 2),
                             "timestamp": datetime.now().isoformat(),
                         }
-
+                        st.write(f"🐛 שומר פריט: {item['uid']}")
                         # 🔥 הוספה ישירה ל-session_state
                         st.session_state[items_key].append(item)
                         saved_count += 1

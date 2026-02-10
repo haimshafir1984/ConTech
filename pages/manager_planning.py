@@ -526,7 +526,6 @@ def render_manager_planning_tab():
     # ==========================================
     # שלב 3: סימון על קנבס
     # ==========================================
-
     elif current_step == 3:
         plan_name = st.session_state.get("_planning_active_plan")
         if not plan_name or plan_name not in st.session_state.projects:
@@ -556,10 +555,24 @@ def render_manager_planning_tab():
         if items_key not in st.session_state:
             st.session_state[items_key] = []
 
-        # 🐛 DEBUG למעלה
-        st.write(f"🐛 plan_name = {plan_name}")
-        st.write(f"🐛 items_key = {items_key}")
-        st.write(f"🐛 פריטים כרגע: {len(st.session_state[items_key])}")
+        # 🔥 מיפוי צבעים לקטגוריות
+        category_colors = {
+            "בטון": "#0000FF",  # כחול
+            "בלוקים": "#FF6600",  # כתום
+            "גבס": "#00FF00",  # ירוק
+            "קרמיקה": "#FF00FF",  # סגול
+            "פרקט": "#FFFF00",  # צהוב
+            "גרניט פורצלן": "#00FFFF",  # ציאן
+            "מינרלים": "#FF69B4",  # ורוד
+            "אקוסטית": "#FFA500",  # כתום בהיר
+        }
+
+        # 🔥 מיפוי אובייקטים לקטגוריות - כל אובייקט זוכר את הקטגוריה שלו
+        obj_categories_key = f"planning_obj_categories_{plan_name}"
+        if obj_categories_key not in st.session_state:
+            st.session_state[obj_categories_key] = {}
+
+        obj_categories = st.session_state[obj_categories_key]
 
         col_canvas, col_config = st.columns([2, 1])
 
@@ -577,7 +590,20 @@ def render_manager_planning_tab():
                 key="planning_active_category",
             )
 
+            # 🔥 קביעת צבע לפי תת-סוג הקטגוריה
+            active_cat_data = categories[active_cat]
+            subtype = active_cat_data.get("subtype", "")
+            stroke_color = category_colors.get(subtype, "#00FF00")  # ברירת מחדל: ירוק
+
             st.info(f"✏️ כל ציור חדש יקבל: **{cat_labels[active_cat]}**")
+            st.markdown(
+                f'<div style="background:{stroke_color}; padding:10px; border-radius:5px; text-align:center; color:white; font-weight:bold;">צבע: {subtype}</div>',
+                unsafe_allow_html=True,
+            )
+
+            # 🔥 שמירת הקטגוריה הפעילה ב-session_state
+            st.session_state["_current_active_category"] = active_cat
+            st.session_state["_current_stroke_color"] = stroke_color
 
             # מצב ציור
             drawing_mode = st.selectbox(
@@ -591,7 +617,6 @@ def render_manager_planning_tab():
 
             # הצגת מידע על הקטגוריה הפעילה
             st.markdown("**פרמטרים:**")
-            active_cat_data = categories[active_cat]
             st.write(f"סוג: {active_cat_data['type']}")
             st.write(f"תת-סוג: {active_cat_data['subtype']}")
             params = active_cat_data.get("params", {})
@@ -624,13 +649,14 @@ def render_manager_planning_tab():
                     bx, by, bw, bh = bbox
                     st.caption(f"📏 bbox של שרטוט: x={bx}, y={by}, w={bw}, h={bh}")
 
+                # 🔥 שימוש בצבע הדינמי
                 canvas = st_canvas(
                     fill_color=(
-                        "rgba(0,255,0,0.1)"
+                        f"rgba({int(stroke_color[1:3], 16)},{int(stroke_color[3:5], 16)},{int(stroke_color[5:7], 16)},0.1)"
                         if drawing_mode == "rect"
                         else "rgba(0,0,0,0)"
                     ),
-                    stroke_color="#00FF00",
+                    stroke_color=stroke_color,  # 🔥 צבע דינמי!
                     stroke_width=5,
                     background_image=bg_img,
                     height=disp_h,
@@ -649,15 +675,24 @@ def render_manager_planning_tab():
         if canvas and canvas.json_data and canvas.json_data.get("objects"):
             new_objects = canvas.json_data["objects"]
 
+            # 🔥 עדכון קטגוריות לאובייקטים חדשים
+            current_active_cat = st.session_state.get(
+                "_current_active_category", active_cat
+            )
+
+            for idx, obj in enumerate(new_objects):
+                obj_id = f"obj_{idx}"
+                # אם זה אובייקט חדש (אין לו קטגוריה) - תן לו את הקטגוריה הנוכחית
+                if obj_id not in obj_categories:
+                    obj_categories[obj_id] = current_active_cat
+
             # בדוק אם יש פריטים חדשים שטרם נשמרו
             existing_count = len(st.session_state[items_key])
-
-            st.write(f"🐛 אובייקטים על הקנבס: {len(new_objects)}")
-            st.write(f"🐛 כבר נשמרו: {existing_count}")
 
             if len(new_objects) > existing_count:
                 st.info(f"🆕 זוהו {len(new_objects) - existing_count} פריטים חדשים")
 
+                # 🔥 key יציב - בלי תלות בשם הקובץ
                 if st.button(
                     "💾 שמור פריטים חדשים",
                     type="primary",
@@ -669,9 +704,13 @@ def render_manager_planning_tab():
 
                     saved_count = 0
 
-                    st.write("🐛 נכנסתי לכפתור השמירה!")
+                    for idx in range(existing_count, len(new_objects)):
+                        obj = new_objects[idx]
 
-                    for obj in new_objects[existing_count:]:
+                        # 🔥 קבלת הקטגוריה המתאימה לאובייקט הזה
+                        obj_id = f"obj_{idx}"
+                        obj_category = obj_categories.get(obj_id, active_cat)
+
                         # Clip אם מבוקש
                         if clip_enabled:
                             obj_clipped = _clip_object_to_bbox(obj, bbox, scale_factor)
@@ -707,21 +746,18 @@ def render_manager_planning_tab():
                         item = {
                             "uid": f"item_{len(st.session_state[items_key])}_{datetime.now().strftime('%H%M%S%f')}",
                             "type": obj_type,
-                            "category": active_cat,
+                            "category": obj_category,  # 🔥 השתמש בקטגוריה המתאימה!
                             "raw_object": obj,
                             "length_m": round(length_m, 2),
                             "area_m2": round(area_m2, 2),
                             "timestamp": datetime.now().isoformat(),
                         }
-                        st.write(f"🐛 שומר פריט: {item['uid']}")
+
                         # 🔥 הוספה ישירה ל-session_state
                         st.session_state[items_key].append(item)
                         saved_count += 1
 
                     st.success(f"✅ נשמרו {saved_count} פריטים!")
-                    st.write(
-                        f"🐛 אחרי שמירה: {len(st.session_state[items_key])} פריטים"
-                    )
                     st.rerun()
 
         # הצגת פריטים קיימים
@@ -737,16 +773,26 @@ def render_manager_planning_tab():
                     f"{cat_data.get('type', '?')} - {cat_data.get('subtype', '?')}"
                 )
 
+                # 🔥 צבע לפי תת-סוג
+                item_subtype = cat_data.get("subtype", "")
+                item_color = category_colors.get(item_subtype, "#00FF00")
+
                 with st.expander(
                     f"#{idx+1} | {cat_label} | {item['type']}", expanded=False
                 ):
+                    # 🔥 אינדיקטור צבע
+                    st.markdown(
+                        f'<div style="background:{item_color}; padding:5px; border-radius:3px; text-align:center; color:white; font-weight:bold; margin-bottom:10px;">{item_subtype}</div>',
+                        unsafe_allow_html=True,
+                    )
+
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         st.metric("אורך", f"{item['length_m']:.2f} מ'")
                     with col2:
                         st.metric("שטח", f"{item['area_m2']:.2f} מ\"ר")
                     with col3:
-                        if st.button("🗑️", key=f"del_item_{item['uid']}"):
+                        if st.button("🗑️", key=f"del_item_{idx}_{current_step}"):
                             # 🔥 מחיקה ישירה מה-session_state
                             st.session_state[items_key].remove(item)
                             st.rerun()

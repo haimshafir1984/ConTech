@@ -535,6 +535,7 @@ def render_manager_planning_tab():
     # ==========================================
     # שלב 3: סימון על קנבס
     # ==========================================
+
     elif current_step == 3:
         plan_name = st.session_state.get("_planning_active_plan")
         if not plan_name or plan_name not in st.session_state.projects:
@@ -558,6 +559,16 @@ def render_manager_planning_tab():
             return
 
         st.subheader("🎨 שלב 3: סימון תכולה על הקנבס")
+
+        # 🔥 הגדרת items_key פעם אחת בלבד!
+        items_key = f"planning_items_{plan_name}"
+        if items_key not in st.session_state:
+            st.session_state[items_key] = []
+
+        # 🐛 DEBUG למעלה
+        st.write(f"🐛 plan_name = {plan_name}")
+        st.write(f"🐛 items_key = {items_key}")
+        st.write(f"🐛 פריטים כרגע: {len(st.session_state[items_key])}")
 
         col_canvas, col_config = st.columns([2, 1])
 
@@ -643,20 +654,15 @@ def render_manager_planning_tab():
 
         st.markdown("---")
 
-        # ניתוח ושמירת פריטים
-        items_key = f"planning_items_{plan_name}"
-        if items_key not in st.session_state:
-            st.session_state[items_key] = []
-
-        # 🔥 תמיד קרא מחדש מה-session_state (לא העתק רדוד)
-        planned_items = st.session_state[items_key]
-
         # עיבוד ציורים חדשים
         if canvas and canvas.json_data and canvas.json_data.get("objects"):
             new_objects = canvas.json_data["objects"]
 
             # בדוק אם יש פריטים חדשים שטרם נשמרו
-            existing_count = len(planned_items)
+            existing_count = len(st.session_state[items_key])
+
+            st.write(f"🐛 אובייקטים על הקנבס: {len(new_objects)}")
+            st.write(f"🐛 כבר נשמרו: {existing_count}")
 
             if len(new_objects) > existing_count:
                 st.info(f"🆕 זוהו {len(new_objects) - existing_count} פריטים חדשים")
@@ -670,7 +676,7 @@ def render_manager_planning_tab():
                     bbox = _get_drawing_bbox(proj)
                     clip_enabled = st.session_state.get("planning_clip_to_bounds", True)
 
-                    saved_count = 0  # 🔥 מונה כמה באמת נשמרו
+                    saved_count = 0
 
                     for obj in new_objects[existing_count:]:
                         # Clip אם מבוקש
@@ -715,16 +721,19 @@ def render_manager_planning_tab():
                             "timestamp": datetime.now().isoformat(),
                         }
 
-                        # 🔥 הוספה ישירה ל-session_state (לא למשתנה מקומי!)
+                        # 🔥 הוספה ישירה ל-session_state
                         st.session_state[items_key].append(item)
                         saved_count += 1
 
                     st.success(f"✅ נשמרו {saved_count} פריטים!")
-                    st.rerun()  # 🔥 rerun כדי לרענן את התצוגה
-        # 🔥 קרא מחדש מה-session_state לפני הצגה
-        planned_items = st.session_state[items_key]
+                    st.write(
+                        f"🐛 אחרי שמירה: {len(st.session_state[items_key])} פריטים"
+                    )
+                    st.rerun()
 
         # הצגת פריטים קיימים
+        planned_items = st.session_state[items_key]
+
         if planned_items:
             st.markdown("### 📋 פריטים מתוכננים")
             st.caption(f'סה"כ: {len(planned_items)} פריטים')
@@ -745,7 +754,8 @@ def render_manager_planning_tab():
                         st.metric("שטח", f"{item['area_m2']:.2f} מ\"ר")
                     with col3:
                         if st.button("🗑️", key=f"del_item_{item['uid']}"):
-                            planned_items.remove(item)
+                            # 🔥 מחיקה ישירה מה-session_state
+                            st.session_state[items_key].remove(item)
                             st.rerun()
         else:
             st.info("אין פריטים עדיין - התחל לצייר!")
@@ -760,9 +770,8 @@ def render_manager_planning_tab():
                 st.rerun()
 
         with col_next:
-            # 🔥 קרא מחדש מה-session_state
-            planned_items_final = st.session_state.get(items_key, [])
-            can_proceed = len(planned_items_final) > 0
+            # 🔥 קרא ישירות מ-session_state
+            can_proceed = len(st.session_state[items_key]) > 0
 
             if not can_proceed:
                 st.warning("⚠️ נדרש לפחות פריט אחד")

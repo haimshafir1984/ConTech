@@ -114,17 +114,25 @@ def _is_point_in_bbox(x, y, bbox):
 
 def _clip_object_to_bbox(obj, bbox, scale_factor):
     """
-    מחתך אובייקט לתוך bbox (במקרה של line/path)
+    מחתך אובייקט לתוך bbox
     מחזיר None אם האובייקט כולו מחוץ ל-bbox
     """
     obj_type = obj.get("type", "")
     bx, by, bw, bh = bbox
 
-    # המרת bbox לקואורדינטות קנבס
+    # 🔥 bbox כבר בקואורדינטות מקוריות, הקנבס בקואורדינטות מוקטנות
+    # צריך להמיר את bbox לקואורדינטות קנבס
     bx_canvas = int(bx * scale_factor)
     by_canvas = int(by * scale_factor)
     bw_canvas = int(bw * scale_factor)
     bh_canvas = int(bh * scale_factor)
+
+    # 🔥 הרחבת bbox ב-10% למניעת false positives
+    margin = 0.1
+    bx_canvas = int(bx_canvas - bw_canvas * margin)
+    by_canvas = int(by_canvas - bh_canvas * margin)
+    bw_canvas = int(bw_canvas * (1 + 2 * margin))
+    bh_canvas = int(bh_canvas * (1 + 2 * margin))
 
     if obj_type == "line":
         x1 = obj.get("x1", 0)
@@ -136,21 +144,12 @@ def _clip_object_to_bbox(obj, bbox, scale_factor):
         p1_in = _is_point_in_bbox(x1, y1, (bx_canvas, by_canvas, bw_canvas, bh_canvas))
         p2_in = _is_point_in_bbox(x2, y2, (bx_canvas, by_canvas, bw_canvas, bh_canvas))
 
+        # 🔥 אם אף נקודה לא בפנים - דחה
         if not p1_in and not p2_in:
-            return None  # כולו מחוץ
+            return None
 
-        # Clip
-        x1 = max(bx_canvas, min(x1, bx_canvas + bw_canvas))
-        y1 = max(by_canvas, min(y1, by_canvas + bh_canvas))
-        x2 = max(bx_canvas, min(x2, bx_canvas + bw_canvas))
-        y2 = max(by_canvas, min(y2, by_canvas + bh_canvas))
-
-        obj_clipped = obj.copy()
-        obj_clipped["x1"] = x1
-        obj_clipped["y1"] = y1
-        obj_clipped["x2"] = x2
-        obj_clipped["y2"] = y2
-        return obj_clipped
+        # אחרת - החזר כמו שהוא (ללא clipping)
+        return obj
 
     elif obj_type == "rect":
         left = obj.get("left", 0)
@@ -158,34 +157,24 @@ def _clip_object_to_bbox(obj, bbox, scale_factor):
         width = obj.get("width", 0)
         height = obj.get("height", 0)
 
-        # בדוק חיתוך
+        # בדוק חיפוף
         rect_right = left + width
         rect_bottom = top + height
         bbox_right = bx_canvas + bw_canvas
         bbox_bottom = by_canvas + bh_canvas
 
+        # 🔥 אם אין חיפוף כלל - דחה
         if (
             left > bbox_right
             or rect_right < bx_canvas
             or top > bbox_bottom
             or rect_bottom < by_canvas
         ):
-            return None  # אין חיפוף
+            return None
 
-        # Clip
-        new_left = max(left, bx_canvas)
-        new_top = max(top, by_canvas)
-        new_right = min(rect_right, bbox_right)
-        new_bottom = min(rect_bottom, bbox_bottom)
+        # אחרת - החזר כמו שהוא
+        return obj
 
-        obj_clipped = obj.copy()
-        obj_clipped["left"] = new_left
-        obj_clipped["top"] = new_top
-        obj_clipped["width"] = new_right - new_left
-        obj_clipped["height"] = new_bottom - new_top
-        return obj_clipped
-
-    # עבור path/polygon - פשוט נבדוק אם יש נקודה אחת לפחות בפנים
     elif obj_type == "path":
         path = obj.get("path", [])
         any_inside = False
@@ -200,7 +189,7 @@ def _clip_object_to_bbox(obj, bbox, scale_factor):
 
         return obj if any_inside else None
 
-    return obj  # אחר - נשאיר
+    return obj
 
 
 def _calculate_boq_from_items(planned_items, categories_config):
@@ -330,7 +319,9 @@ def render_manager_planning_tab():
                 scale = thumb_w / w
                 thumb_h = int(h * scale)
                 thumb = cv2.resize(rgb, (thumb_w, thumb_h))
-                st.image(thumb, caption=f"תוכנית: {plan_name}", use_column_width=False)
+                st.image(
+                    thumb, caption=f"תוכנית: {plan_name}", use_container_width=False
+                )
         except:
             st.info("לא ניתן להציג תצוגה מקדימה")
 
@@ -837,7 +828,7 @@ def render_manager_planning_tab():
                 boq_rows.append(row)
 
             df_boq = pd.DataFrame(boq_rows)
-            st.dataframe(df_boq, use_column_width=True, hide_index=True)
+            st.dataframe(df_boq, use_container_width=True, hide_index=True)
 
             # סיכום סופי
             st.markdown("---")

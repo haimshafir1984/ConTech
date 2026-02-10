@@ -300,6 +300,7 @@ def render_manager_planning_tab():
             index=default_idx,
             key="planning_selected_plan",
         )
+        st.session_state["_planning_active_plan"] = plan_name
 
         proj = st.session_state.projects[plan_name]
         meta = _safe_get_metadata(proj)
@@ -346,7 +347,7 @@ def render_manager_planning_tab():
     # שלב 2: כיול סקייל + הגדרת קטגוריות
     # ==========================================
     elif current_step == 2:
-        plan_name = st.session_state.get("planning_selected_plan")
+        plan_name = st.session_state.get("_planning_active_plan")
         if not plan_name or plan_name not in st.session_state.projects:
             st.error("❌ תוכנית לא נבחרה - חזור לשלב 1")
             if st.button("⬅️ חזור לשלב 1"):
@@ -535,7 +536,7 @@ def render_manager_planning_tab():
     # שלב 3: סימון על קנבס
     # ==========================================
     elif current_step == 3:
-        plan_name = st.session_state.get("planning_selected_plan")
+        plan_name = st.session_state.get("_planning_active_plan")
         if not plan_name or plan_name not in st.session_state.projects:
             st.error("❌ תוכנית לא נבחרה")
             if st.button("⬅️ חזור לשלב 1"):
@@ -766,7 +767,7 @@ def render_manager_planning_tab():
     # שלב 4: שמירה וכתב כמויות
     # ==========================================
     elif current_step == 4:
-        plan_name = st.session_state.get("planning_selected_plan")
+        plan_name = st.session_state.get("_planning_active_plan")
         if not plan_name or plan_name not in st.session_state.projects:
             st.error("❌ תוכנית לא נבחרה")
             if st.button("⬅️ חזור לשלב 1"):

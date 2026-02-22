@@ -32,3 +32,6 @@ Desktop.ini
 
 # OS
 .DS_Store
+
+# Claude Code local memory
+.claude/

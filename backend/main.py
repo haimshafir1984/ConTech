@@ -149,13 +149,23 @@ DEFAULT_UNIT_PRICES: Dict[str, float] = {
 
 init_database()
 
-# Allow local frontend during development
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# CORS — מאפשר לפרונטאנד לתקשר עם הבאקאנד
+# ניתן להגדיר ALLOWED_ORIGINS כמשתנה סביבה ב-Render (מופרד בפסיקים)
+_cors_env = os.environ.get("ALLOWED_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+
+# ברירת מחדל: localhost לפיתוח + כל דומיין של onrender.com לפרודקשן
+if not _cors_origins:
+    _cors_origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-    ],
+        "http://localhost:3000",
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"https://.*\.onrender\.com",  # כל subdomain של Render
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

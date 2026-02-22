@@ -1,0 +1,21 @@
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Core analysis stack (same as main app)
+opencv-python-headless
+numpy
+pandas
+Pillow
+pymupdf
+
+# Optional – if some analysis utilities rely on these
+scikit-learn
+sqlalchemy
+psycopg2-binary
+reportlab
+streamlit
+anthropic
+google-cloud-vision
+pdf2image
+

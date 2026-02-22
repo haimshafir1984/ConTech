@@ -1,4 +1,34 @@
+# Secrets & credentials
 .streamlit/secrets.toml
-__pycache__/
-*.db
+.streamlit/google-vision-key.json
 .env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+node_modules/
+dist/
+
+# Windows
+nul
+*.bat
+*.ps1
+Thumbs.db
+Desktop.ini
+
+# OS
+.DS_Store

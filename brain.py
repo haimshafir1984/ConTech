@@ -6,6 +6,12 @@ try:
     import anthropic
 except ImportError:
     anthropic = None
+
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
+
 import streamlit as st
 
 
@@ -360,3 +366,248 @@ def analyze_legend_image(image_bytes):
             continue
 
     return {"error": "כל המודלים נכשלו בניתוח התמונה", "tried_models": models}
+
+
+# ─────────────────────────────────────────────────────────────────
+# PDF ARCHITECTURAL EXTRACTOR — Vision + tool_use (JSON מובטח)
+# ─────────────────────────────────────────────────────────────────
+
+_ARCH_TOOL = {
+    "name": "extract_floor_plan_data",
+    "description": "חלץ את כל המידע מהתוכנית האדריכלית המוצגת בתמונה",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "plan_title": {
+                "type": "string",
+                "description": "שם/כותרת התוכנית"
+            },
+            "plan_type": {
+                "type": "string",
+                "enum": ["floor_plan", "section", "elevation", "detail", "site", "other"],
+                "description": "סוג התוכנית"
+            },
+            "scale": {
+                "type": "string",
+                "description": "קנה מידה, למשל 1:50"
+            },
+            "floor_level": {
+                "type": "string",
+                "description": "קומה או רמה, למשל קומה ראשונה"
+            },
+            "drawing_number": {
+                "type": "string",
+                "description": "מספר תוכנית"
+            },
+            "architect": {
+                "type": "string",
+                "description": "שם האדריכל אם מופיע"
+            },
+            "project_address": {
+                "type": "string",
+                "description": "כתובת הפרויקט אם מופיעה"
+            },
+            "rooms": {
+                "type": "array",
+                "description": "רשימת כל החדרים/מרחבים בתוכנית",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name":               {"type": "string", "description": "שם החדר"},
+                        "area_m2":            {"type": "number", "description": "שטח במ\"ר"},
+                        "dimensions":         {"type": "string", "description": "מידות, למשל 3.50 x 4.20"},
+                        "ceiling_height_m":   {"type": "number", "description": "גובה תקרה במטר"},
+                        "flooring":           {"type": "string", "description": "סוג ריצוף"},
+                        "notes":              {"type": "string", "description": "הערות נוספות"}
+                    },
+                    "required": ["name"]
+                }
+            },
+            "dimensions_found": {
+                "type": "array",
+                "description": "כל קוטי המידה שנמצאו בתוכנית (מספרים על קווי מידה, חצים)",
+                "items": {"type": "string"}
+            },
+            "default_ceiling_height_m": {
+                "type": "number",
+                "description": "גובה תקרה כללי לכל הקומה אם מצוין"
+            },
+            "materials": {
+                "type": "array",
+                "description": "חומרי בניה שמוזכרים",
+                "items": {"type": "string"}
+            },
+            "execution_notes": {
+                "type": "array",
+                "description": "הערות ביצוע, דרישות מיוחדות",
+                "items": {"type": "string"}
+            },
+            "warnings": {
+                "type": "array",
+                "description": "בעיות או מגבלות בקריאת התוכנית",
+                "items": {"type": "string"}
+            }
+        },
+        "required": ["rooms"]
+    }
+}
+
+_ARCH_SYSTEM = """אתה מומחה בקריאת תוכניות אדריכליות ישראליות.
+תפקידך לחלץ כמה שיותר מידע מדויק מהתמונה:
+
+1. **חדרים ושטחים** - חפש שמות חדרים עם מספרים סמוך אליהם (שטח במ"ר)
+2. **מידות** - מספרים על קווי מידה (בד"כ עם חצים משני הצדדים)
+3. **גבהי תקרה** - H= או "ג.ת." עם מספר, או הערה כללית
+4. **ריצוף וחומרים** - פרקט, קרמיקה, שיש, בטון, גרניט
+5. **הערות ביצוע** - טקסט בשוליים, בטבלאות, בכותרות
+6. **קנה מידה** - 1:50, 1:100 וכדומה
+7. **פרטי מסמך** - שם תוכנית, קומה, מספר תוכנית, אדריכל
+
+**מה לא לפספס:**
+- מספרים קטנים בתוך חדרים = שטח
+- מספרים על קווים = מידה (בד"כ בס"מ)
+- ראשי תיבות: ח.ש. = חדר שינה, מ.ח. = מחסן, כ.ש. = כושר
+- H= או ג.ת.= גובה תקרה"""
+
+
+def extract_from_architectural_pdf(pdf_path: str) -> dict:
+    """
+    חילוץ מקסימלי מתוכנית אדריכלית - כל הדפים, Vision + tool_use.
+
+    Args:
+        pdf_path: נתיב לקובץ PDF
+
+    Returns:
+        dict עם pages (רשימה לפי דף) ו-merged (מיזוג כל הדפים)
+    """
+    if fitz is None:
+        return {"error": "PyMuPDF לא מותקן. הרץ: pip install pymupdf", "pages": []}
+
+    client, error = get_anthropic_client()
+    if error:
+        return {"error": error, "pages": []}
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception as e:
+        return {"error": f"לא ניתן לפתוח PDF: {e}", "pages": []}
+
+    all_pages = []
+    total_pages = len(doc)
+
+    for page_num in range(total_pages):
+        page = doc[page_num]
+
+        # 300 DPI — חיוני לקריאת מידות קטנות בתוכניות
+        matrix = fitz.Matrix(300 / 72, 300 / 72)
+        pix = page.get_pixmap(matrix=matrix, alpha=False)
+        img_bytes = pix.tobytes("jpeg", jpg_quality=92)
+        img_b64 = base64.standard_b64encode(img_bytes).decode()
+
+        # טקסט גולמי מה-PDF (אם הוא דיגיטלי ולא סרוק)
+        page_text = page.get_text("text").strip()
+        text_note = (
+            f"טקסט שחולץ אוטומטית מהדף:\n{page_text[:3000]}"
+            if page_text
+            else "הדף נראה סרוק — סמוך על ניתוח ויזואלי בלבד."
+        )
+
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=4096,
+                system=_ARCH_SYSTEM,
+                tools=[_ARCH_TOOL],
+                tool_choice={"type": "tool", "name": "extract_floor_plan_data"},
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": img_b64,
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                f"תוכנית אדריכלית ישראלית — דף {page_num + 1} מתוך {total_pages}.\n\n"
+                                f"{text_note}\n\n"
+                                "חלץ את כל המידע הנראה בתמונה."
+                            )
+                        }
+                    ]
+                }]
+            )
+
+            tool_block = next(
+                (b for b in response.content if b.type == "tool_use"), None
+            )
+            page_data = tool_block.input if tool_block else {}
+            page_data["_tokens"] = {
+                "input": response.usage.input_tokens,
+                "output": response.usage.output_tokens,
+            }
+
+        except Exception as e:
+            page_data = {"error": str(e), "rooms": [], "warnings": [str(e)]}
+
+        all_pages.append({"page": page_num + 1, "data": page_data})
+
+    doc.close()
+
+    # ===== מיזוג תוצאות כל הדפים =====
+    merged = _merge_pages(all_pages)
+
+    return {
+        "status": "success",
+        "total_pages": total_pages,
+        "pages": all_pages,
+        "merged": merged,
+    }
+
+
+def _merge_pages(pages: list) -> dict:
+    """מאחד תוצאות מכמה דפים לתוצאה אחת מאוחדת."""
+    all_rooms = []
+    all_dimensions = []
+    all_materials = []
+    all_notes = []
+    all_warnings = []
+
+    # מטה-דאטה מהדף הראשון שמחזיר ערך
+    meta_fields = ["plan_title", "plan_type", "scale", "floor_level",
+                   "drawing_number", "architect", "project_address",
+                   "default_ceiling_height_m"]
+    merged_meta = {f: None for f in meta_fields}
+
+    for page in pages:
+        d = page.get("data", {})
+
+        for field in meta_fields:
+            if merged_meta[field] is None and d.get(field):
+                merged_meta[field] = d[field]
+
+        for room in d.get("rooms", []):
+            room["_from_page"] = page["page"]
+            all_rooms.append(room)
+
+        all_dimensions.extend(d.get("dimensions_found", []))
+        all_materials.extend(d.get("materials", []))
+        all_notes.extend(d.get("execution_notes", []))
+        all_warnings.extend(d.get("warnings", []))
+
+    return {
+        **merged_meta,
+        "rooms": all_rooms,
+        "dimensions_found": list(dict.fromkeys(all_dimensions)),  # ייחודיים, שומר סדר
+        "materials": list(dict.fromkeys(all_materials)),
+        "execution_notes": list(dict.fromkeys(all_notes)),
+        "warnings": all_warnings,
+        "total_rooms": len(all_rooms),
+        "total_area_m2": round(
+            sum(r.get("area_m2", 0) or 0 for r in all_rooms), 2
+        ),
+    }

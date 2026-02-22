@@ -3309,3 +3309,46 @@ async def worker_reports_summary(plan_id: str) -> dict:
         "boq": boq_items,
     }
 
+
+# ─────────────────────────────────────────────────────────────────
+# ARCHITECTURAL PDF EXTRACTOR — Vision + tool_use
+# ─────────────────────────────────────────────────────────────────
+
+@app.post("/api/extract-pdf")
+async def extract_pdf_endpoint(file: UploadFile = File(...)):
+    """
+    חילוץ מידע מתוכנית אדריכלית PDF.
+    שולח כל דף ל-Claude Vision עם tool_use לJSON מובטח.
+    מחזיר תוצאות לפי דף + מיזוג אחוד.
+    """
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="יש להעלות קובץ PDF בלבד")
+
+    pdf_bytes = await file.read()
+    if len(pdf_bytes) > 50 * 1024 * 1024:  # 50MB
+        raise HTTPException(status_code=413, detail="קובץ גדול מדי (מקסימום 50MB)")
+
+    try:
+        from brain import extract_from_architectural_pdf
+    except ImportError:
+        raise HTTPException(status_code=500, detail="מודול brain לא זמין")
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(pdf_bytes)
+        tmp_path = tmp.name
+
+    try:
+        result = extract_from_architectural_pdf(tmp_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"שגיאה בחילוץ: {e}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail=result["error"])
+
+    return result
+

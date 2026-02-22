@@ -6,7 +6,11 @@ import json
 from datetime import datetime
 
 # בדיקה האם אנחנו בענן (Postgres) או מקומי (SQLite)
-DB_URL = os.environ.get("DATABASE_URL")
+_raw_db_url = os.environ.get("DATABASE_URL", "")
+# קבל רק URL של Postgres אמיתי (מתחיל ב-postgres:// או postgresql://)
+# URL של Prisma כגון "file:./prisma/dev.db" אינו Postgres — נתעלם ממנו
+_is_real_postgres = _raw_db_url.startswith(("postgres://", "postgresql://"))
+DB_URL = _raw_db_url if _is_real_postgres else ""
 # שימוש בשם קובץ קבוע וברור יותר למסד הנתונים המקומי
 DB_FILE = os.environ.get("DB_FILE_PATH", "project_data.db")
 
@@ -21,7 +25,7 @@ def get_connection():
             print(f"Error connecting to Postgres: {e}")
             return None
     else:
-        # מצב מקומי - שימוש בקובץ
+        # מצב מקומי - שימוש בקובץ SQLite
         conn = sqlite3.connect(DB_FILE, check_same_thread=False)
         conn.row_factory = sqlite3.Row  # מאפשר גישה לשדות לפי שם
         return conn
@@ -133,83 +137,101 @@ def save_plan(
     cost=0,
     materials="{}",
 ):
-    # בדיקה אם קיים כבר
-    existing = get_plan_by_filename(filename)
-    if existing:
-        query = """UPDATE plans SET plan_name=?, scale_text=?, scale_value=?, raw_pixels=?, metadata=?, 
-                   target_date=?, budget_limit=?, cost_per_meter=?, materials_json=? WHERE id=?"""
-        run_query(
-            query,
-            (
-                plan_name,
-                scale_text,
-                scale_val,
-                pixels,
-                metadata,
-                target_date,
-                budget,
-                cost,
-                materials,
-                existing["id"],
-            ),
-            fetch="commit",
-        )
-        return existing["id"]
+    """
+    שומר / מעדכן תוכנית ב-DB.
+    תומך בשתי סכמות:
+      - סכמה חדשה: extracted_scale, confirmed_scale, raw_pixel_count, metadata_json, material_estimate
+      - סכמה ישנה: scale_text, scale_value, raw_pixels, metadata, materials_json
+    """
+    # זהה איזו סכמה קיימת
+    conn_check = get_connection()
+    if conn_check:
+        try:
+            cur_check = conn_check.cursor()
+            cur_check.execute("PRAGMA table_info(plans)")
+            cols = {row[1] for row in cur_check.fetchall()}
+        except Exception:
+            cols = set()
+        finally:
+            conn_check.close()
     else:
-        if DB_URL:
-            # Postgres דורש RETURNING כדי לקבל ID
-            query = """INSERT INTO plans (filename, plan_name, scale_text, scale_value, raw_pixels, metadata, target_date, budget_limit, cost_per_meter, materials_json) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"""
+        cols = set()
 
-            # ביצוע ישיר כדי לקבל את ה-ID ב-Postgres
+    new_schema = "metadata_json" in cols  # סכמה חדשה
+    old_schema = "metadata" in cols       # סכמה ישנה (database.py init)
+
+    existing = get_plan_by_filename(filename)
+
+    if existing:
+        # ── UPDATE ──
+        rid = existing["id"]
+        if new_schema:
+            query = """UPDATE plans SET plan_name=?, extracted_scale=?, confirmed_scale=?,
+                       raw_pixel_count=?, metadata_json=?, target_date=?, budget_limit=?,
+                       cost_per_meter=?, material_estimate=?, updated_at=CURRENT_TIMESTAMP
+                       WHERE id=?"""
+            run_query(query, (plan_name, scale_text, scale_val, pixels, metadata,
+                               target_date, budget, cost, materials, rid), fetch="commit")
+        elif old_schema:
+            query = """UPDATE plans SET plan_name=?, scale_text=?, scale_value=?, raw_pixels=?,
+                       metadata=?, target_date=?, budget_limit=?, cost_per_meter=?, materials_json=?
+                       WHERE id=?"""
+            run_query(query, (plan_name, scale_text, scale_val, pixels, metadata,
+                               target_date, budget, cost, materials, rid), fetch="commit")
+        return rid
+    else:
+        # ── INSERT ──
+        if new_schema:
+            query = """INSERT INTO plans (filename, plan_name, extracted_scale, confirmed_scale,
+                       raw_pixel_count, metadata_json, target_date, budget_limit, cost_per_meter,
+                       material_estimate) VALUES (?,?,?,?,?,?,?,?,?,?)"""
+        elif old_schema:
+            query = """INSERT INTO plans (filename, plan_name, scale_text, scale_value, raw_pixels,
+                       metadata, target_date, budget_limit, cost_per_meter, materials_json)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)"""
+        else:
+            # סכמה לא מזוהה — צור עמודות מינימליות
+            query = """INSERT INTO plans (filename, plan_name) VALUES (?,?)"""
+            return run_query(query, (filename, plan_name), fetch="insert")
+
+        params = (filename, plan_name, scale_text, scale_val, pixels, metadata,
+                  target_date, budget, cost, materials)
+
+        if DB_URL:
             conn = get_connection()
+            if conn is None:
+                return None
             try:
                 cur = conn.cursor()
-                cur.execute(
-                    query.replace("?", "%s"),
-                    (
-                        filename,
-                        plan_name,
-                        scale_text,
-                        scale_val,
-                        pixels,
-                        metadata,
-                        target_date,
-                        budget,
-                        cost,
-                        materials,
-                    ),
-                )
+                cur.execute(query.replace("?", "%s") + " RETURNING id", params)
                 new_id = cur.fetchone()["id"]
                 conn.commit()
                 return new_id
             finally:
                 conn.close()
         else:
-            query = """INSERT INTO plans (filename, plan_name, scale_text, scale_value, raw_pixels, metadata, target_date, budget_limit, cost_per_meter, materials_json) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-            return run_query(
-                query,
-                (
-                    filename,
-                    plan_name,
-                    scale_text,
-                    scale_val,
-                    pixels,
-                    metadata,
-                    target_date,
-                    budget,
-                    cost,
-                    materials,
-                ),
-                fetch="insert",
-            )
+            return run_query(query, params, fetch="insert")
 
 
 def update_plan_metadata(plan_id, metadata_json_str):
-    """עדכון metadata של תוכנית"""
-    query = "UPDATE plans SET metadata = ? WHERE id = ?"
-    run_query(query, (metadata_json_str, plan_id), fetch="commit")
+    """עדכון metadata של תוכנית — תומך בשתי הסכמות."""
+    # זהה איזו עמודה קיימת
+    conn_check = get_connection()
+    meta_col = "metadata_json"
+    if conn_check:
+        try:
+            cur_check = conn_check.cursor()
+            cur_check.execute("PRAGMA table_info(plans)")
+            cols = {row[1] for row in cur_check.fetchall()}
+            if "metadata" in cols and "metadata_json" not in cols:
+                meta_col = "metadata"
+        except Exception:
+            pass
+        finally:
+            conn_check.close()
+
+    run_query(f"UPDATE plans SET {meta_col}=? WHERE id=?",
+              (metadata_json_str, plan_id), fetch="commit")
     return True
 
 
@@ -220,16 +242,53 @@ def save_progress_report(plan_id, meters, note):
     run_query(query, (plan_id, meters, note), fetch="insert")
 
 
+def _normalize_plan_row(row):
+    """
+    ממפה שמות עמודות בין הסכמה הישנה לחדשה כך שהקוד תמיד רואה שמות אחידים.
+    סכמה חדשה (project_data.db): extracted_scale, confirmed_scale, raw_pixel_count, metadata_json, material_estimate
+    סכמה ישנה (init_database):   scale_text, scale_value, raw_pixels, metadata, materials_json
+    """
+    if not row:
+        return row
+    d = dict(row)
+    # מיפוי חדש→ישן (הוסף aliases כדי שהקוד הישן ימשיך לעבוד)
+    if "extracted_scale" in d and "scale_text" not in d:
+        d["scale_text"] = d["extracted_scale"]
+    if "confirmed_scale" in d and "scale_value" not in d:
+        d["scale_value"] = d["confirmed_scale"]
+    if "raw_pixel_count" in d and "raw_pixels" not in d:
+        d["raw_pixels"] = d["raw_pixel_count"]
+    if "metadata_json" in d and "metadata" not in d:
+        d["metadata"] = d["metadata_json"]
+    if "material_estimate" in d and "materials_json" not in d:
+        d["materials_json"] = d["material_estimate"]
+    # מיפוי ישן→חדש
+    if "scale_text" in d and "extracted_scale" not in d:
+        d["extracted_scale"] = d["scale_text"]
+    if "scale_value" in d and "confirmed_scale" not in d:
+        d["confirmed_scale"] = d["scale_value"]
+    if "raw_pixels" in d and "raw_pixel_count" not in d:
+        d["raw_pixel_count"] = d["raw_pixels"]
+    if "metadata" in d and "metadata_json" not in d:
+        d["metadata_json"] = d["metadata"]
+    if "materials_json" in d and "material_estimate" not in d:
+        d["material_estimate"] = d["materials_json"]
+    return d
+
+
 def get_all_plans():
-    return run_query("SELECT * FROM plans ORDER BY created_at DESC")
+    rows = run_query("SELECT * FROM plans ORDER BY created_at DESC")
+    return [_normalize_plan_row(r) for r in rows] if rows else []
 
 
 def get_plan_by_filename(filename):
-    return run_query("SELECT * FROM plans WHERE filename = ?", (filename,), fetch="one")
+    row = run_query("SELECT * FROM plans WHERE filename = ?", (filename,), fetch="one")
+    return _normalize_plan_row(row)
 
 
 def get_plan_by_id(pid):
-    return run_query("SELECT * FROM plans WHERE id = ?", (pid,), fetch="one")
+    row = run_query("SELECT * FROM plans WHERE id = ?", (pid,), fetch="one")
+    return _normalize_plan_row(row)
 
 
 def get_progress_reports(plan_id=None):

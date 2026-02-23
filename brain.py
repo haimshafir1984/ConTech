@@ -157,7 +157,7 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
     # ===== User Message =====
     user_message = f"""**טקסט מהתוכנית:**
 
-{text_to_analyze[:3500]}
+{text_to_analyze[:15000]}
 
 **התחל - החזר רק JSON:**"""
 

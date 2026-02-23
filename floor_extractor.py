@@ -426,15 +426,23 @@ def compute_room_metrics(
 
 
 def match_rooms_to_text(
-    room_metrics: List[Dict], llm_rooms: List[Dict], max_area_diff_m2: float = 2.0
+    room_metrics: List[Dict],
+    llm_rooms: List[Dict],
+    max_area_diff_m2: float = 2.0,
+    image_shape: Optional[Tuple[int, int]] = None,  # (height, width)
 ) -> List[Dict]:
     """
-    מתאים בין חדרים גאומטריים לשמות חדרים מהטקסט
+    מתאים בין חדרים גאומטריים לשמות חדרים מהטקסט.
+
+    כאשר llm_rooms מכיל position_x_pct/position_y_pct (מ-Vision)
+    ו-image_shape זמין, ההתאמה משלבת קרבה מרחבית + שטח.
+    אחרת, התאמה על בסיס שטח בלבד (התנהגות קודמת).
 
     Args:
-        room_metrics: חדרים מזוהים גאומטרית
-        llm_rooms: חדרים מהטקסט (LLM) עם {name.value, area_m2.value}
-        max_area_diff_m2: סף הפרש שטח מקסימלי
+        room_metrics: חדרים מזוהים גאומטרית — כל חדר כולל center=(cx,cy)
+        llm_rooms: חדרים מהטקסט / Vision
+        max_area_diff_m2: סף הפרש שטח מקסימלי להתאמה לפי שטח בלבד
+        image_shape: (height, width) של התמונה שעובדה ע"י OpenCV
 
     Returns:
         room_metrics מעודכן עם שדות matched_name, matched_confidence
@@ -442,58 +450,109 @@ def match_rooms_to_text(
     if not llm_rooms or not room_metrics:
         return room_metrics
 
-    # חילוץ שמות ושטחים מהטקסט
+    img_h, img_w = (image_shape[0], image_shape[1]) if image_shape else (0, 0)
+
+    # חילוץ שמות, שטחים ומיקומים מה-LLM/Vision
     text_rooms = []
     for lr in llm_rooms:
-        if isinstance(lr, dict):
-            name = (
-                lr.get("name", {}).get("value")
-                if isinstance(lr.get("name"), dict)
-                else lr.get("name")
-            )
-            area = (
-                lr.get("area_m2", {}).get("value")
-                if isinstance(lr.get("area_m2"), dict)
-                else lr.get("area_m2")
-            )
-        else:
+        if not isinstance(lr, dict):
             continue
-
-        if name and area:
+        name = (
+            lr.get("name", {}).get("value")
+            if isinstance(lr.get("name"), dict)
+            else lr.get("name")
+        )
+        area = (
+            lr.get("area_m2", {}).get("value")
+            if isinstance(lr.get("area_m2"), dict)
+            else lr.get("area_m2")
+        )
+        if not name:
+            continue
+        entry: Dict = {"name": str(name)}
+        if area is not None:
             try:
-                text_rooms.append({"name": str(name), "area_m2": float(area)})
+                entry["area_m2"] = float(area)
             except (ValueError, TypeError):
-                continue
+                pass
+        # מיקום מ-Vision (0.0–1.0)
+        x_pct = lr.get("position_x_pct")
+        y_pct = lr.get("position_y_pct")
+        if x_pct is not None and y_pct is not None:
+            try:
+                entry["x_pct"] = float(x_pct)
+                entry["y_pct"] = float(y_pct)
+            except (ValueError, TypeError):
+                pass
+        text_rooms.append(entry)
 
     if not text_rooms:
         return room_metrics
 
-    # התאמה על בסיס שטח
+    # בדוק האם יש מידע מרחבי ב-llm_rooms וגם image_shape
+    has_spatial = (
+        img_w > 0 and img_h > 0
+        and any("x_pct" in tr for tr in text_rooms)
+    )
+
+    _SQRT2 = 2 ** 0.5
+
     used_text_indices = set()
 
     for rm in room_metrics:
-        if rm.get("area_m2") is None:
-            continue
+        # ציר גאומטרי — נרמול למרחב [0,1]
+        cx, cy = rm.get("center", (0, 0))
+        rm_x_pct = (cx / img_w) if img_w > 0 else 0.0
+        rm_y_pct = (cy / img_h) if img_h > 0 else 0.0
 
-        best_match = None
-        best_diff = float("inf")
+        rm_area = rm.get("area_m2")
+
         best_idx = -1
+        best_score = -1.0
 
         for idx, tr in enumerate(text_rooms):
             if idx in used_text_indices:
                 continue
 
-            diff = abs(rm["area_m2"] - tr["area_m2"])
-            if diff < best_diff and diff <= max_area_diff_m2:
-                best_diff = diff
-                best_match = tr
+            score = 0.0
+            weights = 0.0
+
+            # ──── ציון שטח ────
+            tr_area = tr.get("area_m2")
+            if rm_area is not None and tr_area is not None:
+                area_diff = abs(rm_area - tr_area)
+                area_score = max(0.0, 1.0 - area_diff / max(max_area_diff_m2, 0.01))
+                # סנן החוצה אם ההפרש גדול מדי ואין מידע מרחבי
+                if not has_spatial and area_diff > max_area_diff_m2:
+                    continue
+                score += area_score * 1.0
+                weights += 1.0
+
+            # ──── ציון מרחבי ────
+            if has_spatial and "x_pct" in tr:
+                dx = rm_x_pct - tr["x_pct"]
+                dy = rm_y_pct - tr["y_pct"]
+                dist = (dx * dx + dy * dy) ** 0.5
+                spatial_score = max(0.0, 1.0 - dist / _SQRT2)
+                score += spatial_score * 1.5  # משקל גבוה יותר למרחב כשזמין
+                weights += 1.5
+
+            if weights == 0.0:
+                continue
+
+            normalized = score / weights
+            if normalized > best_score:
+                best_score = normalized
                 best_idx = idx
 
-        if best_match:
-            rm["matched_name"] = best_match["name"]
-            rm["area_text_m2"] = best_match["area_m2"]
-            rm["diff_m2"] = rm["area_m2"] - best_match["area_m2"]  # 🆕
-            rm["matched_confidence"] = max(0.5, 1.0 - (best_diff / max_area_diff_m2))
+        if best_idx >= 0 and best_score > 0.0:
+            tr = text_rooms[best_idx]
+            rm["matched_name"] = tr["name"]
+            rm["matched_confidence"] = round(best_score, 3)
+            if "area_m2" in tr:
+                rm["area_text_m2"] = tr["area_m2"]
+                if rm_area is not None:
+                    rm["diff_m2"] = rm_area - tr["area_m2"]
             used_text_indices.add(best_idx)
 
     return room_metrics
@@ -636,7 +695,8 @@ def analyze_floor_and_rooms(
 
         # 5. התאם לשמות מהטקסט
         if llm_rooms:
-            room_metrics = match_rooms_to_text(room_metrics, llm_rooms)
+            img_shape = original_image.shape[:2] if original_image is not None else None
+            room_metrics = match_rooms_to_text(room_metrics, llm_rooms, image_shape=img_shape)
 
             # וולידציה של קנה מידה
             validation = validate_scale_with_text_areas(room_metrics)

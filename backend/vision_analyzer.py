@@ -72,6 +72,8 @@ _ARCH_TOOL = {
                         "ceiling_height_m": {"type": "number", "description": "גובה תקרה במטר"},
                         "flooring":         {"type": "string", "description": "סוג ריצוף"},
                         "notes":            {"type": "string", "description": "הערות נוספות"},
+                        "position_x_pct":   {"type": "number", "description": "מיקום אופקי של תווית החדר בתמונה, 0.0=שמאל עד 1.0=ימין"},
+                        "position_y_pct":   {"type": "number", "description": "מיקום אנכי של תווית החדר בתמונה, 0.0=למעלה עד 1.0=למטה"},
                     },
                     "required": ["name"],
                 },
@@ -120,7 +122,9 @@ _ARCH_SYSTEM = """אתה מומחה בקריאת תוכניות אדריכליו
 - מספרים קטנים בתוך חדרים = שטח
 - מספרים על קווים = מידה (בד"כ בס"מ)
 - ראשי תיבות: ח.ש. = חדר שינה, מ.ח. = מחסן, כ.ש. = כושר
-- H= או ג.ת.= גובה תקרה"""
+- H= או ג.ת.= גובה תקרה
+
+**לכל חדר:** הוסף position_x_pct ו-position_y_pct — המיקום המשוער של תווית שם החדר בתמונה כחלק עשרוני (0.0–1.0). לדוגמה, חדר בפינה שמאלית עליונה: x=0.1, y=0.15."""
 
 
 def analyze_plan_with_vision(pdf_path: str) -> dict:

@@ -1,4 +1,6 @@
 import React from "react";
+import { useToast } from "../components/Toast";
+import { useConfirm } from "../components/ConfirmDialog";
 import { listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
   applyCorrection,
@@ -15,6 +17,8 @@ type Point = { x: number; y: number };
 const BRUSH_WIDTH = 10;
 
 export const CorrectionsPage: React.FC = () => {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [plans, setPlans] = React.useState<PlanSummary[]>([]);
   const [selectedPlanId, setSelectedPlanId] = React.useState("");
   const [mode, setMode] = React.useState<DrawMode>("add");
@@ -116,6 +120,7 @@ export const CorrectionsPage: React.FC = () => {
       setStrokes([]);
       setDraftStroke([]);
       setOverlayVersion((v) => v + 1);
+      toast("התיקון הוחל בהצלחה");
     } catch (e) {
       console.error(e);
       setError("שגיאה בשמירת התיקון.");
@@ -126,6 +131,8 @@ export const CorrectionsPage: React.FC = () => {
 
   const handleReset = async () => {
     if (!selectedPlanId) return;
+    const ok = await confirm({ title: "איפוס תיקונים", message: "האם לאפס את כל התיקונים הידניים? פעולה זו בלתי הפיכה.", confirmText: "אפס", danger: true });
+    if (!ok) return;
     try {
       setLoading(true);
       const data = await resetCorrections(selectedPlanId);
@@ -133,6 +140,7 @@ export const CorrectionsPage: React.FC = () => {
       setStrokes([]);
       setDraftStroke([]);
       setOverlayVersion((v) => v + 1);
+      toast("התיקונים אופסו");
     } catch (e) {
       console.error(e);
       setError("שגיאה באיפוס תיקונים.");
@@ -150,6 +158,7 @@ export const CorrectionsPage: React.FC = () => {
       setStrokes([]);
       setDraftStroke([]);
       setOverlayVersion((v) => v + 1);
+      toast("הגרסה המתוקנת נשמרה");
     } catch (e) {
       console.error(e);
       setError("שגיאה בשמירת גרסה מתוקנת.");

@@ -1,4 +1,6 @@
 import React from "react";
+import { useToast } from "../components/Toast";
+import { useConfirm } from "../components/ConfirmDialog";
 import { apiClient } from "../api/client";
 import { listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
@@ -322,6 +324,8 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
 
 // ─── Main WorkerPage ──────────────────────────────────────────────────────────
 export const WorkerPage: React.FC = () => {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [plans, setPlans] = React.useState<PlanSummary[]>([]);
   const [selectedPlanId, setSelectedPlanId] = React.useState("");
   const [reportType, setReportType] = React.useState<"walls" | "floor">("walls");
@@ -400,6 +404,7 @@ export const WorkerPage: React.FC = () => {
       setItems([]);
       setNote("");
       await loadReports();
+      toast("הדיווח נשמר בהצלחה");
     } catch (e) {
       console.error(e);
       setError("שגיאה בשמירת הדיווח.");
@@ -534,7 +539,10 @@ export const WorkerPage: React.FC = () => {
           )}
 
           <div className="space-y-2">
-            <button type="button" onClick={() => setItems([])} className="w-full bg-white border border-slate-300 rounded py-2 text-sm">
+            <button type="button" onClick={async () => {
+              const ok = await confirm({ title: "נקה סימון", message: "האם למחוק את כל הפריטים המסומנים בסשן הנוכחי?", confirmText: "נקה", danger: true });
+              if (ok) setItems([]);
+            }} className="w-full bg-white border border-slate-300 rounded py-2 text-sm">
               🗑️ נקה סימון
             </button>
             <button

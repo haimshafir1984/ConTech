@@ -1,4 +1,6 @@
 import React from "react";
+import { ToastProvider } from "./components/Toast";
+import { ConfirmProvider } from "./components/ConfirmDialog";
 import { LayerModePage } from "./pages/LayerModePage";
 import { WorkshopPage } from "./pages/WorkshopPage";
 import { PlanningPage } from "./pages/PlanningPage";
@@ -68,6 +70,8 @@ export const App: React.FC = () => {
   const activeItem = ALL_ITEMS.find((i) => i.id === activeTab)!;
 
   return (
+    <ToastProvider>
+    <ConfirmProvider>
     <div
       dir="rtl"
       className="min-h-screen flex"
@@ -366,5 +370,7 @@ export const App: React.FC = () => {
         </main>
       </div>
     </div>
+    </ConfirmProvider>
+    </ToastProvider>
   );
 };

@@ -1,4 +1,5 @@
 import React from "react";
+import { useToast } from "../components/Toast";
 import axios from "axios";
 import { listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
@@ -14,6 +15,7 @@ import {
 } from "../api/managerInsightsApi";
 
 export const AreaAnalysisPage: React.FC = () => {
+  const toast = useToast();
   const [plans, setPlans] = React.useState<PlanSummary[]>([]);
   const [selectedPlanId, setSelectedPlanId] = React.useState("");
   const [result, setResult] = React.useState<FloorAnalysisResponse | null>(null);
@@ -77,6 +79,7 @@ export const AreaAnalysisPage: React.FC = () => {
       const readinessData = await getPlanReadiness(selectedPlanId);
       setReadiness(readinessData);
       setOverlayVersion((v) => v + 1);
+      toast("הניתוח הושלם בהצלחה");
     } catch (e) {
       console.error(e);
       const detail = axios.isAxiosError(e)

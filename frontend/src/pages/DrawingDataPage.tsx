@@ -1,4 +1,5 @@
 import React from "react";
+import { useToast } from "../components/Toast";
 import { listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
   calculateDrawingScale,
@@ -20,6 +21,7 @@ const PAPER_SIZES: Record<string, [number, number]> = {
 };
 
 export const DrawingDataPage: React.FC = () => {
+  const toast = useToast();
   const [plans, setPlans] = React.useState<PlanSummary[]>([]);
   const [selectedPlanId, setSelectedPlanId] = React.useState("");
   const [summary, setSummary] = React.useState<DrawingDataSummary | null>(null);
@@ -101,6 +103,7 @@ export const DrawingDataPage: React.FC = () => {
       }
       const readinessData = await getPlanReadiness(selectedPlanId);
       setReadiness(readinessData);
+      toast(applyToPlan ? "הסקייל עודכן בתוכנית" : "הסקייל חושב בהצלחה");
     } catch (e) {
       console.error(e);
       setError("שגיאה בחישוב הסקייל.");

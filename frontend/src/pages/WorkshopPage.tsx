@@ -1,4 +1,5 @@
 import React from "react";
+import { useToast } from "../components/Toast";
 import axios from "axios";
 import { apiClient } from "../api/client";
 import {
@@ -166,6 +167,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading }) => {
 
 // ── Main WorkshopPage ────────────────────────────────────────────────────────
 export const WorkshopPage: React.FC = () => {
+  const toast = useToast();
   const [plans, setPlans] = React.useState<PlanSummary[]>([]);
   const [selectedPlanId, setSelectedPlanId] = React.useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = React.useState<PlanDetail | null>(null);
@@ -237,6 +239,7 @@ export const WorkshopPage: React.FC = () => {
       const ready = await getPlanReadiness(selectedPlanId).catch(() => null);
       setReadiness(ready);
       setError(null);
+      toast('ההגדרות נשמרו בהצלחה');
     } catch (e) {
       console.error(e);
       const msg = axios.isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || e.message) : e instanceof Error ? e.message : "שגיאה";

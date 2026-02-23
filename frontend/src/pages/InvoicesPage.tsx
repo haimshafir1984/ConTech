@@ -1,4 +1,5 @@
 import React from "react";
+import { useToast } from "../components/Toast";
 import { listDatabasePlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
   calculateInvoice,
@@ -13,6 +14,7 @@ function formatDate(d: Date): string {
 }
 
 export const InvoicesPage: React.FC = () => {
+  const toast = useToast();
   const [plans, setPlans] = React.useState<PlanSummary[]>([]);
   const [selectedPlanId, setSelectedPlanId] = React.useState("");
   const [rangePreset, setRangePreset] = React.useState<RangePreset>("month");
@@ -94,6 +96,7 @@ export const InvoicesPage: React.FC = () => {
         }
       });
       setInvoice(data);
+      toast("החשבונית נוצרה בהצלחה");
     } catch (e) {
       console.error(e);
       setError("שגיאה ביצירת החשבונית.");

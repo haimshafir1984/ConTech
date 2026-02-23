@@ -654,8 +654,8 @@ class FloorPlanAnalyzer:
                 elif abs(angle) < 15 or abs(abs(angle) - 90) < 15:
                     confidence += 0.3
 
-                # מיקום (קירות חיצוניים + טקסט בצדדים)
-                margin = 80  # ← 30→80 (מרווח גדול יותר!)
+                # מיקום (טקסט בגבול קיצוני בלבד — לא קירות חיצוניים!)
+                margin = 10  # מרווח קטן — לא לפגוע בקירות פרימטר
                 is_edge = (
                     x1 < margin
                     or x2 < margin
@@ -668,7 +668,7 @@ class FloorPlanAnalyzer:
                 )
 
                 if is_edge:
-                    confidence *= 0.3  # ← 0.7→0.3 (יותר קפדני!)
+                    confidence *= 0.7  # עונש קל — לא להרוג קירות חיצוניים
 
                 # בדיקת צפיפות - סינון אזורי טקסט
                 # באזורי טקסט יש הרבה קווים קטנים קרובים

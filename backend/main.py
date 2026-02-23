@@ -1709,6 +1709,35 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
                 if key not in meta_clean:
                     meta_clean[key] = value
 
+        # ── Vision analysis (Claude claude-sonnet-4-6, 300 DPI, tool_use) ────────────
+        try:
+            from .vision_analyzer import analyze_plan_with_vision
+            vision_data = analyze_plan_with_vision(tmp_path)
+            if vision_data:
+                # חדרים מהויזן → llm_rooms (מקור עיקרי ל-floor_extractor)
+                if vision_data.get("rooms"):
+                    meta_clean["llm_rooms"] = vision_data["rooms"]
+                # קנה מידה — רק אם עדיין לא זוהה
+                if vision_data.get("scale") and not meta_clean.get("scale_text"):
+                    meta_clean["scale_text"] = vision_data["scale"]
+                    _update_scale_fields_from_scale_text(
+                        meta_clean,
+                        meta_clean.get("image_width_px", 0),
+                        meta_clean.get("image_height_px", 0),
+                    )
+                # מידות, חומרים, הערות
+                if vision_data.get("dimensions_found"):
+                    meta_clean["vision_dimensions"] = vision_data["dimensions_found"]
+                if vision_data.get("materials"):
+                    meta_clean["vision_materials"] = vision_data["materials"]
+                if vision_data.get("total_area_m2"):
+                    meta_clean["vision_total_area_m2"] = vision_data["total_area_m2"]
+                if vision_data.get("plan_title") and not meta_clean.get("plan_title"):
+                    meta_clean["plan_title"] = vision_data["plan_title"]
+        except Exception as _ve:
+            print(f"[WARNING] Vision analysis skipped: {_ve}")
+        # ─────────────────────────────────────────────────────────────────────────────
+
         plan_id = meta_clean.get("plan_id") or filename
         assets = {}
         try:

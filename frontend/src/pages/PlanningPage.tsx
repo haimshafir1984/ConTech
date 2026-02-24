@@ -1486,19 +1486,29 @@ export const PlanningPage: React.FC = () => {
                       );
                     })()}
 
-                    <div className="flex gap-2 flex-wrap">
-                      <button type="button" disabled={loading}
-                        onClick={() => void handleConfirmAutoSegments(false)}
-                        className="px-4 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold disabled:opacity-40">
-                        {loading ? "שומר..." : "✓ אשר הכל"}
-                      </button>
-                      <button type="button" disabled={loading || autoSelected.size === 0}
-                        onClick={() => void handleConfirmAutoSegments(true)}
-                        className="px-4 py-2 rounded-lg bg-[#1B3A6B] text-white text-sm font-semibold disabled:opacity-40">
-                        {loading ? "שומר..." : `✓ אשר נבחרים (${autoSelected.size})`}
-                      </button>
-                      <button type="button" onClick={() => setAutoSegments(null)}
-                        className="px-4 py-2 rounded-lg border border-slate-300 text-sm">נקה</button>
+                    <div style={{
+                      position: "sticky",
+                      bottom: 0,
+                      background: "#fff",
+                      borderTop: "1px solid #E6E6EA",
+                      padding: "10px 0 4px",
+                      marginTop: 8,
+                      zIndex: 5,
+                    }}>
+                      <div className="flex gap-2 flex-wrap">
+                        <button type="button" disabled={loading}
+                          onClick={() => void handleConfirmAutoSegments(false)}
+                          className="px-4 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold disabled:opacity-40">
+                          {loading ? "שומר..." : "✓ אשר הכל"}
+                        </button>
+                        <button type="button" disabled={loading || autoSelected.size === 0}
+                          onClick={() => void handleConfirmAutoSegments(true)}
+                          className="px-4 py-2 rounded-lg bg-[#1B3A6B] text-white text-sm font-semibold disabled:opacity-40">
+                          {loading ? "שומר..." : `✓ אשר נבחרים (${autoSelected.size})`}
+                        </button>
+                        <button type="button" onClick={() => setAutoSegments(null)}
+                          className="px-4 py-2 rounded-lg border border-slate-300 text-sm">נקה</button>
+                      </div>
                     </div>
                   </>
                 )}

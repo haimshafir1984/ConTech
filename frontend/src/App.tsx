@@ -421,7 +421,7 @@ export const App: React.FC = () => {
               display: "flex",
               flexDirection: "column",
               overflowY: "auto",
-              boxShadow: "4px 0 24px rgba(0,0,0,0.3)",
+              boxShadow: "-4px 0 24px rgba(0,0,0,0.3)",
             }}
             onClick={(e) => e.stopPropagation()}
           >

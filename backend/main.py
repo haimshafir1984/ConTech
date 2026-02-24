@@ -1535,46 +1535,8 @@ def _measure_worker_item(
     else:
         raise HTTPException(status_code=400, detail="Unsupported object_type")
 
-    # Ensure numpy arrays are loaded (they may be None after a server restart)
-    _ensure_arrays_loaded(proj)
-
-    drawing_bbox = _get_drawing_bbox_original(proj)
-    if not _object_inside_drawing_bbox(
-        object_type=object_type,
-        obj_original=obj_original,
-        bbox=drawing_bbox,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="הסימון מחוץ לתחום השרטוט ולכן לא נספר.",
-        )
-
-    if report_type == "walls" and object_type in {"line", "path"}:
-        walls = proj.get("thick_walls")
-        original_img = proj.get("original")
-        if isinstance(walls, np.ndarray) and walls.size > 0:
-            wall_overlap_ratio = _estimate_wall_overlap_ratio(
-                obj=raw_object,
-                object_type=object_type,
-                walls_mask=walls,
-                display_scale=display_scale,
-            )
-            ink_ratio = (
-                _estimate_nonwhite_ink_ratio(
-                    obj=raw_object,
-                    object_type=object_type,
-                    original_img=original_img,
-                    display_scale=display_scale,
-                )
-                if isinstance(original_img, np.ndarray) and original_img.size > 0
-                else 0.0
-            )
-            reject_th, _ = _get_wall_overlap_thresholds(proj)
-            if wall_overlap_ratio < reject_th and ink_ratio < 0.015:
-                raise HTTPException(
-                    status_code=400,
-                    detail="הסימון לא יושב על קיר מזוהה ולכן לא נספר כקיר.",
-                )
+    # Worker endpoint: no wall-overlap validation — field workers measure completed
+    # work regardless of whether the algorithm detected that exact wall segment.
 
     length_px_original = length_px / display_scale
     area_px_original = area_px / (display_scale * display_scale)

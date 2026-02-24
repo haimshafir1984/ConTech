@@ -379,7 +379,10 @@ export const WorkerPage: React.FC = () => {
       setItems((prev) => [...prev, measured]);
     } catch (e) {
       console.error(e);
-      setError("שגיאה במדידת פריט.");
+      const msg = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
+        || (e as { message?: string })?.message
+        || "שגיאה במדידת פריט";
+      setError(msg);
     } finally {
       setMeasuring(false);
     }

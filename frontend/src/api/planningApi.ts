@@ -223,6 +223,7 @@ export interface AutoSegment {
   length_m: number;
   area_m2: number;
   bbox: [number, number, number, number]; // x, y, w, h  natural coords
+  element_class?: string;   // "wall" | "fixture"
 }
 
 export interface AutoAnalyzeResult {

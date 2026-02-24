@@ -943,14 +943,18 @@ export const PlanningPage: React.FC = () => {
       setAutoSegments(result.segments);
       // Pre-select all
       setAutoSelected(new Set(result.segments.map(s => s.segment_id)));
-      // Pre-fill category keys: find best match or leave blank
+      // Pre-fill category keys: find best match for walls; leave blank for fixtures
       const keys: Record<string, string> = {};
       if (planningState) {
         for (const seg of result.segments) {
-          const match = Object.values(planningState.categories).find(
-            c => c.type === seg.suggested_type && c.subtype === seg.suggested_subtype
-          );
-          keys[seg.segment_id] = match?.key ?? "";
+          if (seg.element_class === "fixture") {
+            keys[seg.segment_id] = "";
+          } else {
+            const match = Object.values(planningState.categories).find(
+              c => c.type === seg.suggested_type && c.subtype === seg.suggested_subtype
+            );
+            keys[seg.segment_id] = match?.key ?? "";
+          }
         }
       }
       setAutoConfirmedKeys(keys);
@@ -1345,19 +1349,21 @@ export const PlanningPage: React.FC = () => {
                           {autoSegments.map((seg, idx) => {
                             const [bx, by, bw, bh] = seg.bbox.map(v => v * displayScale);
                             const checked = autoSelected.has(seg.segment_id);
-                            const conf = seg.confidence;
-                            const color = conf >= 0.8 ? "#10B981" : conf >= 0.6 ? "#F59E0B" : "#EF4444";
+                            const isFixture = seg.element_class === "fixture";
+                            const color = isFixture
+                              ? (checked ? "#7C3AED" : "#A78BFA")
+                              : seg.confidence >= 0.8 ? "#10B981" : seg.confidence >= 0.6 ? "#F59E0B" : "#EF4444";
                             const opacity = checked ? 0.35 : 0.1;
                             return (
                               <g key={seg.segment_id}>
                                 <rect x={bx} y={by} width={bw} height={bh}
                                   fill={color} fillOpacity={opacity}
                                   stroke={color} strokeWidth={checked ? 2.5 : 1}
-                                  strokeDasharray={checked ? "none" : "6 3"} />
+                                  strokeDasharray={isFixture ? "5 3" : (checked ? "none" : "6 3")} />
                                 <text x={bx + 4} y={by + 14} fill={color}
                                   fontSize={Math.max(9, Math.min(13, bw / 8))}
                                   fontWeight="700" style={{ pointerEvents: "none" }}>
-                                  {idx + 1}
+                                  {isFixture ? "🔧" : idx + 1}
                                 </text>
                               </g>
                             );
@@ -1367,65 +1373,118 @@ export const PlanningPage: React.FC = () => {
                     </div>
 
                     {/* Controls */}
-                    <div className="flex gap-2 flex-wrap items-center">
-                      <span className="text-xs text-slate-500">זוהו {autoSegments.length} אזורים</span>
-                      <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.map(s => s.segment_id)))}
-                        className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בחר הכל</button>
-                      <button type="button" onClick={() => setAutoSelected(new Set())}
-                        className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בטל הכל</button>
-                      <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.filter(s => s.confidence >= 0.8).map(s => s.segment_id)))}
-                        className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">ביטחון {">"}80%</button>
-                    </div>
+                    {(() => {
+                      const wallSegs = autoSegments.filter(s => s.element_class !== "fixture");
+                      const fixSegs  = autoSegments.filter(s => s.element_class === "fixture");
+                      return (
+                        <>
+                          <div className="flex gap-2 flex-wrap items-center">
+                            <span className="text-xs text-slate-500">
+                              {wallSegs.length} קירות · {fixSegs.length} אביזרים
+                            </span>
+                            <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.map(s => s.segment_id)))}
+                              className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בחר הכל</button>
+                            <button type="button" onClick={() => setAutoSelected(new Set())}
+                              className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בטל הכל</button>
+                            <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.filter(s => s.element_class !== "fixture" && s.confidence >= 0.8).map(s => s.segment_id)))}
+                              className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">קירות ביטחון {">"}80%</button>
+                          </div>
 
-                    {/* Table */}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs border-collapse">
-                        <thead>
-                          <tr className="bg-slate-50 text-slate-500">
-                            <th className="p-2 text-right font-medium border-b border-slate-200 w-6">#</th>
-                            <th className="p-2 text-right font-medium border-b border-slate-200 w-8">✓</th>
-                            <th className="p-2 text-right font-medium border-b border-slate-200">הצעה</th>
-                            <th className="p-2 text-right font-medium border-b border-slate-200">אורך</th>
-                            <th className="p-2 text-right font-medium border-b border-slate-200">ביטחון</th>
-                            <th className="p-2 text-right font-medium border-b border-slate-200">קטגוריה</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {autoSegments.map((seg, idx) => {
-                            const checked = autoSelected.has(seg.segment_id);
-                            const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
-                            const conf = seg.confidence;
-                            const confColor = conf >= 0.8 ? "#10B981" : conf >= 0.6 ? "#F59E0B" : "#EF4444";
-                            return (
-                              <tr key={seg.segment_id}
-                                className={`border-b border-slate-100 cursor-pointer ${checked ? "bg-blue-50" : "hover:bg-slate-50"}`}
-                                onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
-                                <td className="p-2 text-slate-400 font-mono">{idx + 1}</td>
-                                <td className="p-2">
-                                  <input type="checkbox" checked={checked} readOnly />
-                                </td>
-                                <td className="p-2 text-slate-600">{seg.suggested_type} / {seg.suggested_subtype}</td>
-                                <td className="p-2 font-medium">{seg.length_m.toFixed(1)}מ׳</td>
-                                <td className="p-2">
-                                  <span style={{ color: confColor, fontWeight: 600 }}>{Math.round(conf * 100)}%</span>
-                                </td>
-                                <td className="p-2" onClick={e => e.stopPropagation()}>
-                                  <select value={catKey}
-                                    onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
-                                    className="border border-slate-300 rounded px-1 py-0.5 text-xs w-full"
-                                    style={{ minWidth: 110 }}>
-                                    <option value="">-- בחר --</option>
-                                    {Object.values(planningState.categories).map(c => (
-                                      <option key={c.key} value={c.key}>{c.type} / {c.subtype}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                          {/* ── Walls table ── */}
+                          {wallSegs.length > 0 && (
+                            <div className="overflow-x-auto">
+                              <div className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">🧱 קירות שזוהו</div>
+                              <table className="w-full text-xs border-collapse">
+                                <thead>
+                                  <tr className="bg-slate-50 text-slate-500">
+                                    <th className="p-2 text-right font-medium border-b border-slate-200 w-6">#</th>
+                                    <th className="p-2 text-right font-medium border-b border-slate-200 w-8">✓</th>
+                                    <th className="p-2 text-right font-medium border-b border-slate-200">הצעה</th>
+                                    <th className="p-2 text-right font-medium border-b border-slate-200">אורך</th>
+                                    <th className="p-2 text-right font-medium border-b border-slate-200">ביטחון</th>
+                                    <th className="p-2 text-right font-medium border-b border-slate-200">קטגוריה</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {wallSegs.map((seg, idx) => {
+                                    const checked = autoSelected.has(seg.segment_id);
+                                    const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
+                                    const conf = seg.confidence;
+                                    const confColor = conf >= 0.8 ? "#10B981" : conf >= 0.6 ? "#F59E0B" : "#EF4444";
+                                    return (
+                                      <tr key={seg.segment_id}
+                                        className={`border-b border-slate-100 cursor-pointer ${checked ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                                        onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
+                                        <td className="p-2 text-slate-400 font-mono">{idx + 1}</td>
+                                        <td className="p-2"><input type="checkbox" checked={checked} readOnly /></td>
+                                        <td className="p-2 text-slate-600">{seg.suggested_type} / {seg.suggested_subtype}</td>
+                                        <td className="p-2 font-medium">{seg.length_m.toFixed(1)}מ׳</td>
+                                        <td className="p-2"><span style={{ color: confColor, fontWeight: 600 }}>{Math.round(conf * 100)}%</span></td>
+                                        <td className="p-2" onClick={e => e.stopPropagation()}>
+                                          <select value={catKey}
+                                            onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
+                                            className="border border-slate-300 rounded px-1 py-0.5 text-xs w-full" style={{ minWidth: 110 }}>
+                                            <option value="">-- בחר --</option>
+                                            {Object.values(planningState.categories).map(c => (
+                                              <option key={c.key} value={c.key}>{c.type} / {c.subtype}</option>
+                                            ))}
+                                          </select>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          {/* ── Fixtures table ── */}
+                          {fixSegs.length > 0 && (
+                            <div className="overflow-x-auto">
+                              <div className="text-xs font-semibold mb-1 flex items-center gap-1" style={{ color: "#7C3AED" }}>🔧 אביזרים ואלמנטים שזוהו</div>
+                              <table className="w-full text-xs border-collapse">
+                                <thead>
+                                  <tr className="text-slate-500" style={{ background: "#F5F3FF" }}>
+                                    <th className="p-2 text-right font-medium border-b border-purple-100 w-6">#</th>
+                                    <th className="p-2 text-right font-medium border-b border-purple-100 w-8">✓</th>
+                                    <th className="p-2 text-right font-medium border-b border-purple-100">זיהוי</th>
+                                    <th className="p-2 text-right font-medium border-b border-purple-100">שטח</th>
+                                    <th className="p-2 text-right font-medium border-b border-purple-100">קטגוריה (אופציונלי)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {fixSegs.map((seg, idx) => {
+                                    const checked = autoSelected.has(seg.segment_id);
+                                    const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
+                                    return (
+                                      <tr key={seg.segment_id}
+                                        className="border-b border-purple-50 cursor-pointer"
+                                        style={{ background: checked ? "#EDE9FE" : undefined }}
+                                        onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
+                                        <td className="p-2 text-slate-400 font-mono">{idx + 1}</td>
+                                        <td className="p-2"><input type="checkbox" checked={checked} readOnly /></td>
+                                        <td className="p-2 font-medium" style={{ color: "#7C3AED" }}>{seg.label}</td>
+                                        <td className="p-2">{seg.area_m2.toFixed(2)} מ"ר</td>
+                                        <td className="p-2" onClick={e => e.stopPropagation()}>
+                                          <select value={catKey}
+                                            onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
+                                            className="border border-purple-200 rounded px-1 py-0.5 text-xs w-full" style={{ minWidth: 110 }}>
+                                            <option value="">-- ללא קטגוריה --</option>
+                                            {Object.values(planningState.categories).map(c => (
+                                              <option key={c.key} value={c.key}>{c.type} / {c.subtype}</option>
+                                            ))}
+                                          </select>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     <div className="flex gap-2 flex-wrap">
                       <button type="button" disabled={loading}

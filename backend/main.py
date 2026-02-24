@@ -2385,8 +2385,9 @@ async def manager_add_zone_item(
 @app.post("/manager/planning/{plan_id}/auto-analyze", response_model=AutoAnalyzeResponse)
 async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
     """
-    Segment thick_walls into connected components and return candidate zones
-    with suggested category + confidence.
+    Segment thick_walls into connected components and classify each blob as
+    either a wall segment or a fixture (sink, toilet, bathtub, etc.) based
+    on shape compactness and size.
     """
     proj = _get_project_or_404(plan_id)
     _ensure_arrays_loaded(proj)
@@ -2398,28 +2399,31 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
     if not (isinstance(walls, np.ndarray) and walls.size > 0):
         return AutoAnalyzeResponse(segments=[])
 
-    # Binary mask
     binary = (walls > 0).astype(np.uint8)
-    # Connected components
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
-
     img_area = binary.shape[0] * binary.shape[1]
 
-    for label_id in range(1, num_labels):  # skip background (0)
+    wall_counter = 0
+    fixture_counter = 0
+
+    for label_id in range(1, num_labels):
         area_px = int(stats[label_id, cv2.CC_STAT_AREA])
         bx = int(stats[label_id, cv2.CC_STAT_LEFT])
         by = int(stats[label_id, cv2.CC_STAT_TOP])
         bw = int(stats[label_id, cv2.CC_STAT_WIDTH])
         bh = int(stats[label_id, cv2.CC_STAT_HEIGHT])
 
-        # Skip tiny noise (<0.5% of image)
-        if area_px < img_area * 0.005:
+        # Skip absolute noise (< 0.05% of image)
+        if area_px < img_area * 0.0005:
             continue
-        # Skip unrealistically large blobs (>85% — probably image border)
+        # Skip full-image border blobs (> 85%)
         if area_px > img_area * 0.85:
             continue
 
-        # Estimate wall length via skeletonization
+        aspect = bw / max(1, bh)
+        is_elongated = aspect > 3.0 or aspect < 0.33
+
+        # Estimate length via skeletonization
         try:
             from skimage.morphology import skeletonize
             roi = (labels[by:by + bh, bx:bx + bw] == label_id).astype(np.uint8)
@@ -2432,47 +2436,93 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         length_m = round(length_px / scale_px_per_meter, 2)
         area_m2 = round(area_px / (scale_px_per_meter ** 2), 2)
 
-        # Aspect ratio → suggest type
-        aspect = bw / max(1, bh)
-        if aspect > 3 or aspect < 0.33:
-            suggested_type = "קירות"
-            suggested_subtype = "בטון"
-            confidence = 0.82
+        # ── Fixture detection ──────────────────────────────────────────────────
+        # Fixtures (sinks, toilets, bathtubs…) are compact blobs:
+        #   - not elongated (aspect between 0.33 and 3)
+        #   - low skeleton-length / area ratio (not a thin linear wall)
+        #   - not too large (< 1.5 m²)
+        #   - at least ~15×15cm in size
+        length_area_ratio = length_m / max(0.001, area_m2)
+        is_fixture = (
+            not is_elongated
+            and length_area_ratio < 4.0
+            and area_m2 < 1.5
+            and area_px >= img_area * 0.00008
+        )
+
+        # Non-fixture small blobs → skip as noise
+        if area_px < img_area * 0.005 and not is_fixture:
+            continue
+
+        if is_fixture:
+            fixture_counter += 1
+            if area_m2 < 0.12:
+                subtype = "פרט קטן"
+            elif 0.5 <= aspect <= 2.0 and area_m2 < 0.45:
+                subtype = "כיור / אסלה"
+            elif area_m2 < 1.2 and (aspect > 1.6 or aspect < 0.62):
+                subtype = "אמבטיה / מקלחת"
+            else:
+                subtype = "ריהוט / מכשיר"
+
+            segments.append(AutoAnalyzeSegment(
+                segment_id=f"fix_{label_id}",
+                label=f"{subtype} {fixture_counter}",
+                suggested_type="אביזר",
+                suggested_subtype=subtype,
+                confidence=0.55,
+                length_m=float(length_m),
+                area_m2=float(area_m2),
+                bbox=[float(bx), float(by), float(bw), float(bh)],
+                element_class="fixture",
+            ))
+
         else:
-            suggested_type = "קירות"
-            suggested_subtype = "בלוקים"
-            confidence = 0.65
-
-        # Try to read from concrete/blocks masks for higher confidence
-        concrete = proj.get("concrete_mask")
-        blocks = proj.get("blocks_mask")
-        if isinstance(concrete, np.ndarray) and concrete.size > 0:
-            roi_mask = (labels[by:by + bh, bx:bx + bw] == label_id)
-            concrete_roi = concrete[by:by + bh, bx:bx + bw]
-            blocks_roi = blocks[by:by + bh, bx:bx + bw] if isinstance(blocks, np.ndarray) and blocks.size > 0 else None
-            c_px = int(np.count_nonzero(concrete_roi[roi_mask])) if concrete_roi is not None else 0
-            b_px = int(np.count_nonzero(blocks_roi[roi_mask])) if blocks_roi is not None else 0
-            if c_px > b_px and c_px > area_px * 0.3:
+            # ── Wall classification ────────────────────────────────────────────
+            wall_counter += 1
+            if is_elongated:
                 suggested_subtype = "בטון"
-                confidence = min(0.95, 0.75 + c_px / area_px * 0.3)
-            elif b_px > c_px and b_px > area_px * 0.3:
+                confidence = 0.82
+            else:
                 suggested_subtype = "בלוקים"
-                confidence = min(0.92, 0.72 + b_px / area_px * 0.3)
+                confidence = 0.65
 
-        segments.append(AutoAnalyzeSegment(
-            segment_id=f"seg_{label_id}",
-            label=f"קיר {label_id}",
-            suggested_type=suggested_type,
-            suggested_subtype=suggested_subtype,
-            confidence=round(float(confidence), 2),
-            length_m=float(length_m),
-            area_m2=float(area_m2),
-            bbox=[float(bx), float(by), float(bw), float(bh)],
-        ))
+            # Refine using concrete/blocks masks
+            concrete = proj.get("concrete_mask")
+            blocks = proj.get("blocks_mask")
+            if isinstance(concrete, np.ndarray) and concrete.size > 0:
+                roi_mask = (labels[by:by + bh, bx:bx + bw] == label_id)
+                concrete_roi = concrete[by:by + bh, bx:bx + bw]
+                blocks_roi = (
+                    blocks[by:by + bh, bx:bx + bw]
+                    if isinstance(blocks, np.ndarray) and blocks.size > 0
+                    else None
+                )
+                c_px = int(np.count_nonzero(concrete_roi[roi_mask]))
+                b_px = int(np.count_nonzero(blocks_roi[roi_mask])) if blocks_roi is not None else 0
+                if c_px > b_px and c_px > area_px * 0.3:
+                    suggested_subtype = "בטון"
+                    confidence = min(0.95, 0.75 + c_px / area_px * 0.3)
+                elif b_px > c_px and b_px > area_px * 0.3:
+                    suggested_subtype = "בלוקים"
+                    confidence = min(0.92, 0.72 + b_px / area_px * 0.3)
 
-    # Sort by length descending
-    segments.sort(key=lambda s: s.length_m, reverse=True)
-    return AutoAnalyzeResponse(segments=segments)
+            segments.append(AutoAnalyzeSegment(
+                segment_id=f"seg_{label_id}",
+                label=f"קיר {wall_counter}",
+                suggested_type="קירות",
+                suggested_subtype=suggested_subtype,
+                confidence=round(float(confidence), 2),
+                length_m=float(length_m),
+                area_m2=float(area_m2),
+                bbox=[float(bx), float(by), float(bw), float(bh)],
+                element_class="wall",
+            ))
+
+    # Walls sorted by length desc; fixtures sorted by area desc; fixtures appended after walls
+    walls_out = sorted([s for s in segments if s.element_class == "wall"], key=lambda s: s.length_m, reverse=True)
+    fixtures_out = sorted([s for s in segments if s.element_class == "fixture"], key=lambda s: s.area_m2, reverse=True)
+    return AutoAnalyzeResponse(segments=walls_out + fixtures_out)
 
 
 @app.post("/manager/planning/{plan_id}/confirm-auto-segment", response_model=PlanningState)

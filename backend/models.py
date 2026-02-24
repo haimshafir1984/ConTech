@@ -170,13 +170,14 @@ class PlanningZoneRequest(BaseModel):
 # ── Auto-analyze response ──────────────────────────────────────────────────
 class AutoAnalyzeSegment(BaseModel):
     segment_id: str
-    label: str            # "קיר צפוני", "חדר שינה", …
-    suggested_type: str   # "קירות" / "ריצוף" / "תקרה" / "לא ידוע"
+    label: str            # "קיר צפוני", "כיור", …
+    suggested_type: str   # "קירות" / "אביזר" / "לא ידוע"
     suggested_subtype: str
     confidence: float     # 0.0 – 1.0
     length_m: float
     area_m2: float
     bbox: list[float]     # [x, y, w, h] natural coords
+    element_class: str = "wall"  # "wall" | "fixture"
 
 
 class AutoAnalyzeResponse(BaseModel):

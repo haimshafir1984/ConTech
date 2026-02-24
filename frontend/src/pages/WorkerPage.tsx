@@ -14,6 +14,7 @@ import { getPlanningState, type WorkSection } from "../api/planningApi";
 
 type DrawMode = "line" | "rect" | "path";
 type Point = { x: number; y: number };
+type WorkerTab = "map" | "notes" | "history";
 
 // ─── Printable progress report ───────────────────────────────────────────────
 function printProgressReport(reports: WorkerReport[], planName: string) {
@@ -66,7 +67,6 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
   const imgRef = React.useRef<HTMLImageElement>(null);
   const [zoom, setZoom] = React.useState(1);
   const [pan, setPan] = React.useState({ x: 0, y: 0 });
-  // Use refs for pan/draw so handlers always have current value without stale closures
   const isPanningRef = React.useRef(false);
   const isDrawingRef = React.useRef(false);
   const lastMouse = React.useRef({ x: 0, y: 0 });
@@ -76,7 +76,6 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
   const [tempPt, setTempPt] = React.useState<Point | null>(null);
   const [pathPts, setPathPts] = React.useState<Point[]>([]);
   const [imgSize, setImgSize] = React.useState({ w: 0, h: 0 });
-  // Keep render-triggering copies in sync
   const [renderZoom, setRenderZoom] = React.useState(1);
   const [renderPan, setRenderPan] = React.useState({ x: 0, y: 0 });
   const [isDrawingState, setIsDrawingState] = React.useState(false);
@@ -98,7 +97,6 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
     };
   }, []);
 
-  // Passive-false wheel via ref
   React.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -186,7 +184,6 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
       setIsPanningState(false);
       return;
     }
-    // Use functional updater to read latest state without stale closure
     setStartPt(sp => {
       setTempPt(tp => {
         setPathPts(pp => {
@@ -201,16 +198,14 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
   }, [finishDraw]);
 
   return (
-    <div className="relative bg-slate-100 rounded-lg overflow-hidden border border-slate-200" style={{ minHeight: 480 }}>
+    <div style={{ position: "relative", background: "#F1F5F9", borderRadius: 12, overflow: "hidden", border: "1px solid #E2E8F0", minHeight: 420 }}>
       <div
         ref={containerRef}
-        className="w-full overflow-hidden select-none"
-        style={{ cursor: isDrawingState ? "crosshair" : isPanningState ? "grabbing" : "crosshair", minHeight: 480 }}
+        style={{ width: "100%", overflow: "hidden", userSelect: "none", cursor: isDrawingState ? "crosshair" : isPanningState ? "grabbing" : "crosshair", minHeight: 420 }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={() => {
-          // Only cancel panning on leave, not drawing (user may return)
           if (isPanningRef.current) { isPanningRef.current = false; setIsPanningState(false); }
         }}
       >
@@ -238,21 +233,14 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
             </div>
           )}
 
-          {/* SVG overlay – coords in natural image pixels */}
           {imgSize.w > 0 && (
-            <svg
-              width={imgSize.w}
-              height={imgSize.h}
-              style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
-            >
-              {/* Section overlays */}
+            <svg width={imgSize.w} height={imgSize.h} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
               {sections.map((sec) => {
                 if (sec.width < 2 || sec.height < 2) return null;
                 const isActive = sec.uid === activeSectionUid;
                 return (
                   <g key={sec.uid}>
-                    <rect
-                      x={sec.x} y={sec.y} width={sec.width} height={sec.height}
+                    <rect x={sec.x} y={sec.y} width={sec.width} height={sec.height}
                       fill={isActive ? `${sec.color}30` : `${sec.color}10`}
                       stroke={sec.color}
                       strokeWidth={isActive ? 3 / zoom : 1.5 / zoom}
@@ -267,7 +255,6 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
                 );
               })}
 
-              {/* Saved items */}
               {items.map((item) => {
                 const obj = item.raw_object;
                 const label = item.unit === "m" ? `${item.measurement.toFixed(2)} מ'` : `${item.measurement.toFixed(2)} מ"ר`;
@@ -291,7 +278,6 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
                 return <polyline key={item.uid} points={pts} fill="none" stroke="#f59e0b" strokeWidth={2/zoom} />;
               })}
 
-              {/* Live drawing preview */}
               {isDrawingState && startPt && tempPt && drawMode === "line" && (
                 <line x1={startPt.x} y1={startPt.y} x2={tempPt.x} y2={tempPt.y} stroke="#22c55e" strokeWidth={2/renderZoom} strokeDasharray="4" />
               )}
@@ -311,15 +297,21 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
       </div>
 
       {/* Zoom controls */}
-      <div className="absolute bottom-3 left-3 flex flex-col gap-1 z-10">
-        <button type="button" onClick={() => setZoomSync(clampZ(zoomRef.current * 1.25))} className="w-8 h-8 bg-white border border-slate-300 rounded shadow text-base font-bold hover:bg-slate-50">+</button>
-        <button type="button" onClick={() => { setZoomSync(1); setPanSync({ x: 0, y: 0 }); }} className="w-8 h-8 bg-white border border-slate-300 rounded shadow text-[10px] hover:bg-slate-50">↺</button>
-        <button type="button" onClick={() => setZoomSync(clampZ(zoomRef.current * 0.8))} className="w-8 h-8 bg-white border border-slate-300 rounded shadow text-base font-bold hover:bg-slate-50">−</button>
+      <div style={{ position: "absolute", bottom: 12, left: 12, display: "flex", flexDirection: "column", gap: 4, zIndex: 10 }}>
+        <button type="button" onClick={() => setZoomSync(clampZ(zoomRef.current * 1.25))} style={zoomBtnStyle}>+</button>
+        <button type="button" onClick={() => { setZoomSync(1); setPanSync({ x: 0, y: 0 }); }} style={zoomBtnStyle}>↺</button>
+        <button type="button" onClick={() => setZoomSync(clampZ(zoomRef.current * 0.8))} style={zoomBtnStyle}>−</button>
       </div>
-      <div className="absolute bottom-3 right-3 bg-black/40 text-white text-[11px] px-2 py-0.5 rounded">{Math.round(renderZoom * 100)}%</div>
-      <div className="absolute top-2 right-2 bg-black/40 text-white text-[10px] px-2 py-0.5 rounded">גלגלת=זום | Alt+גרור=הזזה</div>
+      <div style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(0,0,0,0.4)", color: "#fff", fontSize: 11, padding: "2px 8px", borderRadius: 6 }}>{Math.round(renderZoom * 100)}%</div>
+      <div style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.4)", color: "#fff", fontSize: 10, padding: "2px 8px", borderRadius: 6 }}>גלגלת=זום | Alt+גרור=הזזה</div>
     </div>
   );
+};
+
+const zoomBtnStyle: React.CSSProperties = {
+  width: 32, height: 32, background: "#fff", border: "1px solid #CBD5E1",
+  borderRadius: 8, boxShadow: "0 1px 4px rgba(0,0,0,0.12)", fontSize: 16,
+  fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
 };
 
 // ─── Main WorkerPage ──────────────────────────────────────────────────────────
@@ -340,6 +332,7 @@ export const WorkerPage: React.FC = () => {
   const [measuring, setMeasuring] = React.useState(false);
   const [sections, setSections] = React.useState<WorkSection[]>([]);
   const [selectedSectionUid, setSelectedSectionUid] = React.useState<string>("");
+  const [activeTab, setActiveTab] = React.useState<WorkerTab>("map");
 
   const selectedPlan = plans.find((p) => p.id === selectedPlanId) ?? null;
   const imageUrl = selectedPlanId
@@ -361,7 +354,6 @@ export const WorkerPage: React.FC = () => {
   React.useEffect(() => { void loadPlans().catch(console.error); }, [loadPlans]);
   React.useEffect(() => { void loadReports().catch(console.error); }, [loadReports]);
 
-  // Load sections when plan changes
   React.useEffect(() => {
     if (!selectedPlanId) { setSections([]); setSelectedSectionUid(""); return; }
     getPlanningState(selectedPlanId)
@@ -381,7 +373,7 @@ export const WorkerPage: React.FC = () => {
         plan_id: selectedPlanId,
         object_type: payload.object_type,
         raw_object: payload.raw_object,
-        display_scale: 1, // canvas uses natural pixel coords
+        display_scale: 1,
         report_type: reportType
       });
       setItems((prev) => [...prev, measured]);
@@ -414,150 +406,157 @@ export const WorkerPage: React.FC = () => {
   const totalReportWalls = reports.filter(r => r.report_type === "walls").reduce((s, r) => s + r.total_length_m, 0);
   const totalReportFloor = reports.filter(r => r.report_type === "floor").reduce((s, r) => s + r.total_area_m2, 0);
 
+  const TAB_ITEMS: { id: WorkerTab; icon: string; label: string }[] = [
+    { id: "map", icon: "🗺️", label: "מפה" },
+    { id: "notes", icon: "📝", label: "הערות" },
+    { id: "history", icon: "📋", label: "היסטוריה" },
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-[#31333F]">👷 צד עובד – דיווח שטח</h2>
-          <p className="text-xs text-slate-500 mt-1">בחר תוכנית, סמן ביצוע על השרטוט, ושמור דיווח יומי.</p>
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, minHeight: "100%" }}>
+
+      {/* ── Top bar ── */}
+      <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 14, padding: "14px 18px", marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 160 }}>
+          <span style={{ fontSize: 11, color: "#64748b" }}>פרויקט</span>
+          <select
+            style={{ padding: "7px 10px", border: "1px solid #CBD5E1", borderRadius: 8, fontSize: 13, background: "#fff" }}
+            value={selectedPlanId}
+            onChange={(e) => setSelectedPlanId(e.target.value)}
+          >
+            {plans.length === 0 && <option value="">אין תוכניות</option>}
+            {plans.map((p) => <option key={p.id} value={p.id}>{p.plan_name}</option>)}
+          </select>
         </div>
+
+        {sections.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 160 }}>
+            <span style={{ fontSize: 11, color: "#64748b" }}>גזרת עבודה</span>
+            <select
+              style={{ padding: "7px 10px", border: "1px solid #CBD5E1", borderRadius: 8, fontSize: 13, background: "#fff" }}
+              value={selectedSectionUid}
+              onChange={(e) => setSelectedSectionUid(e.target.value)}
+            >
+              <option value="">— כל הפרויקט —</option>
+              {sections.map(sec => (
+                <option key={sec.uid} value={sec.uid}>
+                  {sec.name || "גזרה"} — {sec.contractor || sec.worker || ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {reports.length > 0 && (
           <button
             type="button"
             onClick={() => printProgressReport(reports, selectedPlan?.plan_name ?? "פרויקט")}
-            className="bg-white border border-[#FF4B4B] text-[#FF4B4B] px-3 py-2 rounded text-sm font-semibold hover:bg-red-50"
+            style={{ padding: "7px 14px", border: "1.5px solid #1B3A6B", color: "#1B3A6B", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#fff", cursor: "pointer" }}
           >
-            🖨️ הדפס דוח התקדמות
+            🖨️ הדפס דוח
           </button>
         )}
       </div>
 
-      {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{error}</p>}
+      {/* ── Amber alert bar (active session) ── */}
+      {(items.length > 0 || measuring) && (
+        <div style={{
+          background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 12,
+          padding: "10px 18px", marginBottom: 16,
+          display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: 14 }}>⚡</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: "#92400E" }}>סשן פעיל</span>
+          <span style={{ fontSize: 13, color: "#78350F" }}>{items.length} פריטים</span>
+          {totalLength > 0 && <span style={{ fontSize: 13, color: "#78350F" }}>{totalLength.toFixed(2)} מ' קירות</span>}
+          {totalArea > 0 && <span style={{ fontSize: 13, color: "#78350F" }}>{totalArea.toFixed(2)} מ"ר ריצוף</span>}
+          {measuring && <span style={{ fontSize: 12, color: "#1d4ed8" }}>מודד...</span>}
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[300px,1fr] gap-5">
-        {/* Sidebar */}
-        <aside className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm space-y-4">
-          <label className="text-xs block">
-            תוכנית
-            <select className="mt-1 w-full bg-white border border-slate-300 rounded px-2 py-2" value={selectedPlanId} onChange={(e) => setSelectedPlanId(e.target.value)}>
-              {plans.length === 0 && <option value="">אין תוכניות</option>}
-              {plans.map((p) => <option key={p.id} value={p.id}>{p.plan_name}</option>)}
-            </select>
-          </label>
+      {error && (
+        <div style={{ fontSize: 13, color: "#DC2626", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>{error}</div>
+      )}
 
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <label className="block">
-              סוג דיווח
-              <select className="mt-1 w-full bg-white border border-slate-300 rounded px-2 py-2" value={reportType} onChange={(e) => setReportType(e.target.value as "walls" | "floor")}>
-                <option value="walls">קירות</option>
-                <option value="floor">ריצוף/חיפוי</option>
-              </select>
-            </label>
-            <label className="block">
-              כלי ציור
-              <select className="mt-1 w-full bg-white border border-slate-300 rounded px-2 py-2" value={drawMode} onChange={(e) => setDrawMode(e.target.value as DrawMode)}>
-                <option value="line">קו (אורך)</option>
-                <option value="rect">מלבן (שטח)</option>
-                <option value="path">חופשי</option>
-              </select>
-            </label>
-          </div>
+      {/* ── Tab bar ── */}
+      <div style={{ display: "flex", borderBottom: "2px solid #E2E8F0", marginBottom: 16, gap: 4 }}>
+        {TAB_ITEMS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setActiveTab(t.id)}
+            style={{
+              padding: "10px 20px",
+              border: "none",
+              borderBottom: activeTab === t.id ? "2px solid #1B3A6B" : "2px solid transparent",
+              marginBottom: -2,
+              background: "none",
+              color: activeTab === t.id ? "#1B3A6B" : "#64748b",
+              fontWeight: activeTab === t.id ? 700 : 400,
+              fontSize: 14,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span>{t.icon}</span>
+            <span>{t.label}</span>
+            {t.id === "notes" && items.length > 0 && (
+              <span style={{ background: "#EF4444", color: "#fff", borderRadius: 99, fontSize: 10, fontWeight: 700, padding: "1px 6px" }}>{items.length}</span>
+            )}
+            {t.id === "history" && reports.length > 0 && (
+              <span style={{ background: "#E2E8F0", color: "#475569", borderRadius: 99, fontSize: 10, fontWeight: 700, padding: "1px 6px" }}>{reports.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
 
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <label className="block">
-              תאריך
-              <input type="date" className="mt-1 w-full bg-white border border-slate-300 rounded px-2 py-2" value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
-            </label>
-            <label className="block">
-              משמרת
-              <select className="mt-1 w-full bg-white border border-slate-300 rounded px-2 py-2" value={shift} onChange={(e) => setShift(e.target.value)}>
-                <option>בוקר</option>
-                <option>צהריים</option>
-                <option>לילה</option>
-              </select>
-            </label>
-          </div>
-
-          {sections.length > 0 && (
-            <label className="text-xs block">
-              גזרת עבודה
-              <select
-                className="mt-1 w-full bg-white border border-slate-300 rounded px-2 py-2"
-                value={selectedSectionUid}
-                onChange={(e) => setSelectedSectionUid(e.target.value)}
-              >
-                <option value="">— כל הפרויקט —</option>
-                {sections.map(sec => (
-                  <option key={sec.uid} value={sec.uid}>
-                    {sec.name || "גזרה"} — {sec.contractor || sec.worker || ""}
-                  </option>
-                ))}
-              </select>
-              {selectedSectionUid && (() => {
-                const sec = sections.find(s => s.uid === selectedSectionUid);
-                return sec ? (
-                  <div className="mt-1 text-[10px] text-slate-500 bg-slate-50 rounded px-2 py-1" style={{ borderRight: `3px solid ${sec.color}` }}>
-                    🏗 {sec.contractor || "—"} | 👷 {sec.worker || "—"}
-                  </div>
-                ) : null;
-              })()}
-            </label>
-          )}
-
-          <label className="text-xs block">
-            הערה
-            <textarea className="mt-1 w-full bg-white border border-slate-300 rounded px-2 py-2 min-h-[60px]" value={note} onChange={(e) => setNote(e.target.value)} />
-          </label>
-
-          {/* Session totals */}
-          <div className="bg-slate-50 rounded-lg p-3 space-y-1 text-sm">
-            <div className="text-xs text-slate-500 font-semibold">סשן נוכחי</div>
-            <div className="flex justify-between">
-              <span>אורך קירות:</span>
-              <span className="font-bold text-[#FF4B4B]">{totalLength.toFixed(2)} מ'</span>
-            </div>
-            <div className="flex justify-between">
-              <span>שטח ריצוף:</span>
-              <span className="font-bold text-[#FF4B4B]">{totalArea.toFixed(2)} מ"ר</span>
-            </div>
-            {measuring && <div className="text-xs text-blue-600">מודד...</div>}
-          </div>
-
-          {/* Items list */}
-          {items.length > 0 && (
-            <div className="text-xs space-y-1 max-h-36 overflow-y-auto">
-              {items.map((item, idx) => (
-                <div key={item.uid} className="flex justify-between bg-slate-50 rounded px-2 py-1">
-                  <span>#{idx + 1} {item.type}</span>
-                  <div className="flex gap-2 items-center">
-                    <span className="font-semibold">{item.measurement.toFixed(2)} {item.unit}</span>
-                    <button type="button" onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600">✕</button>
-                  </div>
-                </div>
+      {/* ── Map tab ── */}
+      {activeTab === "map" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Draw mode toolbar */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              {([
+                { val: "line", label: "—  קו", icon: "📏" },
+                { val: "rect", label: "□  מלבן", icon: "⬛" },
+                { val: "path", label: "〰  חופשי", icon: "✏️" },
+              ] as { val: DrawMode; label: string; icon: string }[]).map((m) => (
+                <button
+                  key={m.val}
+                  type="button"
+                  onClick={() => setDrawMode(m.val)}
+                  style={{
+                    padding: "7px 14px",
+                    border: drawMode === m.val ? "2px solid #1B3A6B" : "1.5px solid #CBD5E1",
+                    borderRadius: 8,
+                    background: drawMode === m.val ? "#EFF6FF" : "#fff",
+                    color: drawMode === m.val ? "#1B3A6B" : "#475569",
+                    fontWeight: drawMode === m.val ? 700 : 400,
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  {m.icon} {m.label}
+                </button>
               ))}
             </div>
-          )}
-
-          <div className="space-y-2">
-            <button type="button" onClick={async () => {
-              const ok = await confirm({ title: "נקה סימון", message: "האם למחוק את כל הפריטים המסומנים בסשן הנוכחי?", confirmText: "נקה", danger: true });
-              if (ok) setItems([]);
-            }} className="w-full bg-white border border-slate-300 rounded py-2 text-sm">
-              🗑️ נקה סימון
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveReport()}
-              disabled={items.length === 0 || saving}
-              className="w-full bg-[#FF4B4B] text-white rounded py-2 text-sm font-semibold disabled:opacity-40"
-            >
-              {saving ? "שומר..." : "💾 שמור דיווח"}
-            </button>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <label style={{ fontSize: 12, color: "#64748b", display: "flex", alignItems: "center", gap: 4 }}>
+                סוג:
+                <select
+                  style={{ padding: "5px 8px", border: "1px solid #CBD5E1", borderRadius: 7, fontSize: 12, background: "#fff" }}
+                  value={reportType}
+                  onChange={(e) => setReportType(e.target.value as "walls" | "floor")}
+                >
+                  <option value="walls">קירות</option>
+                  <option value="floor">ריצוף/חיפוי</option>
+                </select>
+              </label>
+            </div>
           </div>
-        </aside>
 
-        {/* Canvas */}
-        <main className="space-y-4">
           <WorkerCanvas
             imageUrl={imageUrl}
             items={items}
@@ -566,48 +565,147 @@ export const WorkerPage: React.FC = () => {
             activeSectionUid={selectedSectionUid}
             onDrawComplete={(p) => void handleDrawComplete(p)}
           />
+        </div>
+      )}
 
-          {/* Reports history */}
-          <section className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold">📋 דיווחים קודמים</h3>
-              <div className="text-xs text-slate-500">
-                סה"כ: {totalReportWalls.toFixed(2)} מ' קירות | {totalReportFloor.toFixed(2)} מ"ר ריצוף
-              </div>
+      {/* ── Notes tab ── */}
+      {activeTab === "notes" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 600 }}>
+          {/* Date / shift / report type */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 11, color: "#64748b" }}>תאריך</span>
+              <input type="date" style={fieldStyle} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
             </div>
-            {reports.length === 0 ? (
-              <p className="text-xs text-slate-500">אין דיווחים עדיין.</p>
-            ) : (
-              <div className="overflow-auto">
-                <table className="w-full text-xs min-w-[500px]">
-                  <thead>
-                    <tr className="text-slate-500 border-b">
-                      <th className="text-right p-2">תאריך</th>
-                      <th className="text-right p-2">משמרת</th>
-                      <th className="text-right p-2">סוג</th>
-                      <th className="text-right p-2">כמות</th>
-                      <th className="text-right p-2">הערה</th>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 11, color: "#64748b" }}>משמרת</span>
+              <select style={fieldStyle} value={shift} onChange={(e) => setShift(e.target.value)}>
+                <option>בוקר</option>
+                <option>צהריים</option>
+                <option>לילה</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 11, color: "#64748b" }}>סוג דיווח</span>
+              <select style={fieldStyle} value={reportType} onChange={(e) => setReportType(e.target.value as "walls" | "floor")}>
+                <option value="walls">קירות</option>
+                <option value="floor">ריצוף/חיפוי</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Items list */}
+          {items.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>פריטים מסומנים ({items.length})</div>
+              {items.map((item, idx) => (
+                <div key={item.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 12px" }}>
+                  <span style={{ fontSize: 13 }}>#{idx + 1} {item.type}</span>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: "#1B3A6B" }}>{item.measurement.toFixed(2)} {item.unit}</span>
+                    <button type="button" onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))} style={{ color: "#EF4444", background: "none", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: "#94A3B8", background: "#F8FAFC", border: "1px dashed #CBD5E1", borderRadius: 10, padding: "24px", textAlign: "center" }}>
+              עבור לטאב מפה וסמן פריטים על השרטוט
+            </div>
+          )}
+
+          {/* Note */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 11, color: "#64748b" }}>הערה</span>
+            <textarea
+              style={{ ...fieldStyle, minHeight: 80, resize: "vertical" }}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="הערות לדיווח..."
+            />
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              type="button"
+              onClick={async () => {
+                const ok = await confirm({ title: "נקה סימון", message: "האם למחוק את כל הפריטים המסומנים?", confirmText: "נקה", danger: true });
+                if (ok) setItems([]);
+              }}
+              style={{ flex: 1, padding: "10px", border: "1.5px solid #CBD5E1", borderRadius: 9, fontSize: 13, background: "#fff", cursor: "pointer", fontWeight: 600, color: "#475569" }}
+            >
+              🗑️ נקה
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveReport()}
+              disabled={items.length === 0 || saving}
+              style={{ flex: 2, padding: "10px", background: items.length === 0 ? "#94A3B8" : "#1B3A6B", color: "#fff", borderRadius: 9, fontSize: 13, fontWeight: 700, border: "none", cursor: items.length === 0 ? "not-allowed" : "pointer" }}
+            >
+              {saving ? "שומר..." : "💾 שמור דיווח"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── History tab ── */}
+      {activeTab === "history" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Totals */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ fontSize: 11, color: "#94A3B8" }}>סה"כ קירות</div>
+              <div style={{ fontWeight: 700, fontSize: 20, color: "#1B3A6B", marginTop: 4 }}>{totalReportWalls.toFixed(2)} מ'</div>
+            </div>
+            <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ fontSize: 11, color: "#94A3B8" }}>סה"כ ריצוף</div>
+              <div style={{ fontWeight: 700, fontSize: 20, color: "#1B3A6B", marginTop: 4 }}>{totalReportFloor.toFixed(2)} מ"ר</div>
+            </div>
+          </div>
+
+          {reports.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 0", color: "#94A3B8", fontSize: 14 }}>אין דיווחים עדיין.</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse", minWidth: 480 }}>
+                <thead>
+                  <tr style={{ color: "#94A3B8", borderBottom: "1px solid #E2E8F0" }}>
+                    <th style={{ textAlign: "right", padding: "8px 10px" }}>תאריך</th>
+                    <th style={{ textAlign: "right", padding: "8px 10px" }}>משמרת</th>
+                    <th style={{ textAlign: "right", padding: "8px 10px" }}>סוג</th>
+                    <th style={{ textAlign: "right", padding: "8px 10px" }}>כמות</th>
+                    <th style={{ textAlign: "right", padding: "8px 10px" }}>הערה</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reports.slice().reverse().map((r) => (
+                    <tr key={r.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                      <td style={{ padding: "8px 10px" }}>{r.date}</td>
+                      <td style={{ padding: "8px 10px" }}>{r.shift}</td>
+                      <td style={{ padding: "8px 10px" }}>{r.report_type === "walls" ? "קירות" : "ריצוף"}</td>
+                      <td style={{ padding: "8px 10px", fontWeight: 700, color: "#1B3A6B" }}>
+                        {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
+                      </td>
+                      <td style={{ padding: "8px 10px", color: "#64748b" }}>{r.note || "—"}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {reports.slice().reverse().map((r) => (
-                      <tr key={r.id} className="border-b last:border-b-0 hover:bg-slate-50">
-                        <td className="p-2">{r.date}</td>
-                        <td className="p-2">{r.shift}</td>
-                        <td className="p-2">{r.report_type === "walls" ? "קירות" : "ריצוף"}</td>
-                        <td className="p-2 font-semibold">
-                          {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
-                        </td>
-                        <td className="p-2 text-slate-500">{r.note || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </main>
-      </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
+};
+
+const fieldStyle: React.CSSProperties = {
+  padding: "7px 10px",
+  border: "1px solid #CBD5E1",
+  borderRadius: 8,
+  fontSize: 13,
+  background: "#fff",
+  width: "100%",
+  boxSizing: "border-box",
 };

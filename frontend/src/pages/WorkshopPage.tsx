@@ -57,7 +57,7 @@ const ZoomCanvas: React.FC<ZoomCanvasProps> = ({ imageUrl, overlayUrl, onImageLo
   const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
 
   return (
-    <div className="relative bg-slate-100 rounded-lg overflow-hidden border border-slate-200" style={{ minHeight: 480 }}>
+    <div className="relative bg-slate-100 rounded-xl overflow-hidden border border-slate-200" style={{ minHeight: 480 }}>
       <div
         ref={containerRef}
         className="w-full h-full overflow-hidden"
@@ -103,21 +103,9 @@ const ZoomCanvas: React.FC<ZoomCanvasProps> = ({ imageUrl, overlayUrl, onImageLo
 
       {/* Zoom controls */}
       <div className="absolute bottom-3 left-3 flex flex-col gap-1 z-10">
-        <button
-          type="button"
-          onClick={() => setZoom((z) => clampZoom(z * 1.25))}
-          className="w-8 h-8 bg-white border border-slate-300 rounded shadow text-base font-bold hover:bg-slate-50"
-        >+</button>
-        <button
-          type="button"
-          onClick={resetView}
-          className="w-8 h-8 bg-white border border-slate-300 rounded shadow text-[10px] hover:bg-slate-50"
-        >↺</button>
-        <button
-          type="button"
-          onClick={() => setZoom((z) => clampZoom(z * 0.8))}
-          className="w-8 h-8 bg-white border border-slate-300 rounded shadow text-base font-bold hover:bg-slate-50"
-        >−</button>
+        <button type="button" onClick={() => setZoom((z) => clampZoom(z * 1.25))} className="w-8 h-8 bg-white border border-slate-300 rounded shadow text-base font-bold hover:bg-slate-50">+</button>
+        <button type="button" onClick={resetView} className="w-8 h-8 bg-white border border-slate-300 rounded shadow text-[10px] hover:bg-slate-50">↺</button>
+        <button type="button" onClick={() => setZoom((z) => clampZoom(z * 0.8))} className="w-8 h-8 bg-white border border-slate-300 rounded shadow text-base font-bold hover:bg-slate-50">−</button>
       </div>
       <div className="absolute bottom-3 right-3 bg-black/40 text-white text-[11px] px-2 py-0.5 rounded">
         {Math.round(zoom * 100)}%
@@ -130,9 +118,10 @@ const ZoomCanvas: React.FC<ZoomCanvasProps> = ({ imageUrl, overlayUrl, onImageLo
 interface UploadZoneProps {
   onFile: (f: File) => void;
   isLoading: boolean;
+  compact?: boolean;
 }
 
-const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading }) => {
+const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading, compact }) => {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [drag, setDrag] = React.useState(false);
 
@@ -143,22 +132,53 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading }) => {
     if (f) onFile(f);
   };
 
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={isLoading}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          border: "1.5px dashed #94A3B8", borderRadius: 10,
+          background: "#F8FAFC", padding: "8px 18px",
+          cursor: "pointer", color: "#475569", fontSize: 13, fontWeight: 600,
+        }}
+      >
+        <span style={{ fontSize: 18 }}>📂</span>
+        {isLoading ? "מעלה..." : "העלה תוכנית נוספת"}
+        <input ref={inputRef} type="file" accept="application/pdf" style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); if (inputRef.current) inputRef.current.value = ""; }} />
+      </button>
+    );
+  }
+
   return (
     <div
-      className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${drag ? "border-[#FF4B4B] bg-red-50" : "border-slate-300 bg-slate-50 hover:bg-slate-100"}`}
+      style={{
+        border: `2px dashed ${drag ? "#1B3A6B" : "#CBD5E1"}`,
+        borderRadius: 16,
+        padding: "40px 24px",
+        textAlign: "center",
+        cursor: "pointer",
+        background: drag ? "#EFF6FF" : "#F8FAFC",
+        transition: "border-color 0.15s, background 0.15s",
+      }}
       onClick={() => inputRef.current?.click()}
       onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
       onDragLeave={() => setDrag(false)}
       onDrop={handleDrop}
     >
-      <div className="text-3xl mb-2">📂</div>
-      <p className="font-semibold text-sm text-slate-700">{isLoading ? "מעלה..." : "גרור PDF לכאן או לחץ לבחירה"}</p>
-      <p className="text-xs text-slate-400 mt-1">קבצי PDF של תוכניות בניה</p>
+      <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+      <p style={{ fontWeight: 700, fontSize: 15, color: "#1B3A6B", margin: 0 }}>
+        {isLoading ? "מעלה ומנתח..." : "גרור קובץ PDF לכאן"}
+      </p>
+      <p style={{ fontSize: 12, color: "#94A3B8", marginTop: 6 }}>או לחץ לבחירת קובץ · תוכניות בניה PDF</p>
       <input
         ref={inputRef}
         type="file"
         accept="application/pdf"
-        className="hidden"
+        style={{ display: "none" }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); if (inputRef.current) inputRef.current.value = ""; }}
       />
     </div>
@@ -371,146 +391,168 @@ export const WorkshopPage: React.FC = () => {
   const hasPlan = Boolean(selectedPlanId);
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <section className="bg-white rounded-lg shadow-sm border border-[#E6E6EA] p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="m-0 text-lg font-semibold text-[#31333F]">🛠️ סדנת עבודה</h2>
-            <p className="m-0 text-xs text-slate-500">העלאה, בקרה, ניתוח ותמחור תוכנית</p>
-          </div>
-          <div className="flex items-center gap-2 text-sm">
-            <select
-              className="px-2 py-2 rounded border border-slate-300 min-w-[200px] bg-white"
-              value={selectedPlanId ?? ""}
-              onChange={(e) => setSelectedPlanId(e.target.value)}
-            >
-              {plans.length === 0 && <option value="">אין תוכניות</option>}
-              {plans.map((p) => <option key={p.id} value={p.id}>{p.plan_name}</option>)}
-            </select>
-          </div>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-        {/* Upload progress bar */}
-        {uploadProgress !== null && (
-          <div className="space-y-1">
-            <div className="h-2 bg-slate-200 rounded overflow-hidden">
-              <div
-                className="h-full bg-[#FF4B4B] transition-all duration-500"
-                style={{ width: `${uploadProgress}%` }}
+      {/* ── Upload zone ── */}
+      {plans.length === 0 ? (
+        <UploadZone onFile={(f) => void handleUpload(f)} isLoading={isLoading} />
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <UploadZone onFile={(f) => void handleUpload(f)} isLoading={isLoading} compact />
+          {analysisStatus && uploadProgress === null && (
+            <div style={{ fontSize: 13, color: "#1d4ed8", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 14px" }}>{analysisStatus}</div>
+          )}
+        </div>
+      )}
+
+      {/* Upload progress bar */}
+      {uploadProgress !== null && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ height: 6, background: "#E2E8F0", borderRadius: 99, overflow: "hidden" }}>
+            <div style={{ height: "100%", background: "#1B3A6B", borderRadius: 99, width: `${uploadProgress}%`, transition: "width 0.5s" }} />
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>{analysisStatus}</div>
+        </div>
+      )}
+
+      {error && (
+        <div style={{ fontSize: 13, color: "#DC2626", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "10px 14px" }}>{error}</div>
+      )}
+
+      {/* ── Plan cards grid ── */}
+      {plans.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 14 }}>
+          {plans.map((p) => {
+            const active = p.id === selectedPlanId;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setSelectedPlanId(p.id)}
+                style={{
+                  textAlign: "right",
+                  background: "#fff",
+                  border: active ? "2.5px solid #1B3A6B" : "1.5px solid #E2E8F0",
+                  borderRadius: 14,
+                  overflow: "hidden",
+                  cursor: "pointer",
+                  boxShadow: active ? "0 4px 16px rgba(27,58,107,0.15)" : "0 1px 4px rgba(0,0,0,0.06)",
+                  transition: "box-shadow 0.15s, border-color 0.15s",
+                  padding: 0,
+                }}
+              >
+                {/* Thumbnail */}
+                <div style={{ height: 120, background: "#F1F5F9", overflow: "hidden" }}>
+                  <img
+                    src={`${apiClient.defaults.baseURL}/manager/workshop/plans/${encodeURIComponent(p.id)}/image`}
+                    alt={p.plan_name}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                  />
+                </div>
+                {/* Info */}
+                <div style={{ padding: "10px 12px" }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#1B3A6B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.plan_name}</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
+                    {p.total_wall_length_m != null ? `${p.total_wall_length_m.toFixed(1)} מ' קירות` : "—"}
+                  </div>
+                  {active && (
+                    <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: "#fff", background: "#1B3A6B", borderRadius: 6, padding: "2px 8px", display: "inline-block" }}>✓ פעיל</div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Empty state ── */}
+      {plans.length === 0 && !isLoading && (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "#94A3B8", fontSize: 14 }}>
+          העלה תוכנית PDF כדי להתחיל
+        </div>
+      )}
+
+      {/* ── Selected plan detail ── */}
+      {hasPlan && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Settings toolbar */}
+          <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 14, padding: "14px 18px", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160, flex: 1 }}>
+              <span style={{ fontSize: 11, color: "#64748b" }}>שם תוכנית</span>
+              <input
+                style={{ padding: "6px 10px", border: "1px solid #CBD5E1", borderRadius: 8, fontSize: 13 }}
+                value={planDisplayName}
+                onChange={(e) => setPlanDisplayName(e.target.value)}
+                placeholder="שם תוכנית"
               />
             </div>
-            <p className="text-xs text-slate-500">{analysisStatus}</p>
-          </div>
-        )}
-        {analysisStatus && uploadProgress === null && (
-          <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">{analysisStatus}</div>
-        )}
-      </section>
-
-      {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
-
-      {/* KPI cards */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[
-          { label: "קנ\"מ", value: `${selectedScale.toFixed(0)} px/מ'` },
-          { label: "קירות", value: `${selectedSummary?.total_wall_length_m?.toFixed(2) ?? "—"} מ'` },
-          { label: "ריצוף", value: `${selectedSummary?.flooring_area_m2?.toFixed(2) ?? "—"} מ"ר` },
-          { label: "עלות משוערת", value: `${totalQuote.toLocaleString()} ₪` },
-        ].map((c) => (
-          <div key={c.label} className="bg-white border border-[#E6E6EA] rounded-lg p-3">
-            <div className="text-xs text-slate-500">{c.label}</div>
-            <div className="font-semibold text-[#31333F]">{c.value}</div>
-          </div>
-        ))}
-      </section>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[300px,1fr] gap-5">
-        {/* Sidebar */}
-        <aside className="bg-white rounded-lg shadow-sm border border-[#E6E6EA] p-4 space-y-4">
-          {/* Upload zone */}
-          <UploadZone onFile={(f) => void handleUpload(f)} isLoading={isLoading} />
-
-          <div className="space-y-2 pt-2 border-t border-[#E6E6EA]">
-            <div className="text-sm font-semibold text-[#31333F]">הגדרות תוכנית</div>
-            <input
-              className="w-full px-2 py-2 border border-slate-300 rounded"
-              value={planDisplayName}
-              onChange={(e) => setPlanDisplayName(e.target.value)}
-              placeholder="שם תוכנית"
-            />
-            <select
-              className="w-full px-2 py-2 border border-slate-300 rounded bg-white"
-              value={scaleText}
-              onChange={(e) => setScaleText(e.target.value)}
-            >
-              {["1:20","1:25","1:50","1:75","1:100","1:200"].map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 11, color: "#64748b" }}>קנ"מ</span>
+              <select
+                style={{ padding: "6px 10px", border: "1px solid #CBD5E1", borderRadius: 8, fontSize: 13, background: "#fff" }}
+                value={scaleText}
+                onChange={(e) => setScaleText(e.target.value)}
+              >
+                {["1:20","1:25","1:50","1:75","1:100","1:200"].map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
             <button
               type="button"
               onClick={() => void savePlanSettings()}
-              disabled={!hasPlan || isLoading}
-              className="w-full bg-white border border-[#FF4B4B] text-[#FF4B4B] rounded px-3 py-2 font-semibold disabled:opacity-50 text-sm"
+              disabled={isLoading}
+              style={{ padding: "7px 16px", border: "1.5px solid #1B3A6B", color: "#1B3A6B", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#fff", cursor: "pointer", opacity: isLoading ? 0.5 : 1 }}
             >
-              🧭 שמור קנ"מ ושם
+              שמור
             </button>
-          </div>
-
-          <div className="space-y-2 pt-2 border-t border-[#E6E6EA]">
-            <div className="text-sm font-semibold text-[#31333F]">ניתוח ותצוגה</div>
             <button
               type="button"
               onClick={() => void runAnalysisNow()}
-              className="w-full bg-[#FF4B4B] text-white rounded px-3 py-2 font-semibold disabled:opacity-50 text-sm"
-              disabled={!hasPlan || isLoading}
+              disabled={isLoading}
+              style={{ padding: "7px 16px", background: "#1B3A6B", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer", opacity: isLoading ? 0.5 : 1 }}
             >
-              🔍 הרץ ניתוח חדרים
+              🔍 ניתוח
             </button>
-            {[
-              { label: "הצג ריצוף", val: showFlooring, set: setShowFlooring },
-              { label: "הצג מספרי חדרים", val: showRoomNumbers, set: setShowRoomNumbers },
-              { label: "הדגש קירות", val: highlightWalls, set: setHighlightWalls },
-            ].map(({ label, val, set }) => (
-              <label key={label} className="flex items-center gap-2 text-xs cursor-pointer">
-                <input type="checkbox" checked={val} onChange={(e) => set(e.target.checked)} />
-                {label}
-              </label>
-            ))}
-          </div>
-
-          <div className="space-y-2 pt-2 border-t border-[#E6E6EA]">
-            <div className="text-sm font-semibold text-[#31333F]">תמחור מהיר</div>
-            {[
-              { label: "בטון (₪/מ')", val: concretePrice, set: setConcretePrice },
-              { label: "בלוקים (₪/מ')", val: blocksPrice, set: setBlocksPrice },
-              { label: 'ריצוף (₪/מ"ר)', val: floorPrice, set: setFloorPrice },
-            ].map(({ label, val, set }) => (
-              <label key={label} className="text-xs flex items-center justify-between gap-2">
-                <span>{label}</span>
-                <input type="number" value={val} onChange={(e) => set(Number(e.target.value))} className="w-24 px-2 py-1 border border-slate-300 rounded" />
-              </label>
-            ))}
-          </div>
-        </aside>
-
-        {/* Main content */}
-        <main className="space-y-4">
-          {/* Canvas */}
-          {hasPlan ? (
-            <ZoomCanvas
-              imageUrl={imageUrl}
-              overlayUrl={overlayUrl}
-              overlayLoading={overlayLoading}
-            />
-          ) : (
-            <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm min-h-[480px] flex items-center justify-center text-slate-400 text-sm">
-              העלה תוכנית PDF כדי להתחיל
+            <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+              {[
+                { label: "ריצוף", val: showFlooring, set: setShowFlooring },
+                { label: "מספרים", val: showRoomNumbers, set: setShowRoomNumbers },
+                { label: "קירות", val: highlightWalls, set: setHighlightWalls },
+              ].map(({ label, val, set }) => (
+                <label key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#475569", cursor: "pointer" }}>
+                  <input type="checkbox" checked={val} onChange={(e) => set(e.target.checked)} />
+                  {label}
+                </label>
+              ))}
             </div>
-          )}
+          </div>
+
+          {/* KPI row */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+            {[
+              { label: "קנ\"מ", value: `${selectedScale.toFixed(0)} px/מ'` },
+              { label: "קירות", value: `${selectedSummary?.total_wall_length_m?.toFixed(2) ?? "—"} מ'` },
+              { label: "ריצוף", value: `${selectedSummary?.flooring_area_m2?.toFixed(2) ?? "—"} מ"ר` },
+              { label: "עלות משוערת", value: `${totalQuote.toLocaleString()} ₪` },
+            ].map((c) => (
+              <div key={c.label} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 12, padding: "12px 14px" }}>
+                <div style={{ fontSize: 11, color: "#94A3B8" }}>{c.label}</div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: "#1B3A6B", marginTop: 2 }}>{c.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Canvas */}
+          <ZoomCanvas
+            imageUrl={imageUrl}
+            overlayUrl={overlayUrl}
+            overlayLoading={overlayLoading}
+          />
 
           {/* Tabs */}
-          <section className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm overflow-hidden">
-            <div className="flex border-b border-[#E6E6EA] bg-slate-50 text-sm overflow-x-auto">
+          <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+            <div style={{ display: "flex", borderBottom: "1px solid #E2E8F0", background: "#F8FAFC", overflowX: "auto" }}>
               {[
                 { id: "overview", label: "📋 סקירה" },
                 { id: "rooms", label: "📐 חדרים" },
@@ -521,23 +563,33 @@ export const WorkshopPage: React.FC = () => {
                   key={t.id}
                   type="button"
                   onClick={() => setActiveTab(t.id as WorkshopTab)}
-                  className={`px-4 py-3 border-b-[3px] whitespace-nowrap ${activeTab === t.id ? "border-[#FF4B4B] text-[#FF4B4B] bg-white" : "border-transparent text-slate-600"}`}
+                  style={{
+                    padding: "12px 20px",
+                    border: "none",
+                    borderBottom: activeTab === t.id ? "3px solid #1B3A6B" : "3px solid transparent",
+                    background: activeTab === t.id ? "#fff" : "transparent",
+                    color: activeTab === t.id ? "#1B3A6B" : "#64748b",
+                    fontWeight: activeTab === t.id ? 700 : 400,
+                    fontSize: 13,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
                 >
                   {t.label}
                 </button>
               ))}
             </div>
-            <div className="p-4">
+            <div style={{ padding: 18 }}>
               {activeTab === "overview" && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                  <div className="bg-slate-50 rounded p-3">
-                    <div className="font-semibold mb-1">פרטי תוכנית</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 13 }}>
+                  <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8, color: "#1B3A6B" }}>פרטי תוכנית</div>
                     <div>שם: {planDisplayName || "ללא שם"}</div>
                     <div>קנ"מ: {scaleText}</div>
                     <div>מחושב: {selectedScale.toFixed(2)} px/מ'</div>
                   </div>
-                  <div className="bg-slate-50 rounded p-3">
-                    <div className="font-semibold mb-1">תוצרים</div>
+                  <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8, color: "#1B3A6B" }}>תוצרים</div>
                     <div>קירות: {selectedSummary?.total_wall_length_m?.toFixed(2) ?? "—"} מ'</div>
                     <div>בטון: {selectedSummary?.concrete_length_m?.toFixed(2) ?? "—"} מ'</div>
                     <div>בלוקים: {selectedSummary?.blocks_length_m?.toFixed(2) ?? "—"} מ'</div>
@@ -546,57 +598,60 @@ export const WorkshopPage: React.FC = () => {
                 </div>
               )}
               {activeTab === "rooms" && (
-                <table className="w-full text-sm">
+                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
                   <thead>
-                    <tr className="text-slate-500 border-b">
-                      <th className="text-right p-2">#</th>
-                      <th className="text-right p-2">שם חדר</th>
-                      <th className="text-right p-2">שטח (מ"ר)</th>
-                      <th className="text-right p-2">היקף (מ')</th>
+                    <tr style={{ color: "#94A3B8", borderBottom: "1px solid #E2E8F0" }}>
+                      <th style={{ textAlign: "right", padding: "6px 8px" }}>#</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px" }}>שם חדר</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px" }}>שטח (מ"ר)</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px" }}>היקף (מ')</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {roomRows.length === 0 && <tr><td className="p-3 text-slate-500" colSpan={4}>אין נתוני חדרים. הרץ ניתוח חדרים קודם.</td></tr>}
+                    {roomRows.length === 0 && <tr><td style={{ padding: 12, color: "#94A3B8" }} colSpan={4}>אין נתוני חדרים. הרץ ניתוח חדרים קודם.</td></tr>}
                     {roomRows.map((row) => (
-                      <tr key={row.id} className="border-b last:border-b-0">
-                        <td className="p-2">{row.id}</td>
-                        <td className="p-2">{row.name}</td>
-                        <td className="p-2">{row.area?.toFixed(2) ?? "—"}</td>
-                        <td className="p-2">{row.perimeter?.toFixed(2) ?? "—"}</td>
+                      <tr key={row.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                        <td style={{ padding: "6px 8px" }}>{row.id}</td>
+                        <td style={{ padding: "6px 8px" }}>{row.name}</td>
+                        <td style={{ padding: "6px 8px" }}>{row.area?.toFixed(2) ?? "—"}</td>
+                        <td style={{ padding: "6px 8px" }}>{row.perimeter?.toFixed(2) ?? "—"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
               {activeTab === "cost" && (
-                <div className="space-y-3 text-sm">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div className="bg-slate-50 rounded p-3">
-                      <div className="text-xs text-slate-500">בטון</div>
-                      <div className="font-semibold">{(selectedSummary?.concrete_length_m ?? 0).toFixed(2)} מ' × {concretePrice}₪</div>
-                      <div className="text-[#FF4B4B] font-bold">{((selectedSummary?.concrete_length_m ?? 0) * concretePrice).toLocaleString()} ₪</div>
-                    </div>
-                    <div className="bg-slate-50 rounded p-3">
-                      <div className="text-xs text-slate-500">בלוקים</div>
-                      <div className="font-semibold">{(selectedSummary?.blocks_length_m ?? 0).toFixed(2)} מ' × {blocksPrice}₪</div>
-                      <div className="text-[#FF4B4B] font-bold">{((selectedSummary?.blocks_length_m ?? 0) * blocksPrice).toLocaleString()} ₪</div>
-                    </div>
-                    <div className="bg-slate-50 rounded p-3">
-                      <div className="text-xs text-slate-500">ריצוף</div>
-                      <div className="font-semibold">{(selectedSummary?.flooring_area_m2 ?? 0).toFixed(2)} מ"ר × {floorPrice}₪</div>
-                      <div className="text-[#FF4B4B] font-bold">{((selectedSummary?.flooring_area_m2 ?? 0) * floorPrice).toLocaleString()} ₪</div>
-                    </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14, fontSize: 13 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
+                    {[
+                      { label: "בטון", length: selectedSummary?.concrete_length_m ?? 0, price: concretePrice, set: setConcretePrice, unit: "מ'" },
+                      { label: "בלוקים", length: selectedSummary?.blocks_length_m ?? 0, price: blocksPrice, set: setBlocksPrice, unit: "מ'" },
+                      { label: 'ריצוף', length: selectedSummary?.flooring_area_m2 ?? 0, price: floorPrice, set: setFloorPrice, unit: 'מ"ר' },
+                    ].map(({ label, length, price, set, unit }) => (
+                      <div key={label} style={{ background: "#F8FAFC", borderRadius: 10, padding: 14 }}>
+                        <div style={{ fontSize: 11, color: "#94A3B8" }}>{label}</div>
+                        <div style={{ fontWeight: 600, marginTop: 4 }}>{length.toFixed(2)} {unit}</div>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: "#475569" }}>
+                          ₪/יחידה
+                          <input type="number" value={price} onChange={(e) => set(Number(e.target.value))}
+                            style={{ width: 72, padding: "3px 6px", border: "1px solid #CBD5E1", borderRadius: 6, fontSize: 12 }} />
+                        </label>
+                        <div style={{ fontWeight: 700, color: "#1B3A6B", marginTop: 6 }}>{(length * price).toLocaleString()} ₪</div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="border-t pt-2 text-base font-bold text-[#31333F]">סה"כ משוער: {totalQuote.toLocaleString()} ₪</div>
+                  <div style={{ borderTop: "1px solid #E2E8F0", paddingTop: 12, fontWeight: 700, fontSize: 15, color: "#1B3A6B" }}>
+                    סה"כ משוער: {totalQuote.toLocaleString()} ₪
+                  </div>
                 </div>
               )}
               {activeTab === "diagnostics" && (
-                <div className="space-y-2 text-sm">
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, fontSize: 13 }}>
                   {!readiness ? (
-                    <div className="text-slate-500">אין נתוני בדיקה.</div>
+                    <div style={{ color: "#94A3B8" }}>אין נתוני בדיקה.</div>
                   ) : (
                     <>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8, fontSize: 12 }}>
                         {[
                           ["original", readiness.has_original],
                           ["thick_walls", readiness.has_thick_walls],
@@ -605,24 +660,26 @@ export const WorkshopPage: React.FC = () => {
                           ["meters/px", readiness.has_meters_per_pixel],
                           ["llm_rooms", readiness.has_llm_rooms],
                         ].map(([k, v]) => (
-                          <div key={String(k)} className="bg-slate-50 rounded p-2">{String(k)}: {v ? "✅" : k === "llm_rooms" ? "⚠️" : "❌"}</div>
+                          <div key={String(k)} style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 10px" }}>
+                            {String(k)}: {v ? "✅" : k === "llm_rooms" ? "⚠️" : "❌"}
+                          </div>
                         ))}
                       </div>
                       {readiness.issues.length > 0 ? (
-                        <ul className="list-disc list-inside text-amber-700">
+                        <ul style={{ paddingRight: 20, color: "#B45309" }}>
                           {readiness.issues.map((issue, i) => <li key={i}>{issue}</li>)}
                         </ul>
                       ) : (
-                        <div className="text-green-700">✅ כל הבדיקות עברו.</div>
+                        <div style={{ color: "#15803D" }}>✅ כל הבדיקות עברו.</div>
                       )}
                     </>
                   )}
                 </div>
               )}
             </div>
-          </section>
-        </main>
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

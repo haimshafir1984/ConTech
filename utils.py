@@ -344,7 +344,13 @@ def load_stats_df():
         return pd.DataFrame()
 
 
-def create_colored_overlay(original, concrete_mask, blocks_mask, flooring_mask=None):
+def create_colored_overlay(
+    original,
+    concrete_mask,
+    blocks_mask,
+    flooring_mask=None,
+    alpha=0.5,
+):
     """
     ✨ משופר: יוצר תמונה צבעונית עם Error Handling
     """

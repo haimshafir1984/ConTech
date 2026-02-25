@@ -79,6 +79,41 @@ def init_database():
         conn.commit()
     except Exception as e:
         print(f"DB Init Error: {e}")
+
+    # ── הוסף עמודות חסרות לטבלה קיימת (migration בטוחה) ──
+    # תומך בשני סוגי DB: SQLite (PRAGMA) ו-Postgres (information_schema)
+    _missing_cols_postgres = [
+        ("materials_json", "TEXT"),
+        ("img_original", "BYTEA"),
+        ("img_thick_walls", "BYTEA"),
+    ]
+    _missing_cols_sqlite = [
+        ("materials_json", "TEXT"),
+        ("img_original", "BLOB"),
+        ("img_thick_walls", "BLOB"),
+    ]
+    try:
+        conn2 = get_connection()
+        if conn2:
+            cur2 = conn2.cursor()
+            if DB_URL:
+                cur2.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='plans'"
+                )
+                existing_cols = {row["column_name"] for row in cur2.fetchall()}
+                for col, col_type in _missing_cols_postgres:
+                    if col not in existing_cols:
+                        cur2.execute(f"ALTER TABLE plans ADD COLUMN IF NOT EXISTS {col} {col_type}")
+            else:
+                cur2.execute("PRAGMA table_info(plans)")
+                existing_cols = {row[1] for row in cur2.fetchall()}
+                for col, col_type in _missing_cols_sqlite:
+                    if col not in existing_cols:
+                        cur2.execute(f"ALTER TABLE plans ADD COLUMN {col} {col_type}")
+            conn2.commit()
+            conn2.close()
+    except Exception as e:
+        print(f"DB migration warning: {e}")
     finally:
         conn.close()
 

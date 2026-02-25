@@ -2540,47 +2540,65 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
     cut_skeleton = skeleton.copy()
     cut_skeleton[branch_mask] = 0
 
-    # ── Step 4: Label disjoint skeleton segments ─────────────────────────────
-    num_skel_labels, skel_labels = cv2.connectedComponents(cut_skeleton, connectivity=8)
+    # ── Step 4: Label disjoint skeleton segments (with bbox stats) ──────────
+    num_skel_labels, skel_labels, skel_stats, _ = cv2.connectedComponentsWithStats(
+        cut_skeleton, connectivity=8
+    )
 
-    # Dilation kernel to expand each skeleton segment back to wall thickness
+    # Dilation kernel: expands each skeleton segment back to wall thickness
     half_thick = max(2, int(scale_px_per_meter * 0.10))
     dil_k = cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE,
         (half_thick * 2 + 1, half_thick * 2 + 1)
     )
+    pad = half_thick + 2          # ROI padding for dilation spillover
+    img_h, img_w = binary.shape
 
     wall_counter = 0
     fixture_counter = 0
+    concrete_arr = proj.get("concrete_mask")
+    blocks_arr   = proj.get("blocks_mask")
+    has_concrete = isinstance(concrete_arr, np.ndarray) and concrete_arr.size > 0
 
     for label_id in range(1, num_skel_labels):
-        # ── Step 5: Recover thick-wall pixels for this segment ───────────────
-        skel_seg = (skel_labels == label_id).astype(np.uint8)
-        dilated = cv2.dilate(skel_seg, dil_k)
-        region = (binary & dilated).astype(np.uint8)
+        # ── Quick pre-filter: skeleton pixel count (cheap, from stats) ───────
+        skel_area = int(skel_stats[label_id, cv2.CC_STAT_AREA])
+        if skel_area < 5:          # orphan / single pixel – skip immediately
+            continue
 
-        area_px = int(np.count_nonzero(region))
+        # ── Step 5: Recover thick-wall pixels using ROI (fast) ───────────────
+        sx = int(skel_stats[label_id, cv2.CC_STAT_LEFT])
+        sy = int(skel_stats[label_id, cv2.CC_STAT_TOP])
+        sw = int(skel_stats[label_id, cv2.CC_STAT_WIDTH])
+        sh = int(skel_stats[label_id, cv2.CC_STAT_HEIGHT])
 
-        # Skip absolute noise (< 0.05% of image)
+        # Clamp ROI to image bounds
+        x1 = max(0, sx - pad);  y1 = max(0, sy - pad)
+        x2 = min(img_w, sx + sw + pad);  y2 = min(img_h, sy + sh + pad)
+
+        skel_roi    = (skel_labels[y1:y2, x1:x2] == label_id).astype(np.uint8)
+        dilated_roi = cv2.dilate(skel_roi, dil_k)
+        region_roi  = binary[y1:y2, x1:x2] & dilated_roi
+
+        area_px = int(np.count_nonzero(region_roi))
         if area_px < img_area * 0.0005:
             continue
 
-        # Bounding box from region pixels
-        ys, xs = np.where(region > 0)
-        if len(ys) == 0:
+        # Bounding box in global image coordinates
+        ys_r, xs_r = np.where(region_roi > 0)
+        if len(ys_r) == 0:
             continue
-        bx = int(xs.min())
-        by = int(ys.min())
-        bw = int(xs.max()) - bx + 1
-        bh = int(ys.max()) - by + 1
+        g_bx = int(xs_r.min()) + x1
+        g_by = int(ys_r.min()) + y1
+        g_bw = int(xs_r.max()) - int(xs_r.min()) + 1
+        g_bh = int(ys_r.max()) - int(ys_r.min()) + 1
 
-        aspect = bw / max(1, bh)
+        aspect = g_bw / max(1, g_bh)
         is_elongated = aspect > 3.0 or aspect < 0.33
 
-        # Skeleton pixel count = true centerline length
-        length_px = int(np.count_nonzero(skel_seg))
-        length_m = round(length_px / scale_px_per_meter, 2)
-        area_m2 = round(area_px / (scale_px_per_meter ** 2), 2)
+        length_px  = skel_area           # pixels already counted in stats
+        length_m   = round(length_px / scale_px_per_meter, 2)
+        area_m2    = round(area_px / (scale_px_per_meter ** 2), 2)
 
         # ── Fixture detection ─────────────────────────────────────────────────
         length_area_ratio = length_m / max(0.001, area_m2)
@@ -2591,7 +2609,6 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             and area_px >= img_area * 0.00008
         )
 
-        # Non-fixture tiny blobs → skip as noise
         if area_px < img_area * 0.005 and not is_fixture:
             continue
 
@@ -2614,7 +2631,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                 confidence=0.55,
                 length_m=float(length_m),
                 area_m2=float(area_m2),
-                bbox=[float(bx), float(by), float(bw), float(bh)],
+                bbox=[float(g_bx), float(g_by), float(g_bw), float(g_bh)],
                 element_class="fixture",
             ))
 
@@ -2628,15 +2645,12 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                 suggested_subtype = "בלוקים"
                 confidence = 0.65
 
-            # Refine using concrete/blocks masks
-            concrete = proj.get("concrete_mask")
-            blocks = proj.get("blocks_mask")
-            if isinstance(concrete, np.ndarray) and concrete.size > 0:
-                roi_mask = region[by:by + bh, bx:bx + bw].astype(bool)
-                concrete_roi = concrete[by:by + bh, bx:bx + bw]
-                blocks_roi = (
-                    blocks[by:by + bh, bx:bx + bw]
-                    if isinstance(blocks, np.ndarray) and blocks.size > 0
+            if has_concrete:
+                roi_mask      = region_roi.astype(bool)
+                concrete_roi  = concrete_arr[y1:y2, x1:x2]
+                blocks_roi    = (
+                    blocks_arr[y1:y2, x1:x2]
+                    if isinstance(blocks_arr, np.ndarray) and blocks_arr.size > 0
                     else None
                 )
                 c_px = int(np.count_nonzero(concrete_roi[roi_mask]))
@@ -2656,7 +2670,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                 confidence=round(float(confidence), 2),
                 length_m=float(length_m),
                 area_m2=float(area_m2),
-                bbox=[float(bx), float(by), float(bw), float(bh)],
+                bbox=[float(g_bx), float(g_by), float(g_bw), float(g_bh)],
                 element_class="wall",
             ))
 

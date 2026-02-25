@@ -960,7 +960,12 @@ export const PlanningPage: React.FC = () => {
       }
       setAutoConfirmedKeys(keys);
       setError("");
-    } catch { setError("שגיאה בניתוח אוטומטי."); }
+    } catch (e) {
+      const detail = axios.isAxiosError(e)
+        ? ((e.response?.data as { detail?: string })?.detail || e.message)
+        : e instanceof Error ? e.message : String(e);
+      setError(`שגיאה בניתוח אוטומטי: ${detail}`);
+    }
     finally { setAutoLoading(false); }
   };
 

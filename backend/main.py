@@ -101,6 +101,26 @@ from pages.measure_utils import (
 from plan_store import persist_project_assets
 
 
+# ── Load .streamlit/secrets.toml into env vars (local dev) ───────────────────
+def _load_streamlit_secrets_into_env() -> None:
+    """If API keys are stored in .streamlit/secrets.toml (Streamlit dev setup),
+    copy them into os.environ so FastAPI/uvicorn code can use them too."""
+    import pathlib, re as _re
+    _secrets = pathlib.Path(__file__).resolve().parent.parent / ".streamlit" / "secrets.toml"
+    if not _secrets.exists():
+        return
+    try:
+        text = _secrets.read_text(encoding="utf-8")
+        for _m in _re.finditer(r'^([A-Z_][A-Z0-9_]*)\s*=\s*"([^"]*)"', text, _re.MULTILINE):
+            key, val = _m.group(1), _m.group(2)
+            if key not in os.environ and val:
+                os.environ[key] = val
+    except Exception:
+        pass
+
+_load_streamlit_secrets_into_env()
+
+
 # ─────────────────────────────────────────────────────────────────
 # JSON helpers — handle numpy types, Pydantic models, bytes, etc.
 # ─────────────────────────────────────────────────────────────────
@@ -2493,191 +2513,195 @@ async def manager_add_zone_item(
 async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
     """
     Segment thick_walls into individual wall segments using skeleton-based
-    junction splitting:
-      1. Skeletonize the thick_walls mask.
-      2. Detect branch/junction pixels (≥3 skeleton neighbours).
-      3. Remove branch pixels to disconnect the skeleton at every intersection.
-      4. Label the resulting disjoint skeleton segments.
-      5. Dilate each skeleton segment back to recover thick-wall pixels.
-      6. Classify each recovered region as wall or fixture.
-    This avoids the "one giant connected blob" problem caused by running
-    connectedComponents directly on a wall mask where all walls touch.
+    junction splitting (branch-point removal).
+    Falls back to a safe downsampled computation when the stored skeleton
+    is unavailable; never runs full-resolution skeletonize in-request to
+    avoid OOM on large plans.
     """
-    from skimage.morphology import skeletonize as _skeletonize
+    try:
+        proj = _get_project_or_404(plan_id)
+        _ensure_arrays_loaded(proj)
+        scale_px_per_meter = float(get_scale_with_fallback(proj, default_scale=200.0))
 
-    proj = _get_project_or_404(plan_id)
-    _ensure_arrays_loaded(proj)
-    scale_px_per_meter = float(get_scale_with_fallback(proj, default_scale=200.0))
+        walls = proj.get("thick_walls")
 
-    walls = proj.get("thick_walls")
-    segments: list[AutoAnalyzeSegment] = []
+        if not (isinstance(walls, np.ndarray) and walls.size > 0):
+            return AutoAnalyzeResponse(segments=[])
 
-    if not (isinstance(walls, np.ndarray) and walls.size > 0):
-        return AutoAnalyzeResponse(segments=[])
+        binary = (walls > 0).astype(np.uint8)
+        img_area = binary.shape[0] * binary.shape[1]
+        img_h, img_w = binary.shape
 
-    binary = (walls > 0).astype(np.uint8)
-    img_area = binary.shape[0] * binary.shape[1]
+        # ── Step 1: Get skeleton (prefer pre-computed; fallback at 1/4 res) ─────
+        skeleton: np.ndarray | None = None
+        stored_skel = proj.get("skeleton")
+        if isinstance(stored_skel, np.ndarray) and stored_skel.shape[:2] == (img_h, img_w):
+            skeleton = (stored_skel > 0).astype(np.uint8)
 
-    # ── Step 1: Skeleton (reuse stored one or compute) ───────────────────────
-    stored_skel = proj.get("skeleton")
-    if isinstance(stored_skel, np.ndarray) and stored_skel.shape == binary.shape:
-        skeleton = (stored_skel > 0).astype(np.uint8)
-    else:
-        skeleton = _skeletonize(binary).astype(np.uint8)
+        if skeleton is None or not np.any(skeleton):
+            # Pre-computed skeleton unavailable → compute at ¼ resolution to cap memory
+            try:
+                from skimage.morphology import skeletonize as _skeletonize
+                sf = 4                                        # downsample factor
+                sw, sh = max(1, img_w // sf), max(1, img_h // sf)
+                small = cv2.resize(binary, (sw, sh), interpolation=cv2.INTER_NEAREST)
+                small_skel = _skeletonize(small > 0).astype(np.uint8)
+                skeleton = cv2.resize(small_skel, (img_w, img_h), interpolation=cv2.INTER_NEAREST)
+                skeleton = (skeleton > 0).astype(np.uint8)
+            except Exception as _se:
+                print(f"[auto-analyze] skeletonize fallback failed: {_se}")
+                return AutoAnalyzeResponse(segments=[])
 
-    # ── Step 2: Detect branch points (junction pixels with ≥3 neighbours) ───
-    # A 3×3 sum on the skeleton gives each pixel the count of itself + neighbours.
-    # endpoint  → sum = 2  (itself + 1 neighbour)
-    # mid-line  → sum = 3  (itself + 2 neighbours)
-    # branch    → sum ≥ 4  (itself + 3+ neighbours)
-    neighbor_sum = cv2.filter2D(
-        skeleton.astype(np.float32), -1,
-        np.ones((3, 3), np.float32)
-    )
-    branch_mask = (skeleton > 0) & (neighbor_sum >= 4)
+        # ── Step 2: Detect branch points (junction pixels with ≥3 neighbours) ─
+        neighbor_sum = cv2.filter2D(
+            skeleton.astype(np.float32), -1,
+            np.ones((3, 3), np.float32)
+        )
+        branch_mask = (skeleton > 0) & (neighbor_sum >= 4)
 
-    # ── Step 3: Cut skeleton at branch points ────────────────────────────────
-    cut_skeleton = skeleton.copy()
-    cut_skeleton[branch_mask] = 0
+        # ── Step 3: Cut skeleton at branch points ─────────────────────────────
+        cut_skeleton = skeleton.copy()
+        cut_skeleton[branch_mask] = 0
 
-    # ── Step 4: Label disjoint skeleton segments (with bbox stats) ──────────
-    num_skel_labels, skel_labels, skel_stats, _ = cv2.connectedComponentsWithStats(
-        cut_skeleton, connectivity=8
-    )
-
-    # Dilation kernel: expands each skeleton segment back to wall thickness
-    half_thick = max(2, int(scale_px_per_meter * 0.10))
-    dil_k = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (half_thick * 2 + 1, half_thick * 2 + 1)
-    )
-    pad = half_thick + 2          # ROI padding for dilation spillover
-    img_h, img_w = binary.shape
-
-    wall_counter = 0
-    fixture_counter = 0
-    concrete_arr = proj.get("concrete_mask")
-    blocks_arr   = proj.get("blocks_mask")
-    has_concrete = isinstance(concrete_arr, np.ndarray) and concrete_arr.size > 0
-
-    for label_id in range(1, num_skel_labels):
-        # ── Quick pre-filter: skeleton pixel count (cheap, from stats) ───────
-        skel_area = int(skel_stats[label_id, cv2.CC_STAT_AREA])
-        if skel_area < 5:          # orphan / single pixel – skip immediately
-            continue
-
-        # ── Step 5: Recover thick-wall pixels using ROI (fast) ───────────────
-        sx = int(skel_stats[label_id, cv2.CC_STAT_LEFT])
-        sy = int(skel_stats[label_id, cv2.CC_STAT_TOP])
-        sw = int(skel_stats[label_id, cv2.CC_STAT_WIDTH])
-        sh = int(skel_stats[label_id, cv2.CC_STAT_HEIGHT])
-
-        # Clamp ROI to image bounds
-        x1 = max(0, sx - pad);  y1 = max(0, sy - pad)
-        x2 = min(img_w, sx + sw + pad);  y2 = min(img_h, sy + sh + pad)
-
-        skel_roi    = (skel_labels[y1:y2, x1:x2] == label_id).astype(np.uint8)
-        dilated_roi = cv2.dilate(skel_roi, dil_k)
-        region_roi  = binary[y1:y2, x1:x2] & dilated_roi
-
-        area_px = int(np.count_nonzero(region_roi))
-        if area_px < img_area * 0.0005:
-            continue
-
-        # Bounding box in global image coordinates
-        ys_r, xs_r = np.where(region_roi > 0)
-        if len(ys_r) == 0:
-            continue
-        g_bx = int(xs_r.min()) + x1
-        g_by = int(ys_r.min()) + y1
-        g_bw = int(xs_r.max()) - int(xs_r.min()) + 1
-        g_bh = int(ys_r.max()) - int(ys_r.min()) + 1
-
-        aspect = g_bw / max(1, g_bh)
-        is_elongated = aspect > 3.0 or aspect < 0.33
-
-        length_px  = skel_area           # pixels already counted in stats
-        length_m   = round(length_px / scale_px_per_meter, 2)
-        area_m2    = round(area_px / (scale_px_per_meter ** 2), 2)
-
-        # ── Fixture detection ─────────────────────────────────────────────────
-        length_area_ratio = length_m / max(0.001, area_m2)
-        is_fixture = (
-            not is_elongated
-            and length_area_ratio < 4.0
-            and area_m2 < 1.5
-            and area_px >= img_area * 0.00008
+        # ── Step 4: Label segments (connectedComponentsWithStats for quick area)
+        num_skel_labels, skel_labels, skel_stats, _ = cv2.connectedComponentsWithStats(
+            cut_skeleton, connectivity=8
         )
 
-        if area_px < img_area * 0.005 and not is_fixture:
-            continue
+        # Dilation kernel: expands each skeleton segment back to wall thickness
+        half_thick = max(2, int(scale_px_per_meter * 0.10))
+        dil_k = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE,
+            (half_thick * 2 + 1, half_thick * 2 + 1)
+        )
+        pad = half_thick + 2      # ROI padding for dilation spillover
 
-        if is_fixture:
-            fixture_counter += 1
-            if area_m2 < 0.12:
-                subtype = "פרט קטן"
-            elif 0.5 <= aspect <= 2.0 and area_m2 < 0.45:
-                subtype = "כיור / אסלה"
-            elif area_m2 < 1.2 and (aspect > 1.6 or aspect < 0.62):
-                subtype = "אמבטיה / מקלחת"
+        wall_counter = 0
+        fixture_counter = 0
+        concrete_arr = proj.get("concrete_mask")
+        blocks_arr   = proj.get("blocks_mask")
+        has_concrete = isinstance(concrete_arr, np.ndarray) and concrete_arr.size > 0
+
+        segments: list[AutoAnalyzeSegment] = []
+
+        for label_id in range(1, num_skel_labels):
+            # Quick pre-filter: skeleton pixel count from stats (cheap)
+            skel_area = int(skel_stats[label_id, cv2.CC_STAT_AREA])
+            if skel_area < 5:       # orphan / single pixel – skip
+                continue
+
+            # ── Step 5: Recover thick-wall pixels using ROI (fast) ───────────
+            sx = int(skel_stats[label_id, cv2.CC_STAT_LEFT])
+            sy = int(skel_stats[label_id, cv2.CC_STAT_TOP])
+            sw = int(skel_stats[label_id, cv2.CC_STAT_WIDTH])
+            sh = int(skel_stats[label_id, cv2.CC_STAT_HEIGHT])
+
+            x1 = max(0, sx - pad);  y1 = max(0, sy - pad)
+            x2 = min(img_w, sx + sw + pad);  y2 = min(img_h, sy + sh + pad)
+
+            skel_roi    = (skel_labels[y1:y2, x1:x2] == label_id).astype(np.uint8)
+            dilated_roi = cv2.dilate(skel_roi, dil_k)
+            region_roi  = binary[y1:y2, x1:x2] & dilated_roi
+
+            area_px = int(np.count_nonzero(region_roi))
+            if area_px < img_area * 0.0005:
+                continue
+
+            ys_r, xs_r = np.where(region_roi > 0)
+            if len(ys_r) == 0:
+                continue
+            g_bx = int(xs_r.min()) + x1
+            g_by = int(ys_r.min()) + y1
+            g_bw = int(xs_r.max()) - int(xs_r.min()) + 1
+            g_bh = int(ys_r.max()) - int(ys_r.min()) + 1
+
+            aspect = g_bw / max(1, g_bh)
+            is_elongated = aspect > 3.0 or aspect < 0.33
+
+            length_px = skel_area
+            length_m  = round(length_px / scale_px_per_meter, 2)
+            area_m2   = round(area_px / (scale_px_per_meter ** 2), 2)
+
+            length_area_ratio = length_m / max(0.001, area_m2)
+            is_fixture = (
+                not is_elongated
+                and length_area_ratio < 4.0
+                and area_m2 < 1.5
+                and area_px >= img_area * 0.00008
+            )
+
+            if area_px < img_area * 0.005 and not is_fixture:
+                continue
+
+            if is_fixture:
+                fixture_counter += 1
+                if area_m2 < 0.12:
+                    subtype = "פרט קטן"
+                elif 0.5 <= aspect <= 2.0 and area_m2 < 0.45:
+                    subtype = "כיור / אסלה"
+                elif area_m2 < 1.2 and (aspect > 1.6 or aspect < 0.62):
+                    subtype = "אמבטיה / מקלחת"
+                else:
+                    subtype = "ריהוט / מכשיר"
+                segments.append(AutoAnalyzeSegment(
+                    segment_id=f"fix_{label_id}",
+                    label=f"{subtype} {fixture_counter}",
+                    suggested_type="אביזר",
+                    suggested_subtype=subtype,
+                    confidence=0.55,
+                    length_m=float(length_m),
+                    area_m2=float(area_m2),
+                    bbox=[float(g_bx), float(g_by), float(g_bw), float(g_bh)],
+                    element_class="fixture",
+                ))
             else:
-                subtype = "ריהוט / מכשיר"
-
-            segments.append(AutoAnalyzeSegment(
-                segment_id=f"fix_{label_id}",
-                label=f"{subtype} {fixture_counter}",
-                suggested_type="אביזר",
-                suggested_subtype=subtype,
-                confidence=0.55,
-                length_m=float(length_m),
-                area_m2=float(area_m2),
-                bbox=[float(g_bx), float(g_by), float(g_bw), float(g_bh)],
-                element_class="fixture",
-            ))
-
-        else:
-            # ── Wall classification ───────────────────────────────────────────
-            wall_counter += 1
-            if is_elongated:
-                suggested_subtype = "בטון"
-                confidence = 0.82
-            else:
-                suggested_subtype = "בלוקים"
-                confidence = 0.65
-
-            if has_concrete:
-                roi_mask      = region_roi.astype(bool)
-                concrete_roi  = concrete_arr[y1:y2, x1:x2]
-                blocks_roi    = (
-                    blocks_arr[y1:y2, x1:x2]
-                    if isinstance(blocks_arr, np.ndarray) and blocks_arr.size > 0
-                    else None
-                )
-                c_px = int(np.count_nonzero(concrete_roi[roi_mask]))
-                b_px = int(np.count_nonzero(blocks_roi[roi_mask])) if blocks_roi is not None else 0
-                if c_px > b_px and c_px > area_px * 0.3:
+                wall_counter += 1
+                if is_elongated:
                     suggested_subtype = "בטון"
-                    confidence = min(0.95, 0.75 + c_px / area_px * 0.3)
-                elif b_px > c_px and b_px > area_px * 0.3:
+                    confidence = 0.82
+                else:
                     suggested_subtype = "בלוקים"
-                    confidence = min(0.92, 0.72 + b_px / area_px * 0.3)
+                    confidence = 0.65
 
-            segments.append(AutoAnalyzeSegment(
-                segment_id=f"seg_{label_id}",
-                label=f"קיר {wall_counter}",
-                suggested_type="קירות",
-                suggested_subtype=suggested_subtype,
-                confidence=round(float(confidence), 2),
-                length_m=float(length_m),
-                area_m2=float(area_m2),
-                bbox=[float(g_bx), float(g_by), float(g_bw), float(g_bh)],
-                element_class="wall",
-            ))
+                if has_concrete:
+                    roi_mask     = region_roi.astype(bool)
+                    concrete_roi = concrete_arr[y1:y2, x1:x2]
+                    blocks_roi   = (
+                        blocks_arr[y1:y2, x1:x2]
+                        if isinstance(blocks_arr, np.ndarray) and blocks_arr.size > 0
+                        else None
+                    )
+                    c_px = int(np.count_nonzero(concrete_roi[roi_mask]))
+                    b_px = int(np.count_nonzero(blocks_roi[roi_mask])) if blocks_roi is not None else 0
+                    if c_px > b_px and c_px > area_px * 0.3:
+                        suggested_subtype = "בטון"
+                        confidence = min(0.95, 0.75 + c_px / area_px * 0.3)
+                    elif b_px > c_px and b_px > area_px * 0.3:
+                        suggested_subtype = "בלוקים"
+                        confidence = min(0.92, 0.72 + b_px / area_px * 0.3)
 
-    # Walls sorted by length desc; fixtures sorted by area desc; fixtures appended after walls
-    walls_out = sorted([s for s in segments if s.element_class == "wall"], key=lambda s: s.length_m, reverse=True)
-    fixtures_out = sorted([s for s in segments if s.element_class == "fixture"], key=lambda s: s.area_m2, reverse=True)
-    return AutoAnalyzeResponse(segments=walls_out + fixtures_out)
+                segments.append(AutoAnalyzeSegment(
+                    segment_id=f"seg_{label_id}",
+                    label=f"קיר {wall_counter}",
+                    suggested_type="קירות",
+                    suggested_subtype=suggested_subtype,
+                    confidence=round(float(confidence), 2),
+                    length_m=float(length_m),
+                    area_m2=float(area_m2),
+                    bbox=[float(g_bx), float(g_by), float(g_bw), float(g_bh)],
+                    element_class="wall",
+                ))
+
+        walls_out    = sorted([s for s in segments if s.element_class == "wall"],    key=lambda s: s.length_m, reverse=True)
+        fixtures_out = sorted([s for s in segments if s.element_class == "fixture"], key=lambda s: s.area_m2,  reverse=True)
+        return AutoAnalyzeResponse(segments=walls_out + fixtures_out)
+
+    except HTTPException:
+        raise
+    except Exception as _exc:
+        import traceback as _tb
+        print(f"[auto-analyze ERROR] {_exc}\n{_tb.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"ניתוח אוטומטי נכשל: {_exc}")
 
 
 @app.post("/manager/planning/{plan_id}/confirm-auto-segment", response_model=PlanningState)

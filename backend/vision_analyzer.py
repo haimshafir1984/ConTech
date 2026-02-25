@@ -279,10 +279,21 @@ _ARCH_SYSTEM = """אתה מומחה בקריאת תוכניות אדריכליו
 
 
 def _render_page_to_b64(page) -> str:
-    """Renders a PyMuPDF page at 300 DPI → base64 JPEG string."""
-    matrix = _fitz.Matrix(300 / 72, 300 / 72)
+    """Renders a PyMuPDF page as a base64 JPEG, staying under Claude's 5 MB limit."""
+    _MAX_BYTES = 4 * 1024 * 1024   # 4 MB safe ceiling (API limit is 5 MB)
+
+    for dpi, quality in [(150, 80), (120, 75), (96, 70)]:
+        matrix = _fitz.Matrix(dpi / 72, dpi / 72)
+        pix = page.get_pixmap(matrix=matrix, alpha=False)
+        jpeg_bytes = pix.tobytes("jpeg", jpg_quality=quality)
+        if len(jpeg_bytes) <= _MAX_BYTES:
+            return base64.standard_b64encode(jpeg_bytes).decode()
+
+    # Last resort: cap longest side at 2000px
+    scale = 2000 / max(pix.width, pix.height)
+    matrix = _fitz.Matrix(96 / 72 * scale, 96 / 72 * scale)
     pix = page.get_pixmap(matrix=matrix, alpha=False)
-    return base64.standard_b64encode(pix.tobytes("jpeg", jpg_quality=92)).decode()
+    return base64.standard_b64encode(pix.tobytes("jpeg", jpg_quality=65)).decode()
 
 
 def _call_claude(client, img_b64: str, page_num: int, total_pages: int, page_text: str) -> dict:

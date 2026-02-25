@@ -1696,6 +1696,29 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
                     meta_clean["vision_total_area_m2"] = vision_data["total_area_m2"]
                 if vision_data.get("plan_title") and not meta_clean.get("plan_title"):
                     meta_clean["plan_title"] = vision_data["plan_title"]
+                # ── שדות חדשים ──────────────────────────────────────────
+                if vision_data.get("dimensions_structured"):
+                    meta_clean["vision_dimensions_structured"] = vision_data["dimensions_structured"]
+                if vision_data.get("elevations"):
+                    meta_clean["vision_elevations"] = vision_data["elevations"]
+                if vision_data.get("materials_legend"):
+                    meta_clean["vision_materials_legend"] = vision_data["materials_legend"]
+                if vision_data.get("elements"):
+                    meta_clean["vision_elements"] = vision_data["elements"]
+                if vision_data.get("grid_lines"):
+                    meta_clean["vision_grid_lines"] = vision_data["grid_lines"]
+                if vision_data.get("systems"):
+                    meta_clean["vision_systems"] = vision_data["systems"]
+                # מטה-דאטה מבלוק הכותרת
+                for _vf in ("project_name", "sheet_number", "sheet_name", "status",
+                            "revision", "date", "drawn_by", "designed_by", "approved_by",
+                            "architect", "project_address", "floor_level",
+                            "drawing_number", "default_ceiling_height_m",
+                            "execution_notes"):
+                    if vision_data.get(_vf) and not meta_clean.get(_vf):
+                        meta_clean[_vf] = vision_data[_vf]
+                if vision_data.get("_pages_processed"):
+                    meta_clean["vision_pages_processed"] = vision_data["_pages_processed"]
         except Exception as _ve:
             print(f"[WARNING] Vision analysis skipped: {_ve}")
         # ─────────────────────────────────────────────────────────────────────────────

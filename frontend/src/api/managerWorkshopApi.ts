@@ -1,6 +1,94 @@
 import { apiClient } from "./client";
 import type { MaterialsSummary } from "./analysisApi";
 
+// ── Structured blueprint extraction types ─────────────────────────────────────
+
+export interface BlueprintRoom {
+  name: string;
+  area_m2?: number | null;
+  dimensions?: string | null;
+  ceiling_height_m?: number | null;
+  elevation_floor_m?: number | null;
+  elevation_slab_m?: number | null;
+  flooring?: string | null;
+  notes?: string | null;
+  position_x_pct?: number | null;
+  position_y_pct?: number | null;
+}
+
+export interface BlueprintDimension {
+  raw: string;
+  unit?: "mm" | "cm" | "m";
+  location?: string | null;
+  type?: "overall" | "partial" | "height" | "stair" | "other";
+}
+
+export interface BlueprintElevation {
+  label: string;
+  value?: number | null;
+  reference?: string | null;
+}
+
+export interface BlueprintMaterialLegend {
+  symbol?: string | null;
+  description: string;
+  fire_rating?: string | null;
+}
+
+export interface BlueprintElement {
+  type: string;          // door | window | stair | elevator | sink | toilet | shower | boiler | other
+  id?: string | null;
+  location?: string | null;
+  notes?: string | null;
+}
+
+export interface BlueprintGridLines {
+  horizontal?: string[];
+  vertical?: string[];
+}
+
+export interface BlueprintSystems {
+  waterproofing?: string | null;
+  drainage_slopes_pct?: string[];
+  hvac_notes?: string | null;
+  fire_suppression?: string | null;
+  accessibility?: string | null;
+}
+
+/** Typed view over the free-form meta dict returned from the server. */
+export interface PlanMeta extends Record<string, unknown> {
+  // Document metadata
+  plan_title?: string | null;
+  project_name?: string | null;
+  plan_type?: string | null;
+  floor_level?: string | null;
+  drawing_number?: string | null;
+  sheet_number?: string | null;
+  sheet_name?: string | null;
+  status?: "לאישור" | "למכרז" | "לביצוע" | "טיוטה" | "לא ידוע" | null;
+  revision?: string | null;
+  date?: string | null;
+  architect?: string | null;
+  drawn_by?: string | null;
+  designed_by?: string | null;
+  approved_by?: string | null;
+  project_address?: string | null;
+  scale_text?: string | null;
+  scale_denominator?: number | null;
+  // Vision extractions
+  llm_rooms?: BlueprintRoom[];
+  vision_dimensions?: string[];
+  vision_dimensions_structured?: BlueprintDimension[];
+  vision_elevations?: BlueprintElevation[];
+  vision_materials?: string[];
+  vision_materials_legend?: BlueprintMaterialLegend[];
+  vision_elements?: BlueprintElement[];
+  vision_grid_lines?: BlueprintGridLines;
+  vision_systems?: BlueprintSystems;
+  vision_total_area_m2?: number | null;
+  vision_pages_processed?: number;
+}
+
 export interface PlanSummary {
   id: string;
   filename: string;
@@ -14,7 +102,7 @@ export interface PlanSummary {
 
 export interface PlanDetail {
   summary: PlanSummary;
-  meta: Record<string, unknown>;
+  meta: PlanMeta;
 }
 
 export interface PlanListResponse {

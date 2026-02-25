@@ -112,7 +112,14 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
     "project_name": {"value": null, "confidence": 0, "evidence": []},
     "project_address": {"value": null, "confidence": 0, "evidence": []},
     "architect_name": {"value": null, "confidence": 0, "evidence": []},
-    "drawing_number": {"value": null, "confidence": 0, "evidence": []}
+    "drawing_number": {"value": null, "confidence": 0, "evidence": []},
+    "sheet_number": {"value": null, "confidence": 0, "evidence": []},
+    "sheet_name": {"value": null, "confidence": 0, "evidence": []},
+    "status": {"value": null, "confidence": 0, "evidence": [], "note": "לאישור/למכרז/לביצוע/טיוטה"},
+    "revision": {"value": null, "confidence": 0, "evidence": []},
+    "drawn_by": {"value": null, "confidence": 0, "evidence": []},
+    "designed_by": {"value": null, "confidence": 0, "evidence": []},
+    "approved_by": {"value": null, "confidence": 0, "evidence": []}
   },
   "rooms": [
     {
@@ -149,6 +156,15 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
 - גבהים: "H=2.80", "גובה 2.70", "ceiling height 2.80m"
 - ריצוף: "קרמיקה", "פרקט", "שיש", "גרניט"
 - תקרה: "גבס", "טרוול", "תקרה אקוסטית"
+
+**חיפוש פרטי מסמך (בלוק כותרת):**
+- status: "לאישור", "למכרז", "לביצוע", "Approved for Construction"
+- revision: "Rev.A", "מהדורה 1", "גרסה B", "Rev.02"
+- sheet_number: "A-01", "01/15", "גיליון מס' 3"
+- sheet_name: "תוכנית קומה א'", "ריצוף קומה ראשונה"
+- drawn_by: "שרטט:", "Drawn by:", "ש.ט."
+- designed_by: "מתכנן:", "Designed by:", "מ.ת."
+- approved_by: "מאשר:", "Approved by:", "נבדק:"
 """,
             "cache_control": {"type": "ephemeral"},
         }

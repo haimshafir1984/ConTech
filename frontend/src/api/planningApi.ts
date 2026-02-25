@@ -256,6 +256,14 @@ export async function confirmAutoSegments(
   return state;
 }
 
+// ── Import vision elements ─────────────────────────────────────────────────
+export async function importVisionItems(planId: string): Promise<PlanningState> {
+  const { data } = await apiClient.post<PlanningState>(
+    `/manager/planning/${encodeURIComponent(planId)}/import-vision-items`
+  );
+  return data;
+}
+
 // ── Work Sections (גזרות עבודה) ────────────────────────────────────────────
 export async function addWorkSection(
   planId: string,

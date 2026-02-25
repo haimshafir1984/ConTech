@@ -238,7 +238,22 @@ export const WorkshopPage: React.FC = () => {
 
   React.useEffect(() => {
     if (!selectedDetail) return;
-    setPlanDisplayName(selectedDetail.summary.plan_name ?? "");
+    // Prefer a descriptive name auto-built from title-block; fall back to stored plan_name
+    const meta = selectedDetail.meta as Record<string, unknown> | undefined;
+    const stored = selectedDetail.summary.plan_name ?? "";
+    let bestName = stored;
+    if (!bestName || bestName.endsWith(".pdf") || bestName === selectedDetail.summary.filename) {
+      const parts: string[] = [];
+      const proj = typeof meta?.project_name === "string" ? meta.project_name : "";
+      const sheet = (typeof meta?.plan_title === "string" && meta.plan_title)
+        || (typeof meta?.sheet_name === "string" && meta.sheet_name)
+        || (typeof meta?.sheet_number === "string" && meta.sheet_number)
+        || "";
+      if (proj) parts.push(proj);
+      if (sheet) parts.push(sheet);
+      if (parts.length) bestName = parts.join(" — ");
+    }
+    setPlanDisplayName(bestName || stored);
     const metaScale = typeof selectedDetail.meta?.scale === "string" ? selectedDetail.meta.scale : "1:50";
     setScaleText(metaScale || "1:50");
   }, [selectedDetail]);
@@ -363,20 +378,42 @@ export const WorkshopPage: React.FC = () => {
   const roomRows = React.useMemo(() => {
     const meta = selectedDetail?.meta as Record<string, unknown> | undefined;
     if (!meta) return [];
-    const rooms = Array.isArray(meta.rooms) ? meta.rooms : [];
     const safeN = (v: unknown): number | null => {
       if (typeof v === "number" && isFinite(v)) return v;
       if (typeof v === "string") { const n = Number(v); return isFinite(n) ? n : null; }
       if (v && typeof v === "object" && "value" in v) { const n = Number((v as { value?: unknown }).value); return isFinite(n) ? n : null; }
       return null;
     };
+    // Prefer LLM-extracted rooms (vision, structured); fall back to CV-detected rooms
+    const llmRooms = Array.isArray(meta.llm_rooms) ? meta.llm_rooms : [];
+    if (llmRooms.length > 0) {
+      return llmRooms.slice(0, 100).map((room, idx) => {
+        const r = (room ?? {}) as Record<string, unknown>;
+        return {
+          id: idx + 1,
+          name: (typeof r.name === "string" && r.name) || `חדר ${idx + 1}`,
+          area: safeN(r.area_m2),
+          ceiling: safeN(r.ceiling_height_m),
+          floor_elev: safeN(r.elevation_floor_m),
+          flooring: typeof r.flooring === "string" ? r.flooring : null,
+          notes: typeof r.notes === "string" ? r.notes : null,
+          isLlm: true,
+        };
+      });
+    }
+    // Fallback: CV-detected rooms
+    const rooms = Array.isArray(meta.rooms) ? meta.rooms : [];
     return rooms.slice(0, 50).map((room, idx) => {
       const r = (room ?? {}) as Record<string, unknown>;
       return {
         id: idx + 1,
         name: (typeof r.room_name === "string" && r.room_name) || (typeof r.name === "string" && r.name) || `חדר ${idx + 1}`,
         area: safeN(r.area_m2),
-        perimeter: safeN(r.perimeter_m ?? r.perimeter)
+        ceiling: null,
+        floor_elev: null,
+        flooring: null,
+        notes: null,
+        isLlm: false,
       };
     });
   }, [selectedDetail]);
@@ -598,27 +635,46 @@ export const WorkshopPage: React.FC = () => {
                 </div>
               )}
               {activeTab === "rooms" && (
-                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ color: "#94A3B8", borderBottom: "1px solid #E2E8F0" }}>
-                      <th style={{ textAlign: "right", padding: "6px 8px" }}>#</th>
-                      <th style={{ textAlign: "right", padding: "6px 8px" }}>שם חדר</th>
-                      <th style={{ textAlign: "right", padding: "6px 8px" }}>שטח (מ"ר)</th>
-                      <th style={{ textAlign: "right", padding: "6px 8px" }}>היקף (מ')</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {roomRows.length === 0 && <tr><td style={{ padding: 12, color: "#94A3B8" }} colSpan={4}>אין נתוני חדרים. הרץ ניתוח חדרים קודם.</td></tr>}
-                    {roomRows.map((row) => (
-                      <tr key={row.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                        <td style={{ padding: "6px 8px" }}>{row.id}</td>
-                        <td style={{ padding: "6px 8px" }}>{row.name}</td>
-                        <td style={{ padding: "6px 8px" }}>{row.area?.toFixed(2) ?? "—"}</td>
-                        <td style={{ padding: "6px 8px" }}>{row.perimeter?.toFixed(2) ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {roomRows.length > 0 && roomRows[0].isLlm && (
+                    <div style={{ fontSize: 11, color: "#059669", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: "5px 10px", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      ✅ נתונים מתוכנית AI — {roomRows.length} חדרים · סה"כ {roomRows.reduce((s, r) => s + (r.area ?? 0), 0).toFixed(1)} מ"ר
+                    </div>
+                  )}
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse", minWidth: 520 }}>
+                      <thead>
+                        <tr style={{ color: "#94A3B8", borderBottom: "2px solid #E2E8F0", background: "#F8FAFC" }}>
+                          <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600 }}>#</th>
+                          <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600 }}>שם חדר</th>
+                          <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600 }}>שטח (מ"ר)</th>
+                          {roomRows[0]?.isLlm && <>
+                            <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600 }}>תקרה (מ')</th>
+                            <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600 }}>ריצוף</th>
+                            <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600 }}>הערות</th>
+                          </>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {roomRows.length === 0 && (
+                          <tr><td style={{ padding: 12, color: "#94A3B8" }} colSpan={6}>אין נתוני חדרים. הרץ ניתוח קודם.</td></tr>
+                        )}
+                        {roomRows.map((row) => (
+                          <tr key={row.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                            <td style={{ padding: "6px 8px", color: "#94A3B8" }}>{row.id}</td>
+                            <td style={{ padding: "6px 8px", fontWeight: 600, color: "#1B3A6B" }}>{row.name}</td>
+                            <td style={{ padding: "6px 8px" }}>{row.area != null ? row.area.toFixed(1) : "—"}</td>
+                            {row.isLlm && <>
+                              <td style={{ padding: "6px 8px", color: "#64748b" }}>{row.ceiling != null ? row.ceiling.toFixed(2) : "—"}</td>
+                              <td style={{ padding: "6px 8px", color: "#64748b", fontSize: 12 }}>{row.flooring ?? "—"}</td>
+                              <td style={{ padding: "6px 8px", color: "#94A3B8", fontSize: 11, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.notes ?? ""}</td>
+                            </>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
               {activeTab === "cost" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 14, fontSize: 13 }}>

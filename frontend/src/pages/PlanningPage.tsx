@@ -13,6 +13,7 @@ import {
   deleteWorkSection,
   finalizePlanning,
   getPlanningState,
+  importVisionItems,
   resolvePlanningOpening,
   resolvePlanningWall,
   type AutoSegment,
@@ -1712,8 +1713,39 @@ export const PlanningPage: React.FC = () => {
             {/* ── TAB: TEXT ── */}
             {step3Tab === "text" && (
               <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4 space-y-3">
-                <p className="text-sm font-semibold text-[#31333F]">פריטים בטקסט חופשי</p>
-                <p className="text-xs text-slate-500">פריטים שלא ניתן לצייר (ספקלינג, פינות, תוספות אחוזיות וכו׳).</p>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-sm font-semibold text-[#31333F]">פריטים בטקסט חופשי</p>
+                    <p className="text-xs text-slate-500">פריטים שלא ניתן לצייר (ספקלינג, פינות, תוספות אחוזיות וכו׳).</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={async () => {
+                      if (!selectedPlanId) return;
+                      setLoading(true);
+                      try {
+                        const state = await importVisionItems(selectedPlanId);
+                        setPlanningState(state);
+                        setError("");
+                      } catch (e) {
+                        const detail = axios.isAxiosError(e) ? (e.response?.data?.detail as string | undefined) || e.message : String(e);
+                        setError(`שגיאה בייבוא: ${detail}`);
+                      } finally { setLoading(false); }
+                    }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "7px 14px", borderRadius: 9,
+                      background: "#1B3A6B", color: "#fff",
+                      border: "none", fontWeight: 700, fontSize: 13,
+                      cursor: "pointer", whiteSpace: "nowrap",
+                      opacity: loading ? 0.5 : 1,
+                      boxShadow: "0 2px 8px rgba(27,58,107,0.25)",
+                    }}
+                  >
+                    📥 ייבא מתוכנית
+                  </button>
+                </div>
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse min-w-[600px]">

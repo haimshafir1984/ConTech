@@ -1721,6 +1721,20 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
                     meta_clean["vision_pages_processed"] = vision_data["_pages_processed"]
         except Exception as _ve:
             print(f"[WARNING] Vision analysis skipped: {_ve}")
+        # ── Auto-generate plan_name from title-block if still using raw filename ──────
+        if not meta_clean.get("plan_name") or meta_clean.get("plan_name") == filename:
+            _nm_parts: list[str] = []
+            if meta_clean.get("project_name"):
+                _nm_parts.append(str(meta_clean["project_name"]))
+            _sheet_id = (
+                meta_clean.get("plan_title")
+                or meta_clean.get("sheet_name")
+                or meta_clean.get("sheet_number")
+            )
+            if _sheet_id:
+                _nm_parts.append(str(_sheet_id))
+            if _nm_parts:
+                meta_clean["plan_name"] = " — ".join(_nm_parts)
         # ─────────────────────────────────────────────────────────────────────────────
 
         plan_id = meta_clean.get("plan_id") or filename
@@ -2304,6 +2318,76 @@ async def manager_add_text_item(
     }
     proj["planning"]["items"].append(item)
     _recompute_boq(proj)
+    return _build_planning_state(plan_id, proj)
+
+
+# ── Import vision elements as free text items ──────────────────────────────
+_VIS_ELEM_LABELS: dict[str, tuple[str, str]] = {
+    "door":     ("דלת",              "יח׳"),
+    "window":   ("חלון",             "יח׳"),
+    "stair":    ("מדרגות",           "מ'"),
+    "elevator": ("מעלית",            "יח׳"),
+    "sink":     ("כיור",             "יח׳"),
+    "toilet":   ("אסלה",             "יח׳"),
+    "shower":   ("מקלחת / אמבטיה",   "יח׳"),
+    "boiler":   ("דוד מים",          "יח׳"),
+    "other":    ("פריט מיוחד",       "יח׳"),
+}
+
+
+@app.post("/manager/planning/{plan_id}/import-vision-items", response_model=PlanningState)
+async def import_vision_items(plan_id: str) -> PlanningState:
+    """
+    Read vision_elements from the plan's title-block extraction and bulk-insert
+    them as free text items (category __manual__).
+    Elements are grouped by type; a count + location notes are stored per group.
+    """
+    from collections import Counter as _Counter
+    proj = _get_project_or_404(plan_id)
+    _init_planning_if_missing(proj)
+    meta = proj.get("metadata") or {}
+    elements: list[dict] = meta.get("vision_elements") or []
+
+    if not elements:
+        return _build_planning_state(plan_id, proj)
+
+    type_counts: _Counter[str] = _Counter()
+    type_notes: dict[str, list[str]] = {}
+    for elem in elements:
+        etype = str(elem.get("type", "other")).lower().strip()
+        type_counts[etype] += 1
+        loc = str(elem.get("location") or elem.get("id") or "").strip()
+        if loc:
+            type_notes.setdefault(etype, []).append(loc)
+
+    now = datetime.now().isoformat()
+    for etype, count in type_counts.most_common():
+        label, unit = _VIS_ELEM_LABELS.get(etype, (etype, "יח׳"))
+        locs = type_notes.get(etype, [])
+        note = ", ".join(locs[:5])
+        if len(locs) > 5:
+            note += f" ועוד {len(locs) - 5}"
+        if not note:
+            note = "מיובא מתוכנית"
+        item = {
+            "uid": str(uuid.uuid4())[:8],
+            "type": "text",
+            "item_subtype": "text",
+            "category": "__manual__",
+            "description": label,
+            "quantity": float(count),
+            "unit": unit,
+            "note": note,
+            "length_m": 0.0,
+            "length_m_effective": 0.0,
+            "area_m2": 0.0,
+            "raw_object": {"description": label, "quantity": float(count), "unit": unit},
+            "analysis": {},
+            "timestamp": now,
+        }
+        proj["planning"]["items"].append(item)
+    _recompute_boq(proj)
+    _persist_plan_to_database(plan_id, proj)
     return _build_planning_state(plan_id, proj)
 
 

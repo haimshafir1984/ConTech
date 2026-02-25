@@ -200,13 +200,24 @@ async def health() -> HealthResponse:
 
 
 def _compute_materials(
-    thick_walls: np.ndarray,
+    thick_walls,
     metadata: dict,
 ) -> WallMaterialsSummary:
     """
     Approximate concrete/blocks split and flooring area,
     following the same logic used in the Streamlit manager tab.
+    Returns a WallMaterialsSummary with all-None fields when thick_walls is unavailable.
     """
+    if thick_walls is None or not isinstance(thick_walls, np.ndarray) or thick_walls.size == 0:
+        print("[_compute_materials] thick_walls unavailable — returning empty summary")
+        return WallMaterialsSummary(
+            total_wall_length_m=None,
+            concrete_length_m=None,
+            blocks_length_m=None,
+            flooring_area_m2=None,
+        )
+    if not isinstance(metadata, dict):
+        metadata = {}
     h, w = thick_walls.shape[:2]
     kernel = np.ones((6, 6), np.uint8)
 
@@ -1894,17 +1905,21 @@ async def manager_list_plans() -> PlanListResponse:
     # ── 1. תוכניות שכבר בזיכרון ──
     seen_ids: set[str] = set()
     for plan_id, proj in PROJECTS.items():
-        meta_clean = proj.get("metadata", {})
-        materials = _compute_materials(proj.get("thick_walls"), meta_clean)
-        summary = _build_plan_detail(
-            plan_id=plan_id,
-            filename=meta_clean.get("filename") or plan_id,
-            meta_clean=meta_clean,
-            materials=materials,
-        ).summary
-        plans.append(summary)
+        try:
+            meta_clean = proj.get("metadata") or {}
+            # _compute_materials handles thick_walls=None gracefully
+            materials = _compute_materials(proj.get("thick_walls"), meta_clean)
+            summary = _build_plan_detail(
+                plan_id=plan_id,
+                filename=meta_clean.get("filename") or plan_id,
+                meta_clean=meta_clean,
+                materials=materials,
+            ).summary
+            plans.append(summary)
+        except Exception as _e:
+            print(f"[list_plans] skipping plan {plan_id!r} due to error: {_e}")
         seen_ids.add(plan_id)
-        seen_ids.add(meta_clean.get("filename") or plan_id)
+        seen_ids.add((proj.get("metadata") or {}).get("filename") or plan_id)
 
     # ── 2. השלם מה-DB (אחרי restart כש-PROJECTS ריק) ──
     try:
@@ -1970,7 +1985,8 @@ async def manager_get_plan(plan_id: str) -> PlanDetail:
     """
     proj = _get_project_or_404(plan_id)
 
-    meta_clean = proj.get("metadata", {})
+    meta_clean = proj.get("metadata") or {}
+    # _compute_materials handles thick_walls=None gracefully
     materials = _compute_materials(proj.get("thick_walls"), meta_clean)
     return _build_plan_detail(
         plan_id=plan_id,

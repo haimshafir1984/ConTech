@@ -316,7 +316,9 @@ def _normalize_plan_row(row):
     if "metadata_json" in d and "metadata" not in d:
         d["metadata"] = d["metadata_json"]
     if "material_estimate" in d and "materials_json" not in d:
-        d["materials_json"] = d["material_estimate"]
+        # material_estimate column was created as NUMERIC — coerce to string for JSON parsing
+        _me = d["material_estimate"]
+        d["materials_json"] = _me if isinstance(_me, str) else None
     # מיפוי ישן→חדש
     if "scale_text" in d and "extracted_scale" not in d:
         d["extracted_scale"] = d["scale_text"]

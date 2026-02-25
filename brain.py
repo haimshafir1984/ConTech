@@ -304,7 +304,42 @@ def analyze_legend_image(image_bytes):
         "claude-3-haiku-20240307",
     ]
 
-    encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+    # ===== עיבוד תמונה לפני שליחה ל-Claude =====
+    try:
+        from PIL import Image
+        import io
+
+        img = Image.open(io.BytesIO(image_bytes))
+        w, h = img.size
+
+        # Resize אם מעל 6000px בכל ציר (שמירת יחס ממדים, LANCZOS)
+        MAX_DIM = 6000
+        if w > MAX_DIM or h > MAX_DIM:
+            ratio = min(MAX_DIM / w, MAX_DIM / h)
+            new_w, new_h = int(w * ratio), int(h * ratio)
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+
+        # המרה ל-JPEG דחוס quality=85
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        output = io.BytesIO()
+        img.save(output, format="JPEG", quality=85, optimize=True)
+        processed_bytes = output.getvalue()
+
+        # אם עדיין גדול מ-4.5MB → הורד quality
+        if len(processed_bytes) > 4.5 * 1024 * 1024:
+            output = io.BytesIO()
+            img.save(output, format="JPEG", quality=60, optimize=True)
+            processed_bytes = output.getvalue()
+
+        encoded_image = base64.b64encode(processed_bytes).decode("utf-8")
+        media_type = "image/jpeg"
+
+    except Exception as img_err:
+        # fallback — שולח כמו שהוא
+        encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+        media_type = "image/png"
+        print(f"[WARNING] Image preprocessing failed, using original: {img_err}")
 
     prompt = """נתח את המקרא בתמונה והחזר JSON:
 
@@ -341,7 +376,7 @@ def analyze_legend_image(image_bytes):
                                 "type": "image",
                                 "source": {
                                     "type": "base64",
-                                    "media_type": "image/png",
+                                    "media_type": media_type,
                                     "data": encoded_image,
                                 },
                             },
@@ -376,9 +411,15 @@ def analyze_legend_image(image_bytes):
                 result["_auto_fixed"] = True
                 return result
 
+        except anthropic.BadRequestError as e:
+            return {
+                "error": f"תמונה לא תקינה עבור Claude: {e}",
+                "tried_models": [model],
+            }
         except anthropic.NotFoundError:
             continue
-        except Exception:
+        except Exception as e:
+            print(f"[ERROR] analyze_legend_image model={model}: {e}")
             continue
 
     return {"error": "כל המודלים נכשלו בניתוח התמונה", "tried_models": models}

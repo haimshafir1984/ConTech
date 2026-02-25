@@ -2408,10 +2408,19 @@ async def manager_add_zone_item(
 @app.post("/manager/planning/{plan_id}/auto-analyze", response_model=AutoAnalyzeResponse)
 async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
     """
-    Segment thick_walls into connected components and classify each blob as
-    either a wall segment or a fixture (sink, toilet, bathtub, etc.) based
-    on shape compactness and size.
+    Segment thick_walls into individual wall segments using skeleton-based
+    junction splitting:
+      1. Skeletonize the thick_walls mask.
+      2. Detect branch/junction pixels (≥3 skeleton neighbours).
+      3. Remove branch pixels to disconnect the skeleton at every intersection.
+      4. Label the resulting disjoint skeleton segments.
+      5. Dilate each skeleton segment back to recover thick-wall pixels.
+      6. Classify each recovered region as wall or fixture.
+    This avoids the "one giant connected blob" problem caused by running
+    connectedComponents directly on a wall mask where all walls touch.
     """
+    from skimage.morphology import skeletonize as _skeletonize
+
     proj = _get_project_or_404(plan_id)
     _ensure_arrays_loaded(proj)
     scale_px_per_meter = float(get_scale_with_fallback(proj, default_scale=200.0))
@@ -2423,48 +2432,73 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         return AutoAnalyzeResponse(segments=[])
 
     binary = (walls > 0).astype(np.uint8)
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
     img_area = binary.shape[0] * binary.shape[1]
+
+    # ── Step 1: Skeleton (reuse stored one or compute) ───────────────────────
+    stored_skel = proj.get("skeleton")
+    if isinstance(stored_skel, np.ndarray) and stored_skel.shape == binary.shape:
+        skeleton = (stored_skel > 0).astype(np.uint8)
+    else:
+        skeleton = _skeletonize(binary).astype(np.uint8)
+
+    # ── Step 2: Detect branch points (junction pixels with ≥3 neighbours) ───
+    # A 3×3 sum on the skeleton gives each pixel the count of itself + neighbours.
+    # endpoint  → sum = 2  (itself + 1 neighbour)
+    # mid-line  → sum = 3  (itself + 2 neighbours)
+    # branch    → sum ≥ 4  (itself + 3+ neighbours)
+    neighbor_sum = cv2.filter2D(
+        skeleton.astype(np.float32), -1,
+        np.ones((3, 3), np.float32)
+    )
+    branch_mask = (skeleton > 0) & (neighbor_sum >= 4)
+
+    # ── Step 3: Cut skeleton at branch points ────────────────────────────────
+    cut_skeleton = skeleton.copy()
+    cut_skeleton[branch_mask] = 0
+
+    # ── Step 4: Label disjoint skeleton segments ─────────────────────────────
+    num_skel_labels, skel_labels = cv2.connectedComponents(cut_skeleton, connectivity=8)
+
+    # Dilation kernel to expand each skeleton segment back to wall thickness
+    half_thick = max(2, int(scale_px_per_meter * 0.10))
+    dil_k = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (half_thick * 2 + 1, half_thick * 2 + 1)
+    )
 
     wall_counter = 0
     fixture_counter = 0
 
-    for label_id in range(1, num_labels):
-        area_px = int(stats[label_id, cv2.CC_STAT_AREA])
-        bx = int(stats[label_id, cv2.CC_STAT_LEFT])
-        by = int(stats[label_id, cv2.CC_STAT_TOP])
-        bw = int(stats[label_id, cv2.CC_STAT_WIDTH])
-        bh = int(stats[label_id, cv2.CC_STAT_HEIGHT])
+    for label_id in range(1, num_skel_labels):
+        # ── Step 5: Recover thick-wall pixels for this segment ───────────────
+        skel_seg = (skel_labels == label_id).astype(np.uint8)
+        dilated = cv2.dilate(skel_seg, dil_k)
+        region = (binary & dilated).astype(np.uint8)
+
+        area_px = int(np.count_nonzero(region))
 
         # Skip absolute noise (< 0.05% of image)
         if area_px < img_area * 0.0005:
             continue
-        # Skip full-image border blobs (> 85%)
-        if area_px > img_area * 0.85:
+
+        # Bounding box from region pixels
+        ys, xs = np.where(region > 0)
+        if len(ys) == 0:
             continue
+        bx = int(xs.min())
+        by = int(ys.min())
+        bw = int(xs.max()) - bx + 1
+        bh = int(ys.max()) - by + 1
 
         aspect = bw / max(1, bh)
         is_elongated = aspect > 3.0 or aspect < 0.33
 
-        # Estimate length via skeletonization
-        try:
-            from skimage.morphology import skeletonize
-            roi = (labels[by:by + bh, bx:bx + bw] == label_id).astype(np.uint8)
-            skel = skeletonize(roi)
-            length_px = int(np.count_nonzero(skel))
-        except Exception:
-            avg_thickness = max(1, int(scale_px_per_meter * 0.15))
-            length_px = area_px // avg_thickness
-
+        # Skeleton pixel count = true centerline length
+        length_px = int(np.count_nonzero(skel_seg))
         length_m = round(length_px / scale_px_per_meter, 2)
         area_m2 = round(area_px / (scale_px_per_meter ** 2), 2)
 
-        # ── Fixture detection ──────────────────────────────────────────────────
-        # Fixtures (sinks, toilets, bathtubs…) are compact blobs:
-        #   - not elongated (aspect between 0.33 and 3)
-        #   - low skeleton-length / area ratio (not a thin linear wall)
-        #   - not too large (< 1.5 m²)
-        #   - at least ~15×15cm in size
+        # ── Fixture detection ─────────────────────────────────────────────────
         length_area_ratio = length_m / max(0.001, area_m2)
         is_fixture = (
             not is_elongated
@@ -2473,7 +2507,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             and area_px >= img_area * 0.00008
         )
 
-        # Non-fixture small blobs → skip as noise
+        # Non-fixture tiny blobs → skip as noise
         if area_px < img_area * 0.005 and not is_fixture:
             continue
 
@@ -2501,7 +2535,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             ))
 
         else:
-            # ── Wall classification ────────────────────────────────────────────
+            # ── Wall classification ───────────────────────────────────────────
             wall_counter += 1
             if is_elongated:
                 suggested_subtype = "בטון"
@@ -2514,7 +2548,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             concrete = proj.get("concrete_mask")
             blocks = proj.get("blocks_mask")
             if isinstance(concrete, np.ndarray) and concrete.size > 0:
-                roi_mask = (labels[by:by + bh, bx:bx + bw] == label_id)
+                roi_mask = region[by:by + bh, bx:bx + bw].astype(bool)
                 concrete_roi = concrete[by:by + bh, bx:bx + bw]
                 blocks_roi = (
                     blocks[by:by + bh, bx:bx + bw]

@@ -280,20 +280,29 @@ _ARCH_SYSTEM = """אתה מומחה בקריאת תוכניות אדריכליו
 
 def _render_page_to_b64(page) -> str:
     """Renders a PyMuPDF page as a base64 JPEG, staying under Claude's 5 MB limit."""
-    _MAX_BYTES = 4 * 1024 * 1024   # 4 MB safe ceiling (API limit is 5 MB)
+    import io
+    from PIL import Image as _Image
 
-    for dpi, quality in [(150, 80), (120, 75), (96, 70)]:
-        matrix = _fitz.Matrix(dpi / 72, dpi / 72)
-        pix = page.get_pixmap(matrix=matrix, alpha=False)
-        jpeg_bytes = pix.tobytes("jpeg", jpg_quality=quality)
+    _MAX_BYTES = 5 * 1024 * 1024 - 1  # 5242879 bytes — strictly under the API limit
+
+    matrix = _fitz.Matrix(150 / 72, 150 / 72)
+    pix = page.get_pixmap(matrix=matrix, alpha=False)
+    img = _Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+
+    quality = 70
+    while quality >= 40:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        jpeg_bytes = buf.getvalue()
         if len(jpeg_bytes) <= _MAX_BYTES:
             return base64.standard_b64encode(jpeg_bytes).decode()
+        quality -= 5
 
-    # Last resort: cap longest side at 2000px
-    scale = 2000 / max(pix.width, pix.height)
-    matrix = _fitz.Matrix(96 / 72 * scale, 96 / 72 * scale)
-    pix = page.get_pixmap(matrix=matrix, alpha=False)
-    return base64.standard_b64encode(pix.tobytes("jpeg", jpg_quality=65)).decode()
+    # Still too large — halve dimensions and retry at quality=40
+    img = img.resize((img.width // 2, img.height // 2), _Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=40, optimize=True)
+    return base64.standard_b64encode(buf.getvalue()).decode()
 
 
 def _call_claude(client, img_b64: str, page_num: int, total_pages: int, page_text: str) -> dict:

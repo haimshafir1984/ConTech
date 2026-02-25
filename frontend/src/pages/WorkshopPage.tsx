@@ -212,12 +212,12 @@ export const WorkshopPage: React.FC = () => {
     try {
       const data = await listWorkshopPlans();
       setPlans(data);
-      if (!selectedPlanId && data.length > 0) setSelectedPlanId(data[0].id);
+      setSelectedPlanId((prev) => (!prev && data.length > 0 ? data[0].id : prev));
     } catch (e) {
       console.error(e);
       setError("שגיאה בטעינת רשימת התוכניות מהשרת.");
     }
-  }, [selectedPlanId]);
+  }, []);
 
   const _isRestartLost = (e: unknown) => {
     if (!axios.isAxiosError(e)) return false;

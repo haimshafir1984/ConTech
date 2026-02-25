@@ -379,6 +379,8 @@ def _get_project_or_404(plan_id: str) -> Dict:
                 "db_plan_id": row.get("id"),
             }
             PROJECTS[plan_id] = proj
+            # ── טעינת arrays מ-DB BLOB אם הנתיבים הדיסקיים לא קיימים (Render restart) ──
+            _ensure_arrays_loaded(proj)
             return proj
     except Exception:
         pass
@@ -1794,6 +1796,8 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
 
         plan_id = meta_clean.get("plan_id") or filename
         assets = {}
+        _orig_jpg_bytes_for_blob = None
+        _walls_png_bytes_for_blob = None
         try:
             assets = persist_project_assets(
                 plan_key=str(plan_id),
@@ -1813,29 +1817,18 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             meta_clean["_asset_blocks_mask_path"] = assets.get("blocks_mask_path", "")
             meta_clean["_asset_flooring_mask_path"] = assets.get("flooring_mask_path", "")
 
-            # ── שמירת תמונות כ-BLOB ב-DB (שרידות בין restarts) ──
+            # שמירת bytes לשימוש מאוחר יותר (אחרי INSERT ל-DB)
             try:
-                _orig_jpg_bytes = None
-                _walls_png_bytes = None
                 orig_path = assets.get("original_path", "")
                 walls_path = assets.get("thick_walls_path", "")
                 if orig_path and os.path.exists(orig_path):
                     with open(orig_path, "rb") as _f:
-                        _orig_jpg_bytes = _f.read()
+                        _orig_jpg_bytes_for_blob = _f.read()
                 if walls_path and os.path.exists(walls_path):
                     with open(walls_path, "rb") as _f:
-                        _walls_png_bytes = _f.read()
-                if _orig_jpg_bytes or _walls_png_bytes:
-                    save_plan_images(
-                        filename,
-                        _orig_jpg_bytes or b"",
-                        _walls_png_bytes or b"",
-                    )
-                    print(f"[DB-BLOB] saved images for {filename} "
-                          f"(orig={len(_orig_jpg_bytes or b'')}B, "
-                          f"walls={len(_walls_png_bytes or b'')}B)")
-            except Exception as _blob_err:
-                print(f"[DB-BLOB] save_plan_images failed: {_blob_err}")
+                        _walls_png_bytes_for_blob = _f.read()
+            except Exception as _read_err:
+                print(f"[DB-BLOB] read asset files failed: {_read_err}")
         except Exception:
             assets = {}
 
@@ -1862,6 +1855,20 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             },
         }
         _persist_plan_to_database(plan_id, PROJECTS[plan_id])
+
+        # ── שמירת תמונות כ-BLOB ב-DB (אחרי INSERT, שרידות בין restarts) ──
+        try:
+            if _orig_jpg_bytes_for_blob or _walls_png_bytes_for_blob:
+                save_plan_images(
+                    filename,
+                    _orig_jpg_bytes_for_blob or b"",
+                    _walls_png_bytes_for_blob or b"",
+                )
+                print(f"[DB-BLOB] saved images for {filename} "
+                      f"(orig={len(_orig_jpg_bytes_for_blob or b'')}B, "
+                      f"walls={len(_walls_png_bytes_for_blob or b'')}B)")
+        except Exception as _blob_err:
+            print(f"[DB-BLOB] save_plan_images failed: {_blob_err}")
 
         detail = _build_plan_detail(
             plan_id=plan_id,

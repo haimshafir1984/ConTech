@@ -148,14 +148,25 @@ def save_plan(
     if conn_check:
         try:
             cur_check = conn_check.cursor()
-            cur_check.execute("PRAGMA table_info(plans)")
-            cols = {row[1] for row in cur_check.fetchall()}
+            if _is_real_postgres:
+                # Postgres: use information_schema instead of PRAGMA
+                cur_check.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='plans'"
+                )
+                cols = {row["column_name"] for row in cur_check.fetchall()}
+            else:
+                cur_check.execute("PRAGMA table_info(plans)")
+                cols = {row[1] for row in cur_check.fetchall()}
         except Exception:
             cols = set()
         finally:
             conn_check.close()
     else:
         cols = set()
+
+    # אם Postgres ו-cols ריק (שגיאה בשאילתה) — נניח סכמה ישנה כברירת מחדל
+    if _is_real_postgres and not cols:
+        cols = {"metadata", "scale_text", "scale_value", "raw_pixels"}
 
     new_schema = "metadata_json" in cols  # סכמה חדשה
     old_schema = "metadata" in cols       # סכמה ישנה (database.py init)
@@ -221,8 +232,14 @@ def update_plan_metadata(plan_id, metadata_json_str):
     if conn_check:
         try:
             cur_check = conn_check.cursor()
-            cur_check.execute("PRAGMA table_info(plans)")
-            cols = {row[1] for row in cur_check.fetchall()}
+            if _is_real_postgres:
+                cur_check.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name='plans'"
+                )
+                cols = {row["column_name"] for row in cur_check.fetchall()}
+            else:
+                cur_check.execute("PRAGMA table_info(plans)")
+                cols = {row[1] for row in cur_check.fetchall()}
             if "metadata" in cols and "metadata_json" not in cols:
                 meta_col = "metadata"
         except Exception:

@@ -168,7 +168,9 @@ def save_plan(
     if _is_real_postgres and not cols:
         cols = {"metadata", "scale_text", "scale_value", "raw_pixels"}
 
-    new_schema = "metadata_json" in cols  # סכמה חדשה
+    # new_schema requires BOTH metadata_json AND extracted_scale columns to exist
+    # (some DBs have metadata_json but not extracted_scale — don't treat as new schema)
+    new_schema = "metadata_json" in cols and "extracted_scale" in cols
     old_schema = "metadata" in cols       # סכמה ישנה (database.py init)
 
     existing = get_plan_by_filename(filename)
@@ -226,9 +228,9 @@ def save_plan(
 
 def update_plan_metadata(plan_id, metadata_json_str):
     """עדכון metadata של תוכנית — תומך בשתי הסכמות."""
-    # זהה איזו עמודה קיימת
+    # זהה איזו עמודה קיימת — ברירת מחדל: "metadata" (סכמה ישנה)
     conn_check = get_connection()
-    meta_col = "metadata_json"
+    meta_col = "metadata"
     if conn_check:
         try:
             cur_check = conn_check.cursor()
@@ -240,8 +242,9 @@ def update_plan_metadata(plan_id, metadata_json_str):
             else:
                 cur_check.execute("PRAGMA table_info(plans)")
                 cols = {row[1] for row in cur_check.fetchall()}
-            if "metadata" in cols and "metadata_json" not in cols:
-                meta_col = "metadata"
+            # Use metadata_json only if the new schema is fully present
+            if "metadata_json" in cols and "extracted_scale" in cols:
+                meta_col = "metadata_json"
         except Exception:
             pass
         finally:

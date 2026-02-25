@@ -16,3 +16,5 @@ save_plan = _mod.save_plan
 save_progress_report = _mod.save_progress_report
 run_query = _mod.run_query
 update_plan_metadata = _mod.update_plan_metadata
+save_plan_images = _mod.save_plan_images
+load_plan_images = _mod.load_plan_images

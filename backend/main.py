@@ -1879,9 +1879,13 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
 @app.get("/manager/workshop/plans", response_model=PlanListResponse)
 async def manager_list_plans() -> PlanListResponse:
     """
-    מחזיר את כל התוכניות שקיימות כרגע בסדנת העבודה (in-memory).
+    מחזיר את כל התוכניות — קודם PROJECTS (in-memory), ואם ריק אחרי restart
+    משלים מה-DB כך שהרשימה תמיד מוצגת.
     """
     plans = []
+
+    # ── 1. תוכניות שכבר בזיכרון ──
+    seen_ids: set[str] = set()
     for plan_id, proj in PROJECTS.items():
         meta_clean = proj.get("metadata", {})
         materials = _compute_materials(proj.get("thick_walls"), meta_clean)
@@ -1892,6 +1896,40 @@ async def manager_list_plans() -> PlanListResponse:
             materials=materials,
         ).summary
         plans.append(summary)
+        seen_ids.add(plan_id)
+        seen_ids.add(meta_clean.get("filename") or plan_id)
+
+    # ── 2. השלם מה-DB (אחרי restart כש-PROJECTS ריק) ──
+    try:
+        for row in get_all_plans() or []:
+            filename = str(row.get("filename") or row.get("id") or "")
+            if not filename or filename in seen_ids:
+                continue
+            import json as _json
+            meta: dict = {}
+            try:
+                meta = _json.loads(row.get("metadata") or "{}")
+            except Exception:
+                pass
+            scale_value = _safe_float(row.get("scale_value"), 0.0)
+            raw_pixels = _safe_float(row.get("raw_pixels"), 0.0)
+            total_wall = raw_pixels / scale_value if scale_value > 0 else 0.0
+            plan_name = str(row.get("plan_name") or meta.get("plan_name") or filename)
+            plans.append(
+                PlanSummary(
+                    id=filename,
+                    filename=filename,
+                    plan_name=plan_name,
+                    scale_px_per_meter=scale_value if scale_value > 0 else None,
+                    total_wall_length_m=round(total_wall, 4),
+                    concrete_length_m=None,
+                    blocks_length_m=None,
+                    flooring_area_m2=None,
+                )
+            )
+            seen_ids.add(filename)
+    except Exception as _db_err:
+        print(f"[list_plans] DB fallback error: {_db_err}")
 
     return PlanListResponse(plans=plans)
 
@@ -1940,6 +1978,7 @@ async def manager_update_plan_scale_text(
     plan_id: str, request: WorkshopScaleUpdateRequest
 ) -> PlanDetail:
     proj = _get_project_or_404(plan_id)
+    _ensure_arrays_loaded(proj)  # טעינה מדיסק/DB אם חסר
     meta = proj.get("metadata", {})
     image = proj.get("original")
     if image is None:
@@ -1974,6 +2013,7 @@ async def manager_get_plan_image(plan_id: str) -> Response:
     מחזיר תמונת PNG של התוכנית לציור ב-Frontend.
     """
     proj = _get_project_or_404(plan_id)
+    _ensure_arrays_loaded(proj)  # טעינה מדיסק/DB אם חסר
     image = proj.get("original")
     if image is None:
         raise HTTPException(status_code=409, detail="PLAN_RESTART_LOST: נתוני התוכנית לא זמינים בשרת (ייתכן שהשרת עלה מחדש). אנא העלה את קובץ ה-PDF שוב.")
@@ -2000,14 +2040,12 @@ async def manager_get_plan_overlay(
     Returns a real analysis overlay (walls/flooring) for visual feedback.
     """
     proj = _get_project_or_404(plan_id)
+    _ensure_arrays_loaded(proj)  # טעינה מדיסק/DB אם חסר (כולל original)
     image = proj.get("original")
     walls = proj.get("thick_walls")
     flooring = proj.get("flooring_mask")
     if image is None:
         raise HTTPException(status_code=409, detail="PLAN_RESTART_LOST: נתוני התוכנית לא זמינים בשרת (ייתכן שהשרת עלה מחדש). אנא העלה את קובץ ה-PDF שוב.")
-    if walls is None:
-        _ensure_arrays_loaded(proj)
-        walls = proj.get("thick_walls")
     if walls is None:
         raise HTTPException(status_code=400, detail="Plan walls mask not available. Please re-upload the plan PDF.")
 

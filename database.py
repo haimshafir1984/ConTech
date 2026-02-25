@@ -512,6 +512,94 @@ def get_payment_invoice_data(plan_id, start_date, end_date, unit_prices=None):
     }
 
 
+def save_plan_images(filename: str, original_jpg: bytes, thick_walls_png: bytes) -> bool:
+    """
+    שומר תמונות תוכנית כ-BLOB ב-DB (שרידות בין restarts).
+    נקרא מיד אחרי persist_project_assets בזמן upload.
+    """
+    conn = get_connection()
+    if not conn:
+        return False
+
+    # וודא שהעמודות קיימות
+    try:
+        cur = conn.cursor()
+        if DB_URL:
+            cur.execute("""
+                ALTER TABLE plans ADD COLUMN IF NOT EXISTS img_original BYTEA;
+            """)
+            cur.execute("""
+                ALTER TABLE plans ADD COLUMN IF NOT EXISTS img_thick_walls BYTEA;
+            """)
+        else:
+            # SQLite — ADD COLUMN בוחן אם כבר קיים
+            cur.execute("PRAGMA table_info(plans)")
+            cols = {row[1] for row in cur.fetchall()}
+            if "img_original" not in cols:
+                cur.execute("ALTER TABLE plans ADD COLUMN img_original BLOB")
+            if "img_thick_walls" not in cols:
+                cur.execute("ALTER TABLE plans ADD COLUMN img_thick_walls BLOB")
+        conn.commit()
+    except Exception as e:
+        print(f"[DB] add blob columns warning: {e}")
+
+    try:
+        cur = conn.cursor()
+        if DB_URL:
+            cur.execute(
+                "UPDATE plans SET img_original=%s, img_thick_walls=%s WHERE filename=%s",
+                (original_jpg, thick_walls_png, filename)
+            )
+        else:
+            cur.execute(
+                "UPDATE plans SET img_original=?, img_thick_walls=? WHERE filename=?",
+                (original_jpg, thick_walls_png, filename)
+            )
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception as e:
+        print(f"[DB] save_plan_images error: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def load_plan_images(filename: str):
+    """
+    טוען תמונות מה-DB. מחזיר (original_jpg_bytes, thick_walls_png_bytes) או (None, None).
+    """
+    conn = get_connection()
+    if not conn:
+        return None, None
+    try:
+        cur = conn.cursor()
+        if DB_URL:
+            cur.execute(
+                "SELECT img_original, img_thick_walls FROM plans WHERE filename=%s",
+                (filename,)
+            )
+        else:
+            cur.execute(
+                "SELECT img_original, img_thick_walls FROM plans WHERE filename=?",
+                (filename,)
+            )
+        row = cur.fetchone()
+        if not row:
+            return None, None
+        if DB_URL:
+            orig = bytes(row["img_original"]) if row["img_original"] else None
+            walls = bytes(row["img_thick_walls"]) if row["img_thick_walls"] else None
+        else:
+            orig = bytes(row[0]) if row[0] else None
+            walls = bytes(row[1]) if row[1] else None
+        return orig, walls
+    except Exception as e:
+        print(f"[DB] load_plan_images error: {e}")
+        return None, None
+    finally:
+        conn.close()
+
+
 def get_all_work_types_for_plan(plan_id):
     """
     מחזיר רשימה של כל סוגי העבודות שדווחו בפרויקט

@@ -11,6 +11,8 @@ services:
         sync: false          # מוגדר ידנית ב-Render dashboard
       - key: GOOGLE_APPLICATION_CREDENTIALS
         sync: false          # נתיב לקובץ credentials (אם נדרש)
+      - key: DATABASE_URL
+        sync: false          # Postgres connection string — מוגדר ידנית ב-Render dashboard
     healthCheckPath: /health
 
   # ── Frontend: React (Static Site) ────────────────────────────

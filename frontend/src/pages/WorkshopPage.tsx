@@ -219,6 +219,12 @@ export const WorkshopPage: React.FC = () => {
     }
   }, [selectedPlanId]);
 
+  const _isRestartLost = (e: unknown) => {
+    if (!axios.isAxiosError(e)) return false;
+    const detail: string = (e.response?.data as { detail?: string })?.detail ?? "";
+    return e.response?.status === 409 || detail.includes("PLAN_RESTART_LOST");
+  };
+
   const loadSelected = React.useCallback(async (planId: string) => {
     try {
       const [detail, ready] = await Promise.all([
@@ -229,7 +235,11 @@ export const WorkshopPage: React.FC = () => {
       setReadiness(ready);
     } catch (e) {
       console.error(e);
-      setError("שגיאה בטעינת נתוני סדנת עבודה.");
+      if (_isRestartLost(e)) {
+        setError("⚠️ נתוני התוכנית אינם זמינים — השרת עלה מחדש. אנא העלה את קובץ ה-PDF שוב.");
+      } else {
+        setError("שגיאה בטעינת נתוני סדנת עבודה.");
+      }
     }
   }, []);
 
@@ -277,8 +287,12 @@ export const WorkshopPage: React.FC = () => {
       toast('ההגדרות נשמרו בהצלחה');
     } catch (e) {
       console.error(e);
-      const msg = axios.isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || e.message) : e instanceof Error ? e.message : "שגיאה";
-      setError(`שגיאה בשמירת קנ"מ: ${msg}`);
+      if (_isRestartLost(e)) {
+        setError('⚠️ נתוני התוכנית אינם זמינים — השרת עלה מחדש. אנא העלה את קובץ ה-PDF שוב.');
+      } else {
+        const msg = axios.isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || e.message) : e instanceof Error ? e.message : "שגיאה";
+        setError(`שגיאה בשמירת קנ"מ: ${msg}`);
+      }
     } finally { setIsLoading(false); }
   };
 
@@ -353,8 +367,12 @@ export const WorkshopPage: React.FC = () => {
           }
         } catch { /* fall through */ }
       }
-      const msg = axios.isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || e.message) : e instanceof Error ? e.message : "שגיאה";
-      setError(`שגיאה בניתוח: ${msg}`);
+      if (_isRestartLost(e)) {
+        setError("⚠️ נתוני התוכנית אינם זמינים — השרת עלה מחדש. אנא העלה את קובץ ה-PDF שוב.");
+      } else {
+        const msg = axios.isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || e.message) : e instanceof Error ? e.message : "שגיאה";
+        setError(`שגיאה בניתוח: ${msg}`);
+      }
     } finally {
       setIsLoading(false);
       window.setTimeout(() => setAnalysisStatus(null), 2000);

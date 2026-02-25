@@ -34,6 +34,8 @@ from .database import (
     save_progress_report,
     run_query,
     update_plan_metadata,
+    save_plan_images,
+    load_plan_images,
 )
 from .models import (
     AnalysisResult,
@@ -384,14 +386,27 @@ def _get_project_or_404(plan_id: str) -> Dict:
 
 
 
+def _decode_color(data: bytes) -> Optional[np.ndarray]:
+    arr = np.frombuffer(data, dtype=np.uint8)
+    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+
+def _decode_gray(data: bytes) -> Optional[np.ndarray]:
+    arr = np.frombuffer(data, dtype=np.uint8)
+    return cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
+
+
 def _ensure_arrays_loaded(proj: Dict) -> None:
     """
-    אם proj נטען מה-DB (אחרי restart), מנסה לטעון מחדש את ה-numpy arrays מהדיסק.
+    אם proj נטען מה-DB (אחרי restart), מנסה לטעון מחדש את ה-numpy arrays.
+    סדר עדיפויות:
+      1. דיסק (נתיב שנשמר ב-metadata) — מהיר, עובד בסביבה מקומית
+      2. DB BLOB (img_original / img_thick_walls) — שרידות בין restarts ב-Render
     מעדכן את proj in-place.
     """
     meta = proj.get("metadata", {})
 
-    def _load_color(key: str):
+    def _load_color_disk(key: str):
         path = meta.get(key, "")
         if not path or not os.path.exists(path):
             return None
@@ -401,7 +416,7 @@ def _ensure_arrays_loaded(proj: Dict) -> None:
         except Exception:
             return None
 
-    def _load_gray(key: str):
+    def _load_gray_disk(key: str):
         path = meta.get(key, "")
         if not path or not os.path.exists(path):
             return None
@@ -411,30 +426,50 @@ def _ensure_arrays_loaded(proj: Dict) -> None:
         except Exception:
             return None
 
+    # ── שלב 1: נסה דיסק ──
     if proj.get("original") is None:
-        img = _load_color("_asset_original_path")
+        img = _load_color_disk("_asset_original_path")
         if img is not None:
             proj["original"] = img
     if proj.get("thick_walls") is None:
-        arr = _load_gray("_asset_thick_walls_path")
+        arr = _load_gray_disk("_asset_thick_walls_path")
         if arr is not None:
             proj["thick_walls"] = arr
     if proj.get("skeleton") is None:
-        arr = _load_gray("_asset_skeleton_path")
+        arr = _load_gray_disk("_asset_skeleton_path")
         if arr is not None:
             proj["skeleton"] = arr
     if proj.get("concrete_mask") is None:
-        arr = _load_gray("_asset_concrete_mask_path")
+        arr = _load_gray_disk("_asset_concrete_mask_path")
         if arr is not None:
             proj["concrete_mask"] = arr
     if proj.get("blocks_mask") is None:
-        arr = _load_gray("_asset_blocks_mask_path")
+        arr = _load_gray_disk("_asset_blocks_mask_path")
         if arr is not None:
             proj["blocks_mask"] = arr
     if proj.get("flooring_mask") is None:
-        arr = _load_gray("_asset_flooring_mask_path")
+        arr = _load_gray_disk("_asset_flooring_mask_path")
         if arr is not None:
             proj["flooring_mask"] = arr
+
+    # ── שלב 2: אם עדיין חסר original/thick_walls — טען מ-DB BLOB ──
+    if proj.get("original") is None or proj.get("thick_walls") is None:
+        filename = meta.get("filename") or meta.get("plan_id", "")
+        if filename:
+            try:
+                orig_bytes, walls_bytes = load_plan_images(filename)
+                if proj.get("original") is None and orig_bytes:
+                    img = _decode_color(orig_bytes)
+                    if img is not None:
+                        proj["original"] = img
+                        print(f"[DB-BLOB] loaded original for {filename}")
+                if proj.get("thick_walls") is None and walls_bytes:
+                    arr = _decode_gray(walls_bytes)
+                    if arr is not None:
+                        proj["thick_walls"] = arr
+                        print(f"[DB-BLOB] loaded thick_walls for {filename}")
+            except Exception as e:
+                print(f"[DB-BLOB] load_plan_images failed for {filename}: {e}")
 
 def _get_manual_corrections(plan_id: str) -> Dict[str, np.ndarray]:
     return MANUAL_CORRECTIONS.setdefault(plan_id, {})
@@ -1777,6 +1812,30 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             meta_clean["_asset_concrete_mask_path"] = assets.get("concrete_mask_path", "")
             meta_clean["_asset_blocks_mask_path"] = assets.get("blocks_mask_path", "")
             meta_clean["_asset_flooring_mask_path"] = assets.get("flooring_mask_path", "")
+
+            # ── שמירת תמונות כ-BLOB ב-DB (שרידות בין restarts) ──
+            try:
+                _orig_jpg_bytes = None
+                _walls_png_bytes = None
+                orig_path = assets.get("original_path", "")
+                walls_path = assets.get("thick_walls_path", "")
+                if orig_path and os.path.exists(orig_path):
+                    with open(orig_path, "rb") as _f:
+                        _orig_jpg_bytes = _f.read()
+                if walls_path and os.path.exists(walls_path):
+                    with open(walls_path, "rb") as _f:
+                        _walls_png_bytes = _f.read()
+                if _orig_jpg_bytes or _walls_png_bytes:
+                    save_plan_images(
+                        filename,
+                        _orig_jpg_bytes or b"",
+                        _walls_png_bytes or b"",
+                    )
+                    print(f"[DB-BLOB] saved images for {filename} "
+                          f"(orig={len(_orig_jpg_bytes or b'')}B, "
+                          f"walls={len(_walls_png_bytes or b'')}B)")
+            except Exception as _blob_err:
+                print(f"[DB-BLOB] save_plan_images failed: {_blob_err}")
         except Exception:
             assets = {}
 
@@ -1884,7 +1943,7 @@ async def manager_update_plan_scale_text(
     meta = proj.get("metadata", {})
     image = proj.get("original")
     if image is None:
-        raise HTTPException(status_code=404, detail="Plan image not found")
+        raise HTTPException(status_code=409, detail="PLAN_RESTART_LOST: נתוני התוכנית לא זמינים בשרת (ייתכן שהשרת עלה מחדש). אנא העלה את קובץ ה-PDF שוב.")
 
     scale_text = str(request.scale_text or "").strip()
     if not scale_text:
@@ -1917,7 +1976,7 @@ async def manager_get_plan_image(plan_id: str) -> Response:
     proj = _get_project_or_404(plan_id)
     image = proj.get("original")
     if image is None:
-        raise HTTPException(status_code=404, detail="Plan image not found")
+        raise HTTPException(status_code=409, detail="PLAN_RESTART_LOST: נתוני התוכנית לא זמינים בשרת (ייתכן שהשרת עלה מחדש). אנא העלה את קובץ ה-PDF שוב.")
 
     if len(image.shape) == 2:
         img_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -1945,7 +2004,7 @@ async def manager_get_plan_overlay(
     walls = proj.get("thick_walls")
     flooring = proj.get("flooring_mask")
     if image is None:
-        raise HTTPException(status_code=404, detail="Plan image not found")
+        raise HTTPException(status_code=409, detail="PLAN_RESTART_LOST: נתוני התוכנית לא זמינים בשרת (ייתכן שהשרת עלה מחדש). אנא העלה את קובץ ה-PDF שוב.")
     if walls is None:
         _ensure_arrays_loaded(proj)
         walls = proj.get("thick_walls")
@@ -3092,8 +3151,8 @@ async def manager_run_area_analysis(
                 proj["thick_walls"] = walls_mask
         if walls_mask is None or original_img is None:
             raise HTTPException(
-                status_code=400,
-                detail="Plan image data not available. Please re-upload the plan PDF to run area analysis."
+                status_code=409,
+                detail="PLAN_RESTART_LOST: נתוני התוכנית לא זמינים בשרת (ייתכן שהשרת עלה מחדש). אנא העלה את קובץ ה-PDF שוב."
             )
 
     meta = proj.get("metadata", {})
@@ -3401,7 +3460,7 @@ async def worker_report_snapshot(
 
     original = proj.get("original")
     if original is None:
-        raise HTTPException(status_code=404, detail="Plan image not found")
+        raise HTTPException(status_code=409, detail="PLAN_RESTART_LOST: נתוני התוכנית לא זמינים בשרת (ייתכן שהשרת עלה מחדש). אנא העלה את קובץ ה-PDF שוב.")
 
     # Get reports
     if report_id is not None:

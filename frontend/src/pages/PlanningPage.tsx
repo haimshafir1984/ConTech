@@ -1086,78 +1086,146 @@ export const PlanningPage: React.FC = () => {
       <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4">
         <h2 className="text-lg font-semibold text-[#31333F] mb-1">🧱 הגדרת תכולה</h2>
         <p className="text-xs text-slate-500">זרימת עבודה: בחירת תוכנית → כיול סקייל → סימון תכולה → BOQ ושמירה.</p>
-        {error && <p className="mt-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">{error}</p>}
+        {error && (
+          <div className="mt-3 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5" style={{ borderRight: "4px solid #ef4444" }}>
+            <span className="flex-1 leading-snug">{error}</span>
+            <button type="button" onClick={() => setError("")} style={{ color: "#ef4444", background: "none", border: "none", cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0, padding: 0 }}>✕</button>
+          </div>
+        )}
       </div>
 
       {/* Opening prompt */}
       {openingPrompt && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-          <div className="text-sm font-semibold text-amber-900 mb-1">זוהה פתח באמצע הקיר</div>
-          <div className="text-xs text-amber-800 mb-3">זוהה פתח באורך משוער {openingPrompt.gapLengthM?.toFixed(2)} מ׳. האם זה דלת או חלון?</div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => void handleResolveOpening("door")} className="px-3 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold">דלת</button>
-            <button type="button" onClick={() => void handleResolveOpening("window")} className="px-3 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold">חלון</button>
-            <button type="button" onClick={() => void handleResolveOpening("none")} className="px-3 py-2 rounded-lg border border-slate-300 text-sm">לא פתח</button>
+        <div className="rounded-lg p-4" style={{ background: "#FFFBEB", border: "1px solid #FCD34D", borderRight: "5px solid #F59E0B", boxShadow: "0 2px 8px rgba(245,158,11,0.12)" }}>
+          <div className="flex items-center gap-2 mb-1">
+            <span style={{ fontSize: 18 }}>🚪</span>
+            <span className="text-sm font-bold" style={{ color: "#92400E" }}>זוהה פתח באמצע הקיר</span>
+          </div>
+          <div className="text-sm mb-3" style={{ color: "#B45309" }}>
+            פתח באורך משוער <strong>{openingPrompt.gapLengthM?.toFixed(2)} מ׳</strong> — האם מדובר בדלת, חלון, או לא פתח?
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={() => void handleResolveOpening("door")} style={{ padding: "8px 18px", borderRadius: 9, background: "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 6px rgba(255,75,75,0.3)" }}>🚪 דלת</button>
+            <button type="button" onClick={() => void handleResolveOpening("window")} style={{ padding: "8px 18px", borderRadius: 9, background: "#F97316", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 6px rgba(249,115,22,0.3)" }}>🪟 חלון</button>
+            <button type="button" onClick={() => void handleResolveOpening("none")} style={{ padding: "8px 16px", borderRadius: 9, background: "#fff", color: "#64748b", border: "1px solid #CBD5E1", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>לא פתח</button>
           </div>
         </div>
       )}
 
       {/* Wall confirmation prompt */}
       {wallPrompt && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="text-sm font-semibold text-blue-900 mb-1">סימון דק / גבולי על קיר</div>
-          <div className="text-xs text-blue-800 mb-3">המערכת לא בטוחה שזה קיר (יחס חפיפה: {wallPrompt.overlapRatio != null ? `${Math.round(wallPrompt.overlapRatio * 100)}%` : "לא ידוע"}). האם לשמור כסימון קיר?</div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => void handleResolveWall(true)} className="px-3 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold">כן, זה קיר</button>
-            <button type="button" onClick={() => void handleResolveWall(false)} className="px-3 py-2 rounded-lg border border-slate-300 text-sm">לא, להתעלם</button>
+        <div className="rounded-lg p-4" style={{ background: "#EFF6FF", border: "1px solid #93C5FD", borderRight: "5px solid #3B82F6", boxShadow: "0 2px 8px rgba(59,130,246,0.1)" }}>
+          <div className="flex items-center gap-2 mb-1">
+            <span style={{ fontSize: 18 }}>🧱</span>
+            <span className="text-sm font-bold" style={{ color: "#1E3A8A" }}>סימון גבולי על קיר</span>
+          </div>
+          <div className="text-sm mb-3" style={{ color: "#1D4ED8" }}>
+            המערכת לא בטוחה שזה קיר (חפיפה: <strong>{wallPrompt.overlapRatio != null ? `${Math.round(wallPrompt.overlapRatio * 100)}%` : "לא ידוע"}</strong>). האם לשמור כסימון קיר?
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={() => void handleResolveWall(true)} style={{ padding: "8px 18px", borderRadius: 9, background: "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 6px rgba(27,58,107,0.3)" }}>✓ כן, זה קיר</button>
+            <button type="button" onClick={() => void handleResolveWall(false)} style={{ padding: "8px 16px", borderRadius: 9, background: "#fff", color: "#64748b", border: "1px solid #CBD5E1", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>✕ להתעלם</button>
           </div>
         </div>
       )}
 
-      {/* Step nav */}
-      <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {([1, 2, 3, 4, 5] as WizardStep[]).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => {
-                if (s === 1) setStep(1);
-                if (s === 2 && canStep2) setStep(2);
-                if (s === 3 && canStep3) setStep(3);
-                if (s === 4 && canStep4) setStep(4);
-              }}
-              className={`px-3 py-1.5 rounded-full border ${step === s ? "bg-[#FF4B4B] text-white border-[#FF4B4B]" : "bg-white border-[#E6E6EA] text-[#31333F]"}`}
-              disabled={(s === 2 && !canStep2) || (s === 3 && !canStep3) || (s === 4 && !canStep4)}
-            >
-              שלב {s}
-            </button>
-          ))}
-          <span className="text-slate-600 mr-2">{stepTitle}</span>
-          {loading && <span className="text-slate-400">טוען...</span>}
+      {/* Step nav — horizontal stepper */}
+      <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm px-5 py-4">
+        <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto" }}>
+          {(
+            [
+              { s: 1 as WizardStep, label: "בחירת תוכנית",  icon: "📁", canGo: true },
+              { s: 2 as WizardStep, label: "כיול סקייל",    icon: "📏", canGo: canStep2 },
+              { s: 3 as WizardStep, label: "סימון תכולה",   icon: "✏️", canGo: canStep3 },
+              { s: 4 as WizardStep, label: "כתב כמויות",    icon: "📋", canGo: canStep4 },
+              { s: 5 as WizardStep, label: "גזרות עבודה",   icon: "🗺️", canGo: canStep4 },
+            ]
+          ).map(({ s, label, icon, canGo }, idx) => {
+            const isActive = step === s;
+            const isDone   = step > s;
+            const isLocked = !canGo;
+            return (
+              <React.Fragment key={s}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (s === 1) setStep(1);
+                    if (s === 2 && canStep2) setStep(2);
+                    if (s === 3 && canStep3) setStep(3);
+                    if (s === 4 && canStep4) setStep(4);
+                    if (s === 5 && canStep4) setStep(5);
+                  }}
+                  disabled={isLocked}
+                  style={{ flexShrink: 0, textAlign: "center", background: "none", border: "none", padding: "0 4px", cursor: isLocked ? "not-allowed" : "pointer", opacity: isLocked ? 0.45 : 1 }}
+                >
+                  <div style={{
+                    width: 36, height: 36, borderRadius: "50%", margin: "0 auto 5px",
+                    background: isActive ? "#FF4B4B" : isDone ? "#10B981" : "#F1F5F9",
+                    color: isActive || isDone ? "#fff" : "#64748b",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: isActive || isDone ? 15 : 14, fontWeight: 700,
+                    boxShadow: isActive ? "0 0 0 4px rgba(255,75,75,0.18)" : isDone ? "0 0 0 3px rgba(16,185,129,0.14)" : "none",
+                    transition: "all 0.2s",
+                  }}>
+                    {isDone ? "✓" : <span style={{ fontSize: 11, fontWeight: 700 }}>{s}</span>}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: isActive ? "#FF4B4B" : isDone ? "#10B981" : "#94a3b8", fontWeight: isActive ? 700 : 500, whiteSpace: "nowrap", lineHeight: 1.2 }}>
+                    {icon} {label}
+                  </div>
+                </button>
+                {idx < 4 && (
+                  <div style={{ flex: 1, height: 2, minWidth: 16, background: step > idx + 1 ? "#10B981" : "#e2e8f0", marginBottom: 20, transition: "background 0.3s" }} />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
+        {loading && (
+          <div style={{ textAlign: "center", marginTop: 6, fontSize: 11, color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+            <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px solid #CBD5E1", borderTopColor: "#94a3b8", animation: "spin 0.7s linear infinite" }} />
+            טוען...
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.7; } }`}</style>
+          </div>
+        )}
       </div>
 
       {/* ── STEP 1: Pick plan ── */}
       {step === 1 && (
-        <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4 space-y-4">
-          <p className="text-sm font-semibold text-[#31333F]">שלב 1: בחירת תוכנית</p>
+        <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-5 space-y-4">
+          <div>
+            <p className="text-base font-bold text-[#1B3A6B] mb-1">📁 בחר תוכנית לעבודה</p>
+            <p className="text-xs text-slate-400">בחר מהרשימה תוכנית שהועלתה בסדנת עבודה.</p>
+          </div>
           {plans.length === 0 ? (
-            <p className="text-xs text-slate-500">אין תוכניות זמינות. העלה קודם תוכנית ב&quot;סדנת עבודה&quot;.</p>
+            <div className="rounded-lg p-4 text-sm text-amber-800" style={{ background: "#FFFBEB", border: "1px solid #FCD34D" }}>
+              ⚠️ אין תוכניות זמינות. העלה קודם תוכנית ב&quot;סדנת עבודה&quot;.
+            </div>
           ) : (
-            <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm" value={selectedPlanId} onChange={(e) => setSelectedPlanId(e.target.value)}>
+            <select
+              className="w-full bg-white border-2 border-slate-300 rounded-lg px-3 py-2.5 text-sm font-medium"
+              style={{ borderColor: selectedPlanId ? "#1B3A6B" : "#CBD5E1", outline: "none" }}
+              value={selectedPlanId}
+              onChange={(e) => setSelectedPlanId(e.target.value)}
+            >
               {plans.map((p) => <option key={p.id} value={p.id}>{p.plan_name}</option>)}
             </select>
           )}
           {selectedPlan && (
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-700">
-              נבחר: <span className="font-semibold">{selectedPlan.plan_name}</span>
-              <div className="mt-1">אורך קירות: {selectedPlan.total_wall_length_m?.toFixed(2) ?? "—"} מ&apos;</div>
+            <div className="rounded-lg p-3 flex items-center gap-3" style={{ background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
+              <span style={{ fontSize: 28 }}>📐</span>
+              <div className="text-sm">
+                <div className="font-bold text-[#1E3A8A]">{selectedPlan.plan_name}</div>
+                <div className="text-xs text-blue-600 mt-0.5">
+                  {selectedPlan.total_wall_length_m != null && <span>אורך קירות: <strong>{selectedPlan.total_wall_length_m.toFixed(1)} מ׳</strong></span>}
+                  {selectedPlan.concrete_length_m != null && <span className="mr-3">בטון: {selectedPlan.concrete_length_m.toFixed(1)} מ׳</span>}
+                </div>
+              </div>
             </div>
           )}
           <div className="flex justify-end">
-            <button type="button" onClick={() => setStep(2)} disabled={!selectedPlanId} className="px-4 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold disabled:opacity-40">
-              המשך לשלב 2
+            <button type="button" onClick={() => setStep(2)} disabled={!selectedPlanId}
+              style={{ padding: "10px 28px", borderRadius: 10, background: selectedPlanId ? "#FF4B4B" : "#CBD5E1", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: selectedPlanId ? "pointer" : "not-allowed", boxShadow: selectedPlanId ? "0 3px 10px rgba(255,75,75,0.3)" : "none", transition: "all 0.15s" }}>
+              המשך לשלב 2 ←
             </button>
           </div>
         </div>
@@ -1215,10 +1283,12 @@ export const PlanningPage: React.FC = () => {
                 אורך אמיתי (מטר)
                 <input type="number" className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" min={0.1} step={0.1} value={calibrationLengthM} onChange={(e) => setCalibrationLengthM(Number(e.target.value))} />
               </label>
-              <button type="button" onClick={handleCalibrate} disabled={!calStart || !calEnd} className="w-full px-3 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold disabled:opacity-40">
-                עדכן סקייל
+              <button type="button" onClick={handleCalibrate} disabled={!calStart || !calEnd}
+                style={{ width: "100%", padding: "10px 0", borderRadius: 9, background: (!calStart || !calEnd) ? "#CBD5E1" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: (!calStart || !calEnd) ? "not-allowed" : "pointer", boxShadow: (!calStart || !calEnd) ? "none" : "0 2px 8px rgba(255,75,75,0.28)", transition: "all 0.15s" }}>
+                📏 עדכן סקייל
               </button>
-              <button type="button" onClick={() => { setCalStart(null); setCalEnd(null); setCalTemp(null); setCalDrawing(false); }} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm">
+              <button type="button" onClick={() => { setCalStart(null); setCalEnd(null); setCalTemp(null); setCalDrawing(false); }}
+                style={{ width: "100%", padding: "8px 0", borderRadius: 9, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
                 נקה קו
               </button>
             </div>
@@ -1231,8 +1301,12 @@ export const PlanningPage: React.FC = () => {
           </div>
 
           <div className="xl:col-span-2 flex justify-between">
-            <button type="button" onClick={() => setStep(1)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm">חזור לשלב 1</button>
-            <button type="button" onClick={() => setStep(3)} className="px-4 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold">
+            <button type="button" onClick={() => setStep(1)}
+              style={{ padding: "9px 18px", borderRadius: 9, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+              ← חזור לשלב 1
+            </button>
+            <button type="button" onClick={() => setStep(3)}
+              style={{ padding: "10px 24px", borderRadius: 10, background: "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 3px 10px rgba(255,75,75,0.3)" }}>
               המשך לשלב 3 ←
             </button>
           </div>
@@ -1273,25 +1347,34 @@ export const PlanningPage: React.FC = () => {
           {/* Main area */}
           <div className="space-y-3">
             {/* Tab bar */}
-            <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-2 flex gap-2 flex-wrap">
+            <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-2 flex gap-2 flex-wrap items-center">
               {(["auto","zone","manual","text"] as Step3Tab[]).map(tab => {
                 const labels: Record<Step3Tab, string> = { auto: "🤖 ניתוח אוטומטי", zone: "🎨 אזורים", manual: "✏️ ציור ידני", text: "📋 פריטים חופשיים" };
+                const active = step3Tab === tab;
                 return (
                   <button key={tab} type="button" onClick={() => setStep3Tab(tab)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${step3Tab === tab ? "bg-[#1B3A6B] text-white border-[#1B3A6B]" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
+                    style={{
+                      padding: "8px 14px", borderRadius: 9, fontSize: 12.5, fontWeight: active ? 700 : 500,
+                      border: active ? "none" : "1.5px solid #E2E8F0",
+                      background: active ? "#1B3A6B" : "#F8FAFC",
+                      color: active ? "#fff" : "#475569",
+                      cursor: "pointer",
+                      boxShadow: active ? "0 2px 8px rgba(27,58,107,0.22)" : "none",
+                      transition: "all 0.15s",
+                    }}>
                     {labels[tab]}
                   </button>
                 );
               })}
-              <div className="mr-auto flex items-center gap-2">
+              <div style={{ marginRight: "auto", display: "flex", alignItems: "center", gap: 6 }}>
                 <button type="button" onClick={() => setZoomModalOpen(true)}
-                  style={{ background: "#1B3A6B", color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
-                  🔍 תצוגה מוגדלת
+                  style={{ background: "#F1F5F9", color: "#1B3A6B", border: "1.5px solid #CBD5E1", borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                  🔍 הגדלה
                 </button>
                 {pendingShapes.length > 0 && (
                   <button type="button" onClick={() => setCategoryPickerOpen(true)}
-                    style={{ background: PENDING_COLOR, color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-                    📂 שייך {pendingShapes.length} לקטגוריה
+                    style={{ background: PENDING_COLOR, color: "#fff", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 8px rgba(245,158,11,0.35)", animation: "pulse 1.8s infinite" }}>
+                    📂 שייך {pendingShapes.length}
                   </button>
                 )}
               </div>
@@ -1307,8 +1390,8 @@ export const PlanningPage: React.FC = () => {
                     <p className="text-xs text-slate-500 mt-0.5">המערכת מזהה אזורי קירות ומציעה קטגוריות. אשר הכל או בחר חלק.</p>
                   </div>
                   <button type="button" onClick={() => void handleAutoAnalyze()} disabled={autoLoading}
-                    className="px-4 py-2 rounded-lg bg-[#1B3A6B] text-white text-sm font-semibold disabled:opacity-50">
-                    {autoLoading ? "מנתח..." : "🤖 נתח אוטומטית"}
+                    style={{ padding: "9px 20px", borderRadius: 10, background: autoLoading ? "#475569" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: autoLoading ? "not-allowed" : "pointer", boxShadow: autoLoading ? "none" : "0 2px 10px rgba(27,58,107,0.28)", transition: "all 0.15s", display: "flex", alignItems: "center", gap: 6 }}>
+                    {autoLoading ? <><span style={{ display: "inline-block", width: 14, height: 14, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", animation: "spin 0.7s linear infinite" }} />מנתח...</> : "🤖 נתח אוטומטית"}
                   </button>
                 </div>
 
@@ -1490,24 +1573,26 @@ export const PlanningPage: React.FC = () => {
                       position: "sticky",
                       bottom: 0,
                       background: "#fff",
-                      borderTop: "1px solid #E6E6EA",
-                      padding: "10px 0 4px",
-                      marginTop: 8,
+                      borderTop: "2px solid #F1F5F9",
+                      padding: "12px 0 6px",
+                      marginTop: 10,
                       zIndex: 5,
                     }}>
-                      <div className="flex gap-2 flex-wrap">
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                         <button type="button" disabled={loading}
                           onClick={() => void handleConfirmAutoSegments(false)}
-                          className="px-4 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold disabled:opacity-40">
+                          style={{ padding: "10px 22px", borderRadius: 10, background: loading ? "#94a3b8" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 3px 10px rgba(255,75,75,0.3)", transition: "all 0.15s" }}>
                           {loading ? "שומר..." : "✓ אשר הכל"}
                         </button>
                         <button type="button" disabled={loading || autoSelected.size === 0}
                           onClick={() => void handleConfirmAutoSegments(true)}
-                          className="px-4 py-2 rounded-lg bg-[#1B3A6B] text-white text-sm font-semibold disabled:opacity-40">
+                          style={{ padding: "10px 22px", borderRadius: 10, background: (loading || autoSelected.size === 0) ? "#94a3b8" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: (loading || autoSelected.size === 0) ? "not-allowed" : "pointer", boxShadow: (loading || autoSelected.size === 0) ? "none" : "0 3px 10px rgba(27,58,107,0.25)", transition: "all 0.15s" }}>
                           {loading ? "שומר..." : `✓ אשר נבחרים (${autoSelected.size})`}
                         </button>
                         <button type="button" onClick={() => setAutoSegments(null)}
-                          className="px-4 py-2 rounded-lg border border-slate-300 text-sm">נקה</button>
+                          style={{ padding: "10px 16px", borderRadius: 10, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+                          נקה
+                        </button>
                       </div>
                     </div>
                   </>
@@ -1770,9 +1855,15 @@ export const PlanningPage: React.FC = () => {
               }
             </div>
 
-            <div className="flex flex-col gap-2">
-              <button type="button" onClick={() => setStep(4)} disabled={planningState.items.length === 0} className="px-4 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold disabled:opacity-40">המשך לשלב 4</button>
-              <button type="button" onClick={() => setStep(2)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm">חזור לשלב 2</button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button type="button" onClick={() => setStep(4)} disabled={planningState.items.length === 0}
+                style={{ padding: "11px 20px", borderRadius: 10, background: planningState.items.length === 0 ? "#CBD5E1" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: planningState.items.length === 0 ? "not-allowed" : "pointer", boxShadow: planningState.items.length === 0 ? "none" : "0 3px 10px rgba(255,75,75,0.3)", transition: "all 0.15s" }}>
+                המשך לשלב 4 ←
+              </button>
+              <button type="button" onClick={() => setStep(2)}
+                style={{ padding: "9px 16px", borderRadius: 10, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+                ← חזור לשלב 2
+              </button>
             </div>
           </div>
         </div>
@@ -1784,7 +1875,11 @@ export const PlanningPage: React.FC = () => {
           <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4">
             <p className="text-sm font-semibold mb-3 text-[#31333F]">שלב 4: כתב כמויות (BOQ) ושמירה</p>
             {finalizeNotice && (
-              <div className="mb-3 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">{finalizeNotice}</div>
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-green-800 bg-green-50 rounded-lg px-4 py-3" style={{ border: "1px solid #86EFAC", borderRight: "5px solid #22C55E" }}>
+                <span style={{ fontSize: 20 }}>✅</span>
+                <span className="flex-1">{finalizeNotice}</span>
+                <button type="button" onClick={() => setFinalizeNotice("")} style={{ color: "#16A34A", background: "none", border: "none", cursor: "pointer", fontSize: 15 }}>✕</button>
+              </div>
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
@@ -1835,15 +1930,18 @@ export const PlanningPage: React.FC = () => {
               })}
             </div>
 
-            <div className="flex gap-2 flex-wrap">
-              <button type="button" onClick={() => void handleFinalize()} disabled={loading} className="px-4 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold disabled:opacity-40">
-                {loading ? "שומר..." : "💾 שמירה סופית למטא-דאטה"}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <button type="button" onClick={() => void handleFinalize()} disabled={loading}
+                style={{ padding: "11px 24px", borderRadius: 10, background: loading ? "#94a3b8" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 3px 12px rgba(255,75,75,0.3)", transition: "all 0.15s" }}>
+                {loading ? "שומר..." : "💾 שמירה סופית"}
               </button>
-              <button type="button" onClick={() => setStep(5)} className="px-4 py-2 rounded-lg bg-[#1B3A6B] text-white text-sm font-semibold">
+              <button type="button" onClick={() => setStep(5)}
+                style={{ padding: "11px 20px", borderRadius: 10, background: "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 8px rgba(27,58,107,0.22)" }}>
                 גזרות עבודה ▶
               </button>
-              <button type="button" onClick={() => setStep(3)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm">
-                חזור לשלב 3
+              <button type="button" onClick={() => setStep(3)}
+                style={{ padding: "10px 16px", borderRadius: 10, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+                ← חזור לשלב 3
               </button>
             </div>
           </div>
@@ -2020,13 +2118,14 @@ export const PlanningPage: React.FC = () => {
               )}
             </div>
 
-            <div className="flex flex-col gap-2">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <button type="button" onClick={() => void handleFinalize()} disabled={loading}
-                className="px-4 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold disabled:opacity-40">
+                style={{ padding: "11px 20px", borderRadius: 10, background: loading ? "#94a3b8" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 3px 12px rgba(255,75,75,0.3)", transition: "all 0.15s" }}>
                 {loading ? "שומר..." : "💾 שמירה סופית"}
               </button>
-              <button type="button" onClick={() => setStep(4)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm">
-                חזור לשלב 4
+              <button type="button" onClick={() => setStep(4)}
+                style={{ padding: "9px 16px", borderRadius: 10, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+                ← חזור לשלב 4
               </button>
             </div>
           </div>

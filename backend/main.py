@@ -36,6 +36,7 @@ from .database import (
     update_plan_metadata,
     save_plan_images,
     load_plan_images,
+    reset_all_data,
 )
 from .models import (
     AnalysisResult,
@@ -1976,6 +1977,21 @@ async def manager_list_database_plans() -> PlanListResponse:
             )
         )
     return PlanListResponse(plans=plans)
+
+
+@app.delete("/manager/workshop/plans", status_code=200)
+async def manager_clear_all_plans() -> dict:
+    """
+    מוחק את כל התוכניות מה-DB ומה-זיכרון.
+    """
+    PROJECTS.clear()
+    MANUAL_CORRECTIONS.clear()
+    try:
+        reset_all_data()
+    except Exception as e:
+        print(f"[clear_plans] DB reset error: {e}")
+        raise HTTPException(status_code=500, detail=f"שגיאה במחיקת נתונים: {e}")
+    return {"ok": True, "message": "כל התוכניות נמחקו"}
 
 
 @app.get("/manager/workshop/plans/{plan_id}", response_model=PlanDetail)

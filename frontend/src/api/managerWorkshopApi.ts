@@ -156,6 +156,10 @@ export async function listDatabasePlans(): Promise<PlanSummary[]> {
   return data.plans;
 }
 
+export async function clearAllWorkshopPlans(): Promise<void> {
+  await apiClient.delete("/manager/workshop/plans");
+}
+
 export function getWorkshopOverlayUrl(
   planId: string,
   options?: { show_flooring?: boolean; show_room_numbers?: boolean; highlight_walls?: boolean; version?: number }

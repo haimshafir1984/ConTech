@@ -216,7 +216,7 @@ def save_plan(
         if new_schema:
             query = """UPDATE plans SET plan_name=?, extracted_scale=?, confirmed_scale=?,
                        raw_pixel_count=?, metadata_json=?, target_date=?, budget_limit=?,
-                       cost_per_meter=?, material_estimate=?, updated_at=CURRENT_TIMESTAMP
+                       cost_per_meter=?, material_estimate=?
                        WHERE id=?"""
             run_query(query, (plan_name, scale_text, scale_val, pixels, metadata,
                                target_date, budget, cost, materials, rid), fetch="commit")

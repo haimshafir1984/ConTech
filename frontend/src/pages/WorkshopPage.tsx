@@ -3,6 +3,7 @@ import { useToast } from "../components/Toast";
 import axios from "axios";
 import { apiClient } from "../api/client";
 import {
+  clearAllWorkshopPlans,
   getWorkshopPlan,
   getWorkshopOverlayUrl,
   listWorkshopPlans,
@@ -296,6 +297,25 @@ export const WorkshopPage: React.FC = () => {
     } finally { setIsLoading(false); }
   };
 
+  const handleClearAll = async () => {
+    if (!window.confirm("האם אתה בטוח שברצונך למחוק את כל התוכניות? פעולה זו אינה הפיכה.")) return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      await clearAllWorkshopPlans();
+      setPlans([]);
+      setSelectedPlanId(null);
+      setSelectedDetail(null);
+      setReadiness(null);
+      toast("כל התוכניות נמחקו בהצלחה");
+    } catch (e) {
+      console.error(e);
+      setError("שגיאה במחיקת התוכניות.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleUpload = async (file: File) => {
     setIsLoading(true);
     setUploadProgress(10);
@@ -453,7 +473,24 @@ export const WorkshopPage: React.FC = () => {
         <UploadZone onFile={(f) => void handleUpload(f)} isLoading={isLoading} />
       ) : (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <UploadZone onFile={(f) => void handleUpload(f)} isLoading={isLoading} compact />
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <UploadZone onFile={(f) => void handleUpload(f)} isLoading={isLoading} compact />
+            <button
+              type="button"
+              onClick={() => void handleClearAll()}
+              disabled={isLoading}
+              title="מחק את כל התוכניות"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                border: "1.5px solid #FECACA", borderRadius: 10,
+                background: "#FFF5F5", padding: "8px 14px",
+                cursor: "pointer", color: "#DC2626", fontSize: 13, fontWeight: 600,
+                opacity: isLoading ? 0.5 : 1,
+              }}
+            >
+              🗑️ נקה מערכת
+            </button>
+          </div>
           {analysisStatus && uploadProgress === null && (
             <div style={{ fontSize: 13, color: "#1d4ed8", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 14px" }}>{analysisStatus}</div>
           )}

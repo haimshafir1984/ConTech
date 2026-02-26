@@ -2712,26 +2712,42 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         # ── Build vision_data early so ALL return paths include it ────────────
         def _build_vision_data(p: Dict) -> Optional[AutoAnalyzeVisionData]:
             m = p.get("metadata") or {}
+
+            def _lst(val):
+                """Return val if it's a non-empty list, else None."""
+                return val if isinstance(val, list) and val else None
+
+            def _dct(val):
+                """Return val if it's a non-empty dict, else None."""
+                return val if isinstance(val, dict) and val else None
+
+            def _flt(val):
+                try: return float(val) if val is not None else None
+                except Exception: return None
+
+            def _str(val):
+                return str(val) if val not in (None, "", {}, []) else None
+
             vd = AutoAnalyzeVisionData(
-                rooms=m.get("llm_rooms"),
-                dimensions=m.get("vision_dimensions"),
-                dimensions_structured=m.get("vision_dimensions_structured"),
-                materials=m.get("vision_materials"),
-                materials_legend=m.get("vision_materials_legend"),
-                elements=m.get("vision_elements"),
-                elevations=m.get("vision_elevations"),
-                grid_lines=m.get("vision_grid_lines"),
-                systems=m.get("vision_systems"),
-                total_area_m2=m.get("vision_total_area_m2"),
-                plan_title=m.get("plan_title"),
-                project_name=m.get("project_name"),
-                sheet_number=m.get("sheet_number"),
-                sheet_name=m.get("sheet_name"),
-                status=m.get("status"),
-                architect=m.get("architect"),
-                date=m.get("date"),
-                scale=m.get("scale_text"),
-                execution_notes=m.get("execution_notes"),
+                rooms=_lst(m.get("llm_rooms")),
+                dimensions=_lst(m.get("vision_dimensions")),
+                dimensions_structured=_lst(m.get("vision_dimensions_structured")),
+                materials=_lst(m.get("vision_materials")),
+                materials_legend=_lst(m.get("vision_materials_legend")),
+                elements=_lst(m.get("vision_elements")),
+                elevations=_lst(m.get("vision_elevations")),
+                grid_lines=_dct(m.get("vision_grid_lines")),
+                systems=_dct(m.get("vision_systems")),
+                total_area_m2=_flt(m.get("vision_total_area_m2")),
+                plan_title=_str(m.get("plan_title")),
+                project_name=_str(m.get("project_name")),
+                sheet_number=_str(m.get("sheet_number")),
+                sheet_name=_str(m.get("sheet_name")),
+                status=_str(m.get("status")),
+                architect=_str(m.get("architect")),
+                date=_str(m.get("date")),
+                scale=_str(m.get("scale_text")),
+                execution_notes=_lst(m.get("execution_notes")),
             )
             has_vision = any([
                 vd.rooms, vd.dimensions, vd.materials,

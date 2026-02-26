@@ -226,8 +226,48 @@ export interface AutoSegment {
   element_class?: string;   // "wall" | "fixture"
 }
 
+export interface VisionRoom {
+  name: string;
+  area_m2?: number;
+  dimensions?: string;
+  ceiling_height_m?: number;
+  flooring?: string;
+  notes?: string;
+}
+
+export interface VisionElement {
+  type: string;
+  id?: string;
+  location?: string;
+  notes?: string;
+}
+
+export interface AutoAnalyzeVisionData {
+  rooms?: VisionRoom[];
+  dimensions?: string[];
+  dimensions_structured?: Array<{ raw: string; unit?: string; location?: string; type?: string }>;
+  materials?: string[];
+  materials_legend?: Array<{ symbol?: string; description?: string }>;
+  elements?: VisionElement[];
+  elevations?: Array<{ label?: string; value?: number; reference?: string }>;
+  grid_lines?: { horizontal?: string[]; vertical?: string[] };
+  systems?: Record<string, string>;
+  total_area_m2?: number;
+  // Title-block metadata
+  plan_title?: string;
+  project_name?: string;
+  sheet_number?: string;
+  sheet_name?: string;
+  status?: string;
+  architect?: string;
+  date?: string;
+  scale?: string;
+  execution_notes?: string[];
+}
+
 export interface AutoAnalyzeResult {
   segments: AutoSegment[];
+  vision_data?: AutoAnalyzeVisionData;
 }
 
 export async function autoAnalyzePlan(planId: string): Promise<AutoAnalyzeResult> {

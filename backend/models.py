@@ -180,8 +180,33 @@ class AutoAnalyzeSegment(BaseModel):
     element_class: str = "wall"  # "wall" | "fixture"
 
 
+class AutoAnalyzeVisionData(BaseModel):
+    """Vision extraction data from Claude Vision (extracted during PDF upload)."""
+    rooms: Optional[list[dict]] = None
+    dimensions: Optional[list[str]] = None
+    dimensions_structured: Optional[list[dict]] = None
+    materials: Optional[list[str]] = None
+    materials_legend: Optional[list[dict]] = None
+    elements: Optional[list[dict]] = None
+    elevations: Optional[list[dict]] = None
+    grid_lines: Optional[dict] = None
+    systems: Optional[dict] = None
+    total_area_m2: Optional[float] = None
+    # Title-block metadata
+    plan_title: Optional[str] = None
+    project_name: Optional[str] = None
+    sheet_number: Optional[str] = None
+    sheet_name: Optional[str] = None
+    status: Optional[str] = None
+    architect: Optional[str] = None
+    date: Optional[str] = None
+    scale: Optional[str] = None
+    execution_notes: Optional[list[str]] = None
+
+
 class AutoAnalyzeResponse(BaseModel):
     segments: list[AutoAnalyzeSegment]
+    vision_data: Optional[AutoAnalyzeVisionData] = None
 
 
 class ConfirmAutoSegmentRequest(BaseModel):

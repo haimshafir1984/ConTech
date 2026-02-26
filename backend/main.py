@@ -76,6 +76,7 @@ from .models import (
     PlanningZoneRequest,
     AutoAnalyzeResponse,
     AutoAnalyzeSegment,
+    AutoAnalyzeVisionData,
     ConfirmAutoSegmentRequest,
     WorkSection,
     WorkSectionCreateRequest,
@@ -2894,7 +2895,40 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         total_skel_labels = num_skel_labels - 1  # exclude background
         print(f"[auto-analyze] plan={plan_id} skel_labels={total_skel_labels} "
               f"walls={len(walls_out)} fixtures={len(fixtures_out)} img_area={img_area}")
-        return AutoAnalyzeResponse(segments=walls_out + fixtures_out)
+
+        # ── Attach Vision data (extracted by Claude Vision during upload) ──────
+        meta = proj.get("metadata") or {}
+        vision_data = AutoAnalyzeVisionData(
+            rooms=meta.get("llm_rooms"),
+            dimensions=meta.get("vision_dimensions"),
+            dimensions_structured=meta.get("vision_dimensions_structured"),
+            materials=meta.get("vision_materials"),
+            materials_legend=meta.get("vision_materials_legend"),
+            elements=meta.get("vision_elements"),
+            elevations=meta.get("vision_elevations"),
+            grid_lines=meta.get("vision_grid_lines"),
+            systems=meta.get("vision_systems"),
+            total_area_m2=meta.get("vision_total_area_m2"),
+            plan_title=meta.get("plan_title"),
+            project_name=meta.get("project_name"),
+            sheet_number=meta.get("sheet_number"),
+            sheet_name=meta.get("sheet_name"),
+            status=meta.get("status"),
+            architect=meta.get("architect"),
+            date=meta.get("date"),
+            scale=meta.get("scale_text"),
+            execution_notes=meta.get("execution_notes"),
+        )
+        # Only include vision_data if at least one field has content
+        has_vision = any([
+            vision_data.rooms, vision_data.dimensions, vision_data.materials,
+            vision_data.elements, vision_data.rooms, vision_data.total_area_m2,
+        ])
+
+        return AutoAnalyzeResponse(
+            segments=walls_out + fixtures_out,
+            vision_data=vision_data if has_vision else None,
+        )
 
     except HTTPException:
         raise

@@ -18,6 +18,7 @@ import {
   resolvePlanningOpening,
   resolvePlanningWall,
   type AutoSegment,
+  type AutoAnalyzeVisionData,
   type PlanningCategory,
   type PlanningState,
   type TextItemPayload,
@@ -555,6 +556,7 @@ export const PlanningPage: React.FC = () => {
 
   // ── Auto-analyze state ──
   const [autoSegments, setAutoSegments] = React.useState<AutoSegment[] | null>(null);
+  const [autoVisionData, setAutoVisionData] = React.useState<AutoAnalyzeVisionData | null>(null);
   const [autoLoading, setAutoLoading] = React.useState(false);
   const [autoSelected, setAutoSelected] = React.useState<Set<string>>(new Set());
   const [autoConfirmedKeys, setAutoConfirmedKeys] = React.useState<Record<string, string>>({}); // segId→catKey
@@ -951,6 +953,7 @@ export const PlanningPage: React.FC = () => {
     try {
       const result = await autoAnalyzePlan(selectedPlanId);
       setAutoSegments(result.segments);
+      setAutoVisionData(result.vision_data ?? null);
       // Pre-select all
       setAutoSelected(new Set(result.segments.map(s => s.segment_id)));
       // Pre-fill category keys: find best match for walls; leave blank for fixtures
@@ -998,6 +1001,7 @@ export const PlanningPage: React.FC = () => {
       }
       setPlanningState(lastState);
       setAutoSegments(null);
+      setAutoVisionData(null);
       setAutoSelected(new Set());
       setError("");
     } catch (e) {
@@ -1607,7 +1611,7 @@ export const PlanningPage: React.FC = () => {
                           style={{ padding: "10px 22px", borderRadius: 10, background: (loading || autoSelected.size === 0) ? "#94a3b8" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: (loading || autoSelected.size === 0) ? "not-allowed" : "pointer", boxShadow: (loading || autoSelected.size === 0) ? "none" : "0 3px 10px rgba(27,58,107,0.25)", transition: "all 0.15s" }}>
                           {loading ? "שומר..." : `✓ אשר נבחרים (${autoSelected.size})`}
                         </button>
-                        <button type="button" onClick={() => setAutoSegments(null)}
+                        <button type="button" onClick={() => { setAutoSegments(null); setAutoVisionData(null); }}
                           style={{ padding: "10px 16px", borderRadius: 10, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
                           נקה
                         </button>
@@ -1615,6 +1619,143 @@ export const PlanningPage: React.FC = () => {
                     </div>
                   </>
                 )}
+
+                {/* Vision Data Panel — shown whenever vision_data is available */}
+                {autoVisionData && (() => {
+                  const vd = autoVisionData;
+                  const hasRooms = vd.rooms && vd.rooms.length > 0;
+                  const hasElements = vd.elements && vd.elements.length > 0;
+                  const hasMaterials = vd.materials && vd.materials.length > 0;
+                  const hasDims = vd.dimensions && vd.dimensions.length > 0;
+                  const hasSystems = vd.systems && Object.keys(vd.systems).length > 0;
+                  const hasNotes = vd.execution_notes && vd.execution_notes.length > 0;
+                  if (!hasRooms && !hasElements && !hasMaterials && !hasDims && !hasSystems && !hasNotes) return null;
+                  return (
+                    <div style={{ marginTop: 20, borderTop: "2px solid #E2E8F0", paddingTop: 16 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#1B3A6B", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                        🔍 נתוני Vision — מה המערכת מצאה בתוכנית
+                      </div>
+
+                      {/* Title-block info */}
+                      {(vd.plan_title || vd.project_name || vd.scale || vd.architect || vd.date || vd.sheet_number) && (
+                        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 13 }}>
+                          <div style={{ fontWeight: 600, color: "#475569", marginBottom: 6 }}>פרטי תוכנית</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
+                            {vd.plan_title && <div><span style={{ color: "#94A3B8" }}>כותרת: </span>{vd.plan_title}</div>}
+                            {vd.project_name && <div><span style={{ color: "#94A3B8" }}>פרויקט: </span>{vd.project_name}</div>}
+                            {vd.scale && <div><span style={{ color: "#94A3B8" }}>קנ"מ: </span>{vd.scale}</div>}
+                            {vd.architect && <div><span style={{ color: "#94A3B8" }}>אדריכל: </span>{vd.architect}</div>}
+                            {vd.date && <div><span style={{ color: "#94A3B8" }}>תאריך: </span>{vd.date}</div>}
+                            {vd.sheet_number && <div><span style={{ color: "#94A3B8" }}>מספר דף: </span>{vd.sheet_number}</div>}
+                            {vd.total_area_m2 && <div><span style={{ color: "#94A3B8" }}>שטח כולל: </span>{vd.total_area_m2} מ"ר</div>}
+                            {vd.status && <div><span style={{ color: "#94A3B8" }}>סטטוס: </span>{vd.status}</div>}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Rooms */}
+                      {hasRooms && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", marginBottom: 6 }}>חדרים / מרחבים ({vd.rooms!.length})</div>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                            <thead>
+                              <tr style={{ background: "#F1F5F9" }}>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>שם</th>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>שטח</th>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>מידות</th>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>ריצוף</th>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>הגובה</th>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>הערות</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {vd.rooms!.map((r, i) => (
+                                <tr key={i} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                                  <td style={{ padding: "5px 8px", fontWeight: 600 }}>{r.name}</td>
+                                  <td style={{ padding: "5px 8px" }}>{r.area_m2 ? `${r.area_m2} מ"ר` : "—"}</td>
+                                  <td style={{ padding: "5px 8px" }}>{r.dimensions ?? "—"}</td>
+                                  <td style={{ padding: "5px 8px" }}>{r.flooring ?? "—"}</td>
+                                  <td style={{ padding: "5px 8px" }}>{r.ceiling_height_m ? `${r.ceiling_height_m} מ'` : "—"}</td>
+                                  <td style={{ padding: "5px 8px", color: "#64748B" }}>{r.notes ?? "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Elements (doors, windows, etc.) */}
+                      {hasElements && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", marginBottom: 6 }}>אלמנטים ({vd.elements!.length})</div>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                            <thead>
+                              <tr style={{ background: "#F1F5F9" }}>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>סוג</th>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>מזהה</th>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>מיקום</th>
+                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>הערות</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {vd.elements!.map((el, i) => (
+                                <tr key={i} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                                  <td style={{ padding: "5px 8px", fontWeight: 600 }}>{el.type}</td>
+                                  <td style={{ padding: "5px 8px" }}>{el.id ?? "—"}</td>
+                                  <td style={{ padding: "5px 8px" }}>{el.location ?? "—"}</td>
+                                  <td style={{ padding: "5px 8px", color: "#64748B" }}>{el.notes ?? "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Materials + Dimensions + Systems in 3 columns */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                        {hasMaterials && (
+                          <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#475569", marginBottom: 6 }}>חומרים</div>
+                            {vd.materials!.map((m, i) => (
+                              <div key={i} style={{ fontSize: 12, color: "#334155", padding: "2px 0" }}>• {m}</div>
+                            ))}
+                          </div>
+                        )}
+                        {hasDims && (
+                          <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#475569", marginBottom: 6 }}>מידות שנמצאו</div>
+                            {vd.dimensions!.slice(0, 10).map((d, i) => (
+                              <div key={i} style={{ fontSize: 12, color: "#334155", padding: "2px 0" }}>• {d}</div>
+                            ))}
+                            {vd.dimensions!.length > 10 && (
+                              <div style={{ fontSize: 11, color: "#94A3B8" }}>ועוד {vd.dimensions!.length - 10}...</div>
+                            )}
+                          </div>
+                        )}
+                        {hasSystems && (
+                          <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#475569", marginBottom: 6 }}>מערכות</div>
+                            {Object.entries(vd.systems!).map(([k, v]) => v ? (
+                              <div key={k} style={{ fontSize: 12, color: "#334155", padding: "2px 0" }}>
+                                <span style={{ color: "#94A3B8" }}>{k}: </span>{String(v)}
+                              </div>
+                            ) : null)}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Execution notes */}
+                      {hasNotes && (
+                        <div style={{ marginTop: 12, background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px" }}>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: "#92400E", marginBottom: 4 }}>הערות ביצוע</div>
+                          {vd.execution_notes!.map((n, i) => (
+                            <div key={i} style={{ fontSize: 12, color: "#78350F", padding: "2px 0" }}>• {n}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

@@ -1,5 +1,6 @@
 import React from "react";
 import axios from "axios";
+import { ErrorAlert } from "../components/UiHelpers";
 import { apiClient } from "../api/client";
 import { listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
@@ -1092,12 +1093,7 @@ export const PlanningPage: React.FC = () => {
       <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4">
         <h2 className="text-lg font-semibold text-[#31333F] mb-1">🧱 הגדרת תכולה</h2>
         <p className="text-xs text-slate-500">זרימת עבודה: בחירת תוכנית → כיול סקייל → סימון תכולה → BOQ ושמירה.</p>
-        {error && (
-          <div className="mt-3 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5" style={{ borderRight: "4px solid #ef4444" }}>
-            <span className="flex-1 leading-snug">{error}</span>
-            <button type="button" onClick={() => setError("")} style={{ color: "#ef4444", background: "none", border: "none", cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0, padding: 0 }}>✕</button>
-          </div>
-        )}
+        {error && <div className="mt-3"><ErrorAlert message={error} onDismiss={() => setError("")} /></div>}
       </div>
 
       {/* Opening prompt */}
@@ -1132,6 +1128,14 @@ export const PlanningPage: React.FC = () => {
             <button type="button" onClick={() => void handleResolveWall(true)} style={{ padding: "8px 18px", borderRadius: 9, background: "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 6px rgba(27,58,107,0.3)" }}>✓ כן, זה קיר</button>
             <button type="button" onClick={() => void handleResolveWall(false)} style={{ padding: "8px 16px", borderRadius: 9, background: "#fff", color: "#64748b", border: "1px solid #CBD5E1", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>✕ להתעלם</button>
           </div>
+        </div>
+      )}
+
+      {/* Loading overlay for plan load */}
+      {loading && !planningState && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 10, fontSize: 13, color: "#0369A1" }}>
+          <span style={{ animation: "spin 1s linear infinite", display: "inline-block", fontSize: 16 }}>⏳</span>
+          <span>טוען נתוני תכנון...</span>
         </div>
       )}
 

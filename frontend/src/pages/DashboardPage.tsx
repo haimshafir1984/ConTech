@@ -1,4 +1,5 @@
 import React from "react";
+import { ErrorAlert, SkeletonGrid } from "../components/UiHelpers";
 import { listDatabasePlans, listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
   getDashboard,
@@ -8,6 +9,20 @@ import {
   type WorkerReportSummaryItem,
   type WorkerReportsSummary,
 } from "../api/managerInsightsApi";
+
+// ─── Inject card-expand animation once ───────────────────────────────────────
+const _expandStyle = document.createElement("style");
+_expandStyle.textContent = `
+  @keyframes card-expand {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .report-card-body { animation: card-expand 0.18s ease; }
+`;
+if (!document.head.querySelector("[data-dashboard-styles]")) {
+  _expandStyle.setAttribute("data-dashboard-styles", "1");
+  document.head.appendChild(_expandStyle);
+}
 
 // ─── Print BOQ report ─────────────────────────────────────────────────────────
 function printBoqReport(
@@ -148,17 +163,19 @@ const ReportCard: React.FC<{
       </button>
 
       {expanded && (
-        <div className="p-4 space-y-3 bg-white">
+        <div className="report-card-body p-4 space-y-3 bg-white">
           {report.note && (
             <div className="text-xs text-slate-600 bg-slate-50 rounded p-2">הערה: {report.note}</div>
           )}
           <div className="text-xs text-slate-500">פריטים שסומנו: {report.items_count}</div>
-          <div className="relative">
+          <div className="relative bg-slate-100 rounded border border-slate-200 overflow-hidden" style={{ minHeight: 80 }}>
             <img
               src={snapUrl}
               alt="תוכנית עם סימוני עובד"
-              className="w-full rounded border border-slate-200"
+              className="w-full rounded"
               loading="lazy"
+              style={{ display: "block", transition: "opacity 0.25s", opacity: 1 }}
+              onLoad={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "1"; }}
             />
             <div className="absolute top-2 left-2 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded">
               תוכנית + סימונים
@@ -260,7 +277,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</div>}
+      {error && <ErrorAlert message={error} onDismiss={() => setError("")} />}
 
       {/* Tab selector */}
       <div className="flex border-b border-[#E6E6EA] bg-white rounded-t-lg px-4 gap-0 shadow-sm">
@@ -280,11 +297,9 @@ export const DashboardPage: React.FC = () => {
         ))}
       </div>
 
+      {loading && <SkeletonGrid count={4} columns="repeat(2, 1fr)" />}
       {!dashboard && !loading && (
         <div className="bg-white border border-[#E6E6EA] rounded-lg p-8 text-center text-slate-400">בחר תוכנית להצגת נתונים.</div>
-      )}
-      {loading && (
-        <div className="bg-white border border-[#E6E6EA] rounded-lg p-8 text-center text-slate-400">⏳ טוען...</div>
       )}
 
       {/* ── DASHBOARD VIEW ── */}

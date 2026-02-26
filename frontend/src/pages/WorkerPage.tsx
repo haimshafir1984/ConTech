@@ -1,6 +1,7 @@
 import React from "react";
 import { useToast } from "../components/Toast";
 import { useConfirm } from "../components/ConfirmDialog";
+import { ErrorAlert } from "../components/UiHelpers";
 import { apiClient } from "../api/client";
 import { listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
@@ -485,9 +486,7 @@ export const WorkerPage: React.FC = () => {
         </div>
       )}
 
-      {error && (
-        <div style={{ fontSize: 13, color: "#DC2626", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>{error}</div>
-      )}
+      {error && <ErrorAlert message={error} onDismiss={() => setError("")} />}
 
       {/* ── Tab bar ── */}
       <div style={{ display: "flex", borderBottom: "2px solid #E2E8F0", marginBottom: 16, gap: 4 }}>
@@ -614,7 +613,14 @@ export const WorkerPage: React.FC = () => {
                   <span style={{ fontSize: 13 }}>#{idx + 1} {item.type}</span>
                   <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                     <span style={{ fontWeight: 700, fontSize: 13, color: "#1B3A6B" }}>{item.measurement.toFixed(2)} {item.unit}</span>
-                    <button type="button" onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))} style={{ color: "#EF4444", background: "none", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>✕</button>
+                    <button
+                      type="button"
+                      title="הסר פריט"
+                      onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
+                      style={{ color: "#EF4444", background: "none", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "4px 6px", borderRadius: 6, transition: "background 0.12s" }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#FEE2E2"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+                    >✕</button>
                   </div>
                 </div>
               ))}

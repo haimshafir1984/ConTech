@@ -1,5 +1,6 @@
 import React from "react";
 import { useToast } from "../components/Toast";
+import { ErrorAlert, SkeletonGrid } from "../components/UiHelpers";
 import axios from "axios";
 import { apiClient } from "../api/client";
 import {
@@ -180,6 +181,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading, compact }) =
       <p style={{ fontSize: 12, color: "#94A3B8", marginTop: 6 }}>או לחץ לבחירת קובץ · תוכניות בניה PDF</p>
       <input
         ref={inputRef}
+        id="workshop-upload-input"
         type="file"
         accept="application/pdf"
         style={{ display: "none" }}
@@ -197,6 +199,7 @@ export const WorkshopPage: React.FC = () => {
   const [selectedDetail, setSelectedDetail] = React.useState<PlanDetail | null>(null);
   const [readiness, setReadiness] = React.useState<PlanReadinessResponse | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [plansLoading, setPlansLoading] = React.useState(true);
   const [uploadProgress, setUploadProgress] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [showFlooring, setShowFlooring] = React.useState(true);
@@ -215,12 +218,15 @@ export const WorkshopPage: React.FC = () => {
 
   const loadPlans = React.useCallback(async () => {
     try {
+      setPlansLoading(true);
       const data = await listWorkshopPlans();
       setPlans(data);
       setSelectedPlanId((prev) => (!prev && data.length > 0 ? data[0].id : prev));
     } catch (e) {
       console.error(e);
       setError("שגיאה בטעינת רשימת התוכניות מהשרת.");
+    } finally {
+      setPlansLoading(false);
     }
   }, []);
 
@@ -526,11 +532,11 @@ export const WorkshopPage: React.FC = () => {
         </div>
       )}
 
-      {error && (
-        <div style={{ fontSize: 13, color: "#DC2626", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "10px 14px" }}>{error}</div>
-      )}
+      {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
 
-      {/* ── Plan cards grid ── */}
+      {/* ── Plan cards grid / skeleton ── */}
+      {plansLoading && plans.length === 0 && <SkeletonGrid count={3} />}
+
       {plans.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 14 }}>
           {plans.map((p) => {
@@ -578,9 +584,29 @@ export const WorkshopPage: React.FC = () => {
       )}
 
       {/* ── Empty state ── */}
-      {plans.length === 0 && !isLoading && (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "#94A3B8", fontSize: 14 }}>
-          העלה תוכנית PDF כדי להתחיל
+      {plans.length === 0 && !plansLoading && (
+        <div style={{
+          display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
+          padding: "56px 24px", border: "2px dashed #E2E8F0", borderRadius: 16,
+          background: "#FAFBFC", textAlign: "center",
+        }}>
+          <div style={{ fontSize: 48 }}>🏗️</div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: "#1B3A6B" }}>אין תוכניות בניה</div>
+          <div style={{ fontSize: 13, color: "#94A3B8", maxWidth: 300 }}>
+            העלה קובץ PDF של תוכנית בניה כדי להתחיל — המערכת תנתח קירות, ריצוף וחדרים אוטומטית.
+          </div>
+          <button
+            type="button"
+            onClick={() => document.getElementById("workshop-upload-input")?.click()}
+            style={{
+              marginTop: 4, padding: "10px 28px",
+              background: "#1B3A6B", color: "#fff",
+              border: "none", borderRadius: 10,
+              fontSize: 14, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            📂 העלה תוכנית PDF
+          </button>
         </div>
       )}
 

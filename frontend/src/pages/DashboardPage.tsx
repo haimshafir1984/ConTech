@@ -245,8 +245,8 @@ export const DashboardPage: React.FC = () => {
 
   const pct = dashboard?.percent_complete ?? 0;
   const progressColor = pct < 30 ? "bg-red-500" : pct < 70 ? "bg-amber-500" : "bg-emerald-500";
-  const snapshotUrl = getWorkerReportSnapshotUrl(selectedPlanId);
-  const selectedPlan = plans.find((p) => p.id === selectedPlanId);
+  const snapshotUrl = React.useMemo(() => getWorkerReportSnapshotUrl(selectedPlanId), [selectedPlanId]);
+  const selectedPlan = React.useMemo(() => plans.find((p) => p.id === selectedPlanId), [plans, selectedPlanId]);
 
   return (
     <div className="space-y-4">

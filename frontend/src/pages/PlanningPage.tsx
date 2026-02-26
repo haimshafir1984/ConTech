@@ -607,6 +607,7 @@ export const PlanningPage: React.FC = () => {
   const drawingImageRef = React.useRef<HTMLImageElement | null>(null);
   const calibrationSurfaceRef = React.useRef<SVGSVGElement | null>(null);
   const drawingSurfaceRef = React.useRef<SVGSVGElement | null>(null);
+  const lastPathPointRef = React.useRef<number>(0); // timestamp for throttle
   const [baseDisplaySize, setBaseDisplaySize] = React.useState({ width: 800, height: 600 });
   const [zoomPercent, setZoomPercent] = React.useState(100);
 
@@ -769,7 +770,14 @@ export const PlanningPage: React.FC = () => {
     if (!drawing || step !== 3) return;
     const p = toLocalPoint(drawingSurfaceRef as unknown as React.RefObject<HTMLElement | null>, e.clientX, e.clientY);
     setTempPoint(p);
-    if (drawMode === "path") setPathPoints((prev) => [...prev, p]);
+    if (drawMode === "path") {
+      // Throttle path point collection to ~15fps to avoid 60fps re-render thrashing
+      const now = Date.now();
+      if (now - lastPathPointRef.current >= 66) {
+        lastPathPointRef.current = now;
+        setPathPoints((prev) => [...prev, p]);
+      }
+    }
   };
 
   const handleCanvasMouseUp: React.MouseEventHandler<SVGSVGElement> = () => {

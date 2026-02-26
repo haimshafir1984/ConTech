@@ -71,6 +71,7 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
   const isPanningRef = React.useRef(false);
   const isDrawingRef = React.useRef(false);
   const lastMouse = React.useRef({ x: 0, y: 0 });
+  const lastPathPointTime = React.useRef<number>(0); // throttle for path drawing
   const panRef = React.useRef({ x: 0, y: 0 });
   const zoomRef = React.useRef(1);
   const [startPt, setStartPt] = React.useState<Point | null>(null);
@@ -149,7 +150,14 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
     if (!isDrawingRef.current) return;
     const p = toCanvasPoint(e.clientX, e.clientY);
     setTempPt(p);
-    if (drawMode === "path") setPathPts((prev) => [...prev, p]);
+    if (drawMode === "path") {
+      // Throttle to ~15fps to avoid re-render thrashing at 60fps
+      const now = Date.now();
+      if (now - lastPathPointTime.current >= 66) {
+        lastPathPointTime.current = now;
+        setPathPts((prev) => [...prev, p]);
+      }
+    }
   };
 
   const finishDraw = React.useCallback((currentStartPt: Point | null, currentTempPt: Point | null, currentPathPts: Point[]) => {

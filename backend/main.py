@@ -2711,6 +2711,11 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         walls = proj.get("thick_walls")
 
         if not (isinstance(walls, np.ndarray) and walls.size > 0):
+            meta_dbg = proj.get("metadata", {})
+            filename_dbg = meta_dbg.get("filename") or meta_dbg.get("plan_id", "?")
+            walls_nonzero = int(np.count_nonzero(walls)) if isinstance(walls, np.ndarray) else -1
+            print(f"[auto-analyze] EMPTY: plan={filename_dbg} thick_walls={type(walls).__name__} nonzero={walls_nonzero} "
+                  f"has_skel={proj.get('skeleton') is not None} has_orig={proj.get('original') is not None}")
             return AutoAnalyzeResponse(segments=[])
 
         binary = (walls > 0).astype(np.uint8)
@@ -2789,7 +2794,8 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             region_roi  = binary[y1:y2, x1:x2] & dilated_roi
 
             area_px = int(np.count_nonzero(region_roi))
-            if area_px < img_area * 0.0005:
+            # Pre-filter: skip absolute orphans (< 0.01% of image)
+            if area_px < img_area * 0.0001:
                 continue
 
             ys_r, xs_r = np.where(region_roi > 0)
@@ -2815,8 +2821,14 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                 and area_px >= img_area * 0.00008
             )
 
-            if area_px < img_area * 0.005 and not is_fixture:
-                continue
+            # Keep walls with ≥ 0.05% area (was 0.5% — too aggressive for short walls)
+            # Keep fixtures with ≥ 0.008% area
+            if is_fixture:
+                if area_px < img_area * 0.00008:
+                    continue
+            else:
+                if area_px < img_area * 0.0005:
+                    continue
 
             if is_fixture:
                 fixture_counter += 1
@@ -2879,6 +2891,9 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
 
         walls_out    = sorted([s for s in segments if s.element_class == "wall"],    key=lambda s: s.length_m, reverse=True)
         fixtures_out = sorted([s for s in segments if s.element_class == "fixture"], key=lambda s: s.area_m2,  reverse=True)
+        total_skel_labels = num_skel_labels - 1  # exclude background
+        print(f"[auto-analyze] plan={plan_id} skel_labels={total_skel_labels} "
+              f"walls={len(walls_out)} fixtures={len(fixtures_out)} img_area={img_area}")
         return AutoAnalyzeResponse(segments=walls_out + fixtures_out)
 
     except HTTPException:

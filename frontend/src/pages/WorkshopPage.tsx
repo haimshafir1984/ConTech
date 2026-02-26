@@ -294,10 +294,19 @@ export const WorkshopPage: React.FC = () => {
     setScaleText(metaScale || "1:50");
   }, [selectedDetail]);
 
+  const overlayDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(() => {
     if (!selectedPlanId) return;
-    setOverlayLoading(true);
-    setOverlayVersion((v) => v + 1);
+    // Immediate on plan change, debounced on checkbox change
+    const trigger = () => {
+      setOverlayLoading(true);
+      setOverlayVersion((v) => v + 1);
+    };
+    if (overlayDebounceRef.current !== null) clearTimeout(overlayDebounceRef.current);
+    overlayDebounceRef.current = setTimeout(trigger, 300);
+    return () => {
+      if (overlayDebounceRef.current !== null) clearTimeout(overlayDebounceRef.current);
+    };
   }, [selectedPlanId, showFlooring, showRoomNumbers, highlightWalls]);
 
   const savePlanSettings = async () => {
@@ -431,12 +440,18 @@ export const WorkshopPage: React.FC = () => {
 
   const selectedScale = selectedSummary?.scale_px_per_meter ?? 200;
 
-  const imageUrl = selectedPlanId
-    ? `${apiClient.defaults.baseURL}/manager/workshop/plans/${encodeURIComponent(selectedPlanId)}/image`
-    : "";
-  const overlayUrl = selectedPlanId
-    ? getWorkshopOverlayUrl(selectedPlanId, { show_flooring: showFlooring, show_room_numbers: showRoomNumbers, highlight_walls: highlightWalls, version: overlayVersion })
-    : "";
+  const imageUrl = React.useMemo(
+    () => selectedPlanId
+      ? `${apiClient.defaults.baseURL}/manager/workshop/plans/${encodeURIComponent(selectedPlanId)}/image`
+      : "",
+    [selectedPlanId]
+  );
+  const overlayUrl = React.useMemo(
+    () => selectedPlanId
+      ? getWorkshopOverlayUrl(selectedPlanId, { show_flooring: showFlooring, show_room_numbers: showRoomNumbers, highlight_walls: highlightWalls, version: overlayVersion })
+      : "",
+    [selectedPlanId, showFlooring, showRoomNumbers, highlightWalls, overlayVersion]
+  );
 
   const roomRows = React.useMemo(() => {
     const meta = selectedDetail?.meta as Record<string, unknown> | undefined;

@@ -569,33 +569,40 @@ def get_payment_invoice_data(plan_id, start_date, end_date, unit_prices=None):
     }
 
 
-def save_plan_images(filename: str, original_jpg: bytes, thick_walls_png: bytes) -> bool:
+def save_plan_images(
+    filename: str,
+    original_jpg: bytes,
+    thick_walls_png: bytes,
+    flooring_mask_png: bytes = b"",
+    skeleton_png: bytes = b"",
+    concrete_mask_png: bytes = b"",
+    blocks_mask_png: bytes = b"",
+) -> bool:
     """
-    שומר תמונות תוכנית כ-BLOB ב-DB (שרידות בין restarts).
-    נקרא מיד אחרי persist_project_assets בזמן upload.
+    שומר את כל ה-masks של תוכנית כ-BLOB ב-DB (שרידות בין restarts ו-workers).
+    נקרא אחרי _persist_plan_to_database בזמן upload.
     """
     conn = get_connection()
     if not conn:
         return False
 
-    # וודא שהעמודות קיימות
+    # וודא שהעמודות קיימות (migration בטוחה)
+    _blob_cols_pg = [
+        ("img_original", "BYTEA"), ("img_thick_walls", "BYTEA"),
+        ("img_flooring_mask", "BYTEA"), ("img_skeleton", "BYTEA"),
+        ("img_concrete_mask", "BYTEA"), ("img_blocks_mask", "BYTEA"),
+    ]
     try:
         cur = conn.cursor()
         if DB_URL:
-            cur.execute("""
-                ALTER TABLE plans ADD COLUMN IF NOT EXISTS img_original BYTEA;
-            """)
-            cur.execute("""
-                ALTER TABLE plans ADD COLUMN IF NOT EXISTS img_thick_walls BYTEA;
-            """)
+            for col, col_type in _blob_cols_pg:
+                cur.execute(f"ALTER TABLE plans ADD COLUMN IF NOT EXISTS {col} {col_type};")
         else:
-            # SQLite — ADD COLUMN בוחן אם כבר קיים
             cur.execute("PRAGMA table_info(plans)")
-            cols = {row[1] for row in cur.fetchall()}
-            if "img_original" not in cols:
-                cur.execute("ALTER TABLE plans ADD COLUMN img_original BLOB")
-            if "img_thick_walls" not in cols:
-                cur.execute("ALTER TABLE plans ADD COLUMN img_thick_walls BLOB")
+            existing = {row[1] for row in cur.fetchall()}
+            for col, _ in _blob_cols_pg:
+                if col not in existing:
+                    cur.execute(f"ALTER TABLE plans ADD COLUMN {col} BLOB")
         conn.commit()
     except Exception as e:
         print(f"[DB] add blob columns warning: {e}")
@@ -604,16 +611,34 @@ def save_plan_images(filename: str, original_jpg: bytes, thick_walls_png: bytes)
         cur = conn.cursor()
         if DB_URL:
             cur.execute(
-                "UPDATE plans SET img_original=%s, img_thick_walls=%s WHERE filename=%s",
-                (original_jpg, thick_walls_png, filename)
+                """UPDATE plans SET
+                   img_original=%s, img_thick_walls=%s,
+                   img_flooring_mask=%s, img_skeleton=%s,
+                   img_concrete_mask=%s, img_blocks_mask=%s
+                   WHERE filename=%s""",
+                (original_jpg or None, thick_walls_png or None,
+                 flooring_mask_png or None, skeleton_png or None,
+                 concrete_mask_png or None, blocks_mask_png or None,
+                 filename)
             )
         else:
             cur.execute(
-                "UPDATE plans SET img_original=?, img_thick_walls=? WHERE filename=?",
-                (original_jpg, thick_walls_png, filename)
+                """UPDATE plans SET
+                   img_original=?, img_thick_walls=?,
+                   img_flooring_mask=?, img_skeleton=?,
+                   img_concrete_mask=?, img_blocks_mask=?
+                   WHERE filename=?""",
+                (original_jpg or None, thick_walls_png or None,
+                 flooring_mask_png or None, skeleton_png or None,
+                 concrete_mask_png or None, blocks_mask_png or None,
+                 filename)
             )
         conn.commit()
-        return cur.rowcount > 0
+        saved = cur.rowcount > 0
+        print(f"[DB-BLOB] save_plan_images: filename={filename} rowcount={cur.rowcount} "
+              f"orig={len(original_jpg or b'')}B walls={len(thick_walls_png or b'')}B "
+              f"flooring={len(flooring_mask_png or b'')}B")
+        return saved
     except Exception as e:
         print(f"[DB] save_plan_images error: {e}")
         return False
@@ -623,36 +648,36 @@ def save_plan_images(filename: str, original_jpg: bytes, thick_walls_png: bytes)
 
 def load_plan_images(filename: str):
     """
-    טוען תמונות מה-DB. מחזיר (original_jpg_bytes, thick_walls_png_bytes) או (None, None).
+    טוען את כל ה-masks מה-DB.
+    מחזיר tuple של 6: (original, thick_walls, flooring_mask, skeleton, concrete_mask, blocks_mask).
+    כל ערך הוא bytes או None.
     """
     conn = get_connection()
     if not conn:
-        return None, None
+        return None, None, None, None, None, None
     try:
         cur = conn.cursor()
-        if DB_URL:
-            cur.execute(
-                "SELECT img_original, img_thick_walls FROM plans WHERE filename=%s",
-                (filename,)
-            )
-        else:
-            cur.execute(
-                "SELECT img_original, img_thick_walls FROM plans WHERE filename=?",
-                (filename,)
-            )
+        query = """SELECT img_original, img_thick_walls,
+                          img_flooring_mask, img_skeleton,
+                          img_concrete_mask, img_blocks_mask
+                   FROM plans WHERE filename={ph}""".format(ph="%s" if DB_URL else "?")
+        cur.execute(query, (filename,))
         row = cur.fetchone()
         if not row:
-            return None, None
+            return None, None, None, None, None, None
+
+        def _b(v):
+            return bytes(v) if v else None
+
         if DB_URL:
-            orig = bytes(row["img_original"]) if row["img_original"] else None
-            walls = bytes(row["img_thick_walls"]) if row["img_thick_walls"] else None
+            return (_b(row["img_original"]), _b(row["img_thick_walls"]),
+                    _b(row["img_flooring_mask"]), _b(row["img_skeleton"]),
+                    _b(row["img_concrete_mask"]), _b(row["img_blocks_mask"]))
         else:
-            orig = bytes(row[0]) if row[0] else None
-            walls = bytes(row[1]) if row[1] else None
-        return orig, walls
+            return (_b(row[0]), _b(row[1]), _b(row[2]), _b(row[3]), _b(row[4]), _b(row[5]))
     except Exception as e:
         print(f"[DB] load_plan_images error: {e}")
-        return None, None
+        return None, None, None, None, None, None
     finally:
         conn.close()
 

@@ -159,7 +159,13 @@ def _safe_json_dumps(obj, **kwargs) -> str:
     return json.dumps(_strip(obj), cls=_NumpyEncoder, ensure_ascii=False, **kwargs)
 
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
 app = FastAPI(title="ConTech Analyzer API", version="1.0.0")
+
+# Thread pool for CPU-bound / blocking-IO work (keeps event loop free for /health)
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="contech-worker")
 
 # In-memory store, מחקה את st.session_state.projects עבור צד מנהל
 PROJECTS: Dict[str, Dict] = {}
@@ -466,22 +472,48 @@ def _ensure_arrays_loaded(proj: Dict) -> None:
         if arr is not None:
             proj["flooring_mask"] = arr
 
-    # ── שלב 2: אם עדיין חסר original/thick_walls — טען מ-DB BLOB ──
-    if proj.get("original") is None or proj.get("thick_walls") is None:
+    # ── שלב 2: טען כל masks חסרים מ-DB BLOB ──
+    _needs_blob = (
+        proj.get("original") is None or
+        proj.get("thick_walls") is None or
+        proj.get("flooring_mask") is None or
+        proj.get("skeleton") is None or
+        proj.get("concrete_mask") is None or
+        proj.get("blocks_mask") is None
+    )
+    if _needs_blob:
         filename = meta.get("filename") or meta.get("plan_id", "")
         if filename:
             try:
-                orig_bytes, walls_bytes = load_plan_images(filename)
+                (orig_bytes, walls_bytes, flooring_bytes,
+                 skeleton_bytes, concrete_bytes, blocks_bytes) = load_plan_images(filename)
+                _loaded = []
                 if proj.get("original") is None and orig_bytes:
                     img = _decode_color(orig_bytes)
                     if img is not None:
-                        proj["original"] = img
-                        print(f"[DB-BLOB] loaded original for {filename}")
+                        proj["original"] = img; _loaded.append("original")
                 if proj.get("thick_walls") is None and walls_bytes:
                     arr = _decode_gray(walls_bytes)
                     if arr is not None:
-                        proj["thick_walls"] = arr
-                        print(f"[DB-BLOB] loaded thick_walls for {filename}")
+                        proj["thick_walls"] = arr; _loaded.append("thick_walls")
+                if proj.get("flooring_mask") is None and flooring_bytes:
+                    arr = _decode_gray(flooring_bytes)
+                    if arr is not None:
+                        proj["flooring_mask"] = arr; _loaded.append("flooring_mask")
+                if proj.get("skeleton") is None and skeleton_bytes:
+                    arr = _decode_gray(skeleton_bytes)
+                    if arr is not None:
+                        proj["skeleton"] = arr; _loaded.append("skeleton")
+                if proj.get("concrete_mask") is None and concrete_bytes:
+                    arr = _decode_gray(concrete_bytes)
+                    if arr is not None:
+                        proj["concrete_mask"] = arr; _loaded.append("concrete_mask")
+                if proj.get("blocks_mask") is None and blocks_bytes:
+                    arr = _decode_gray(blocks_bytes)
+                    if arr is not None:
+                        proj["blocks_mask"] = arr; _loaded.append("blocks_mask")
+                if _loaded:
+                    print(f"[DB-BLOB] loaded from DB for {filename}: {_loaded}")
             except Exception as e:
                 print(f"[DB-BLOB] load_plan_images failed for {filename}: {e}")
 
@@ -1709,6 +1741,9 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
     filename = file.filename or os.path.basename(tmp_path)
 
     try:
+        loop = asyncio.get_event_loop()
+
+        # ── CPU-bound: PDF render + OpenCV analysis (runs in thread, frees event loop) ──
         analyzer = FloorPlanAnalyzer()
         (
             pix,
@@ -1720,7 +1755,10 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             blocks_mask,
             flooring,
             debug_img,
-        ) = analyzer.process_file(tmp_path, save_debug=False, crop_bbox=None)
+        ) = await loop.run_in_executor(
+            _executor,
+            lambda: analyzer.process_file(tmp_path, save_debug=False, crop_bbox=None)
+        )
 
         meta_clean = clean_metadata_for_json(meta)
         meta_clean["filename"] = filename
@@ -1740,10 +1778,12 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
                 if key not in meta_clean:
                     meta_clean[key] = value
 
-        # ── Vision analysis (Claude claude-sonnet-4-6, 300 DPI, tool_use) ────────────
+        # ── Vision analysis — blocking HTTP to Anthropic (runs in thread) ────────────
         try:
             from .vision_analyzer import analyze_plan_with_vision
-            vision_data = analyze_plan_with_vision(tmp_path)
+            vision_data = await loop.run_in_executor(
+                _executor, analyze_plan_with_vision, tmp_path
+            )
             if vision_data:
                 # חדרים מהויזן → llm_rooms (מקור עיקרי ל-floor_extractor)
                 if vision_data.get("rooms"):
@@ -1829,18 +1869,26 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             meta_clean["_asset_blocks_mask_path"] = assets.get("blocks_mask_path", "")
             meta_clean["_asset_flooring_mask_path"] = assets.get("flooring_mask_path", "")
 
-            # שמירת bytes לשימוש מאוחר יותר (אחרי INSERT ל-DB)
+            # שמירת bytes לשימוש מאוחר יותר (אחרי INSERT ל-DB) — כל ה-masks
             try:
-                orig_path = assets.get("original_path", "")
-                walls_path = assets.get("thick_walls_path", "")
-                if orig_path and os.path.exists(orig_path):
-                    with open(orig_path, "rb") as _f:
-                        _orig_jpg_bytes_for_blob = _f.read()
-                if walls_path and os.path.exists(walls_path):
-                    with open(walls_path, "rb") as _f:
-                        _walls_png_bytes_for_blob = _f.read()
+                def _read_asset(key: str) -> bytes:
+                    p = assets.get(key, "")
+                    if p and os.path.exists(p):
+                        with open(p, "rb") as _f:
+                            return _f.read()
+                    return b""
+                _orig_jpg_bytes_for_blob = _read_asset("original_path")
+                _walls_png_bytes_for_blob = _read_asset("thick_walls_path")
+                _flooring_bytes_for_blob = _read_asset("flooring_mask_path")
+                _skeleton_bytes_for_blob = _read_asset("skeleton_path")
+                _concrete_bytes_for_blob = _read_asset("concrete_mask_path")
+                _blocks_bytes_for_blob = _read_asset("blocks_mask_path")
             except Exception as _read_err:
                 print(f"[DB-BLOB] read asset files failed: {_read_err}")
+                _flooring_bytes_for_blob = b""
+                _skeleton_bytes_for_blob = b""
+                _concrete_bytes_for_blob = b""
+                _blocks_bytes_for_blob = b""
         except Exception:
             assets = {}
 
@@ -1868,17 +1916,18 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
         }
         _persist_plan_to_database(plan_id, PROJECTS[plan_id])
 
-        # ── שמירת תמונות כ-BLOB ב-DB (אחרי INSERT, שרידות בין restarts) ──
+        # ── שמירת כל ה-masks כ-BLOB ב-DB (אחרי INSERT, שרידות בין restarts ו-workers) ──
         try:
             if _orig_jpg_bytes_for_blob or _walls_png_bytes_for_blob:
                 save_plan_images(
                     filename,
                     _orig_jpg_bytes_for_blob or b"",
                     _walls_png_bytes_for_blob or b"",
+                    flooring_mask_png=_flooring_bytes_for_blob or b"",
+                    skeleton_png=_skeleton_bytes_for_blob or b"",
+                    concrete_mask_png=_concrete_bytes_for_blob or b"",
+                    blocks_mask_png=_blocks_bytes_for_blob or b"",
                 )
-                print(f"[DB-BLOB] saved images for {filename} "
-                      f"(orig={len(_orig_jpg_bytes_for_blob or b'')}B, "
-                      f"walls={len(_walls_png_bytes_for_blob or b'')}B)")
         except Exception as _blob_err:
             print(f"[DB-BLOB] save_plan_images failed: {_blob_err}")
 

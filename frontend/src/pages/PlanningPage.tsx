@@ -1436,7 +1436,9 @@ export const PlanningPage: React.FC = () => {
                 {/* No segments found */}
                 {autoSegments !== null && autoSegments.length === 0 && (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-                    לא זוהו אזורים. ייתכן שהתוכנית לא עובדה עדיין — נסה להעלות ולנתח בסדנת עבודה.
+                    <div className="font-semibold mb-1">לא זוהו קירות/אזורים בתמונה.</div>
+                    <div>ייתכן שהתוכנית לא עובדה עדיין — נסה להעלות ולנתח בסדנת עבודה.</div>
+                    {autoVisionData && <div className="mt-2 text-amber-700">נתוני Vision שחולצו בעת ההעלאה מוצגים למטה.</div>}
                   </div>
                 )}
 

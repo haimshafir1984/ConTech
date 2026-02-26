@@ -2709,6 +2709,38 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         _ensure_arrays_loaded(proj)
         scale_px_per_meter = float(get_scale_with_fallback(proj, default_scale=200.0))
 
+        # ── Build vision_data early so ALL return paths include it ────────────
+        def _build_vision_data(p: Dict) -> Optional[AutoAnalyzeVisionData]:
+            m = p.get("metadata") or {}
+            vd = AutoAnalyzeVisionData(
+                rooms=m.get("llm_rooms"),
+                dimensions=m.get("vision_dimensions"),
+                dimensions_structured=m.get("vision_dimensions_structured"),
+                materials=m.get("vision_materials"),
+                materials_legend=m.get("vision_materials_legend"),
+                elements=m.get("vision_elements"),
+                elevations=m.get("vision_elevations"),
+                grid_lines=m.get("vision_grid_lines"),
+                systems=m.get("vision_systems"),
+                total_area_m2=m.get("vision_total_area_m2"),
+                plan_title=m.get("plan_title"),
+                project_name=m.get("project_name"),
+                sheet_number=m.get("sheet_number"),
+                sheet_name=m.get("sheet_name"),
+                status=m.get("status"),
+                architect=m.get("architect"),
+                date=m.get("date"),
+                scale=m.get("scale_text"),
+                execution_notes=m.get("execution_notes"),
+            )
+            has_vision = any([
+                vd.rooms, vd.dimensions, vd.materials,
+                vd.elements, vd.total_area_m2,
+            ])
+            return vd if has_vision else None
+
+        vision_data = _build_vision_data(proj)
+
         walls = proj.get("thick_walls")
 
         if not (isinstance(walls, np.ndarray) and walls.size > 0):
@@ -2717,7 +2749,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             walls_nonzero = int(np.count_nonzero(walls)) if isinstance(walls, np.ndarray) else -1
             print(f"[auto-analyze] EMPTY: plan={filename_dbg} thick_walls={type(walls).__name__} nonzero={walls_nonzero} "
                   f"has_skel={proj.get('skeleton') is not None} has_orig={proj.get('original') is not None}")
-            return AutoAnalyzeResponse(segments=[])
+            return AutoAnalyzeResponse(segments=[], vision_data=vision_data)
 
         binary = (walls > 0).astype(np.uint8)
         img_area = binary.shape[0] * binary.shape[1]
@@ -2741,7 +2773,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                 skeleton = (skeleton > 0).astype(np.uint8)
             except Exception as _se:
                 print(f"[auto-analyze] skeletonize fallback failed: {_se}")
-                return AutoAnalyzeResponse(segments=[])
+                return AutoAnalyzeResponse(segments=[], vision_data=vision_data)
 
         # ── Step 2: Detect branch points (junction pixels with ≥3 neighbours) ─
         neighbor_sum = cv2.filter2D(
@@ -2896,38 +2928,9 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         print(f"[auto-analyze] plan={plan_id} skel_labels={total_skel_labels} "
               f"walls={len(walls_out)} fixtures={len(fixtures_out)} img_area={img_area}")
 
-        # ── Attach Vision data (extracted by Claude Vision during upload) ──────
-        meta = proj.get("metadata") or {}
-        vision_data = AutoAnalyzeVisionData(
-            rooms=meta.get("llm_rooms"),
-            dimensions=meta.get("vision_dimensions"),
-            dimensions_structured=meta.get("vision_dimensions_structured"),
-            materials=meta.get("vision_materials"),
-            materials_legend=meta.get("vision_materials_legend"),
-            elements=meta.get("vision_elements"),
-            elevations=meta.get("vision_elevations"),
-            grid_lines=meta.get("vision_grid_lines"),
-            systems=meta.get("vision_systems"),
-            total_area_m2=meta.get("vision_total_area_m2"),
-            plan_title=meta.get("plan_title"),
-            project_name=meta.get("project_name"),
-            sheet_number=meta.get("sheet_number"),
-            sheet_name=meta.get("sheet_name"),
-            status=meta.get("status"),
-            architect=meta.get("architect"),
-            date=meta.get("date"),
-            scale=meta.get("scale_text"),
-            execution_notes=meta.get("execution_notes"),
-        )
-        # Only include vision_data if at least one field has content
-        has_vision = any([
-            vision_data.rooms, vision_data.dimensions, vision_data.materials,
-            vision_data.elements, vision_data.rooms, vision_data.total_area_m2,
-        ])
-
         return AutoAnalyzeResponse(
             segments=walls_out + fixtures_out,
-            vision_data=vision_data if has_vision else None,
+            vision_data=vision_data,
         )
 
     except HTTPException:

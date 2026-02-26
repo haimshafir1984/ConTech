@@ -688,7 +688,7 @@ export const PlanningPage: React.FC = () => {
   };
 
   const handleSaveCategories = async () => {
-    if (!selectedPlanId) return;
+    if (!selectedPlanId || loading) return;
     setLoading(true);
     try {
       const state = await upsertPlanningCategories(selectedPlanId, categoriesDraft);
@@ -701,7 +701,7 @@ export const PlanningPage: React.FC = () => {
 
   // ── Assign pending shapes to a category ──
   const handleAssignCategory = async (categoryKey: string) => {
-    if (!selectedPlanId || pendingShapes.length === 0) return;
+    if (!selectedPlanId || pendingShapes.length === 0 || loading) return;
     setCategoryPickerOpen(false);
     setLoading(true);
     try {

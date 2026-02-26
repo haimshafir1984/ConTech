@@ -92,7 +92,12 @@ function printBoqReport(
   </body></html>`;
 
   const w = window.open("", "_blank");
-  if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 800); }
+  if (w) {
+    w.document.write(html);
+    w.document.close();
+    // Use the opened window's own setTimeout so the timer belongs to that window's lifecycle
+    w.setTimeout(() => { if (!w.closed) w.print(); }, 800);
+  }
 }
 
 // ─── Mini bar chart ───────────────────────────────────────────────────────────

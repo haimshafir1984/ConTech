@@ -22,9 +22,10 @@ interface ZoomCanvasProps {
   overlayUrl: string;
   onImageLoad?: (w: number, h: number) => void;
   overlayLoading?: boolean;
+  onOverlayLoad?: () => void;
 }
 
-const ZoomCanvas: React.FC<ZoomCanvasProps> = ({ imageUrl, overlayUrl, onImageLoad, overlayLoading }) => {
+const ZoomCanvas: React.FC<ZoomCanvasProps> = ({ imageUrl, overlayUrl, onImageLoad, overlayLoading, onOverlayLoad }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = React.useState(1);
   const [pan, setPan] = React.useState({ x: 0, y: 0 });
@@ -93,6 +94,8 @@ const ZoomCanvas: React.FC<ZoomCanvasProps> = ({ imageUrl, overlayUrl, onImageLo
             alt="overlay"
             draggable={false}
             style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", userSelect: "none" }}
+            onLoad={() => onOverlayLoad?.()}
+            onError={() => onOverlayLoad?.()}
           />
           {overlayLoading && (
             <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14 }}>
@@ -208,6 +211,7 @@ export const WorkshopPage: React.FC = () => {
   const [overlayVersion, setOverlayVersion] = React.useState(0);
   const [overlayLoading, setOverlayLoading] = React.useState(false);
   const [analysisStatus, setAnalysisStatus] = React.useState<string | null>(null);
+  const analysisStatusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadPlans = React.useCallback(async () => {
     try {
@@ -242,6 +246,21 @@ export const WorkshopPage: React.FC = () => {
         setError("שגיאה בטעינת נתוני סדנת עבודה.");
       }
     }
+  }, []);
+
+  // cleanup analysisStatus timer on unmount
+  React.useEffect(() => {
+    return () => {
+      if (analysisStatusTimerRef.current !== null) clearTimeout(analysisStatusTimerRef.current);
+    };
+  }, []);
+
+  const scheduleStatusClear = React.useCallback((ms: number) => {
+    if (analysisStatusTimerRef.current !== null) clearTimeout(analysisStatusTimerRef.current);
+    analysisStatusTimerRef.current = setTimeout(() => {
+      setAnalysisStatus(null);
+      analysisStatusTimerRef.current = null;
+    }, ms);
   }, []);
 
   React.useEffect(() => { void loadPlans(); }, [loadPlans]);
@@ -359,7 +378,7 @@ export const WorkshopPage: React.FC = () => {
     } finally {
       setIsLoading(false);
       setUploadProgress(null);
-      window.setTimeout(() => setAnalysisStatus(null), 3000);
+      scheduleStatusClear(3000);
     }
   };
 
@@ -395,7 +414,7 @@ export const WorkshopPage: React.FC = () => {
       }
     } finally {
       setIsLoading(false);
-      window.setTimeout(() => setAnalysisStatus(null), 2000);
+      scheduleStatusClear(2000);
     }
   };
 
@@ -640,6 +659,7 @@ export const WorkshopPage: React.FC = () => {
             imageUrl={imageUrl}
             overlayUrl={overlayUrl}
             overlayLoading={overlayLoading}
+            onOverlayLoad={() => setOverlayLoading(false)}
           />
 
           {/* Tabs */}

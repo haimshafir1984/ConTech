@@ -345,23 +345,31 @@ export const WorkerPage: React.FC = () => {
     if (!selectedPlanId && list.length > 0) setSelectedPlanId(list[0].id);
   }, [selectedPlanId]);
 
-  const loadReports = React.useCallback(async () => {
-    if (!selectedPlanId) return;
-    const data = await listWorkerReports(selectedPlanId);
-    setReports(data);
-  }, [selectedPlanId]);
+  const loadReports = React.useCallback(async (guardPlanId: string) => {
+    if (!guardPlanId) return;
+    const data = await listWorkerReports(guardPlanId);
+    // Only update if planId hasn't changed while the request was in-flight
+    setSelectedPlanId(current => {
+      if (current === guardPlanId) setReports(data);
+      return current;
+    });
+  }, []);
 
   React.useEffect(() => { void loadPlans().catch(console.error); }, [loadPlans]);
-  React.useEffect(() => { void loadReports().catch(console.error); }, [loadReports]);
+  React.useEffect(() => { void loadReports(selectedPlanId).catch(console.error); }, [loadReports, selectedPlanId]);
 
   React.useEffect(() => {
     if (!selectedPlanId) { setSections([]); setSelectedSectionUid(""); return; }
+    let cancelled = false;
     getPlanningState(selectedPlanId)
       .then(state => {
-        setSections(state.sections ?? []);
-        setSelectedSectionUid("");
+        if (!cancelled) {
+          setSections(state.sections ?? []);
+          setSelectedSectionUid("");
+        }
       })
-      .catch(() => setSections([]));
+      .catch(() => { if (!cancelled) setSections([]); });
+    return () => { cancelled = true; };
   }, [selectedPlanId]);
 
   const handleDrawComplete = async (payload: { object_type: DrawMode; raw_object: Record<string, unknown> }) => {
@@ -398,7 +406,7 @@ export const WorkerPage: React.FC = () => {
       await createWorkerReport({ plan_id: selectedPlanId, date: reportDate, shift, report_type: reportType, draw_mode: drawMode, items, note });
       setItems([]);
       setNote("");
-      await loadReports();
+      await loadReports(selectedPlanId);
       toast("הדיווח נשמר בהצלחה");
     } catch (e) {
       console.error(e);

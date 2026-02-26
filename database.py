@@ -86,11 +86,19 @@ def init_database():
         ("materials_json", "TEXT"),
         ("img_original", "BYTEA"),
         ("img_thick_walls", "BYTEA"),
+        ("img_flooring_mask", "BYTEA"),
+        ("img_skeleton", "BYTEA"),
+        ("img_concrete_mask", "BYTEA"),
+        ("img_blocks_mask", "BYTEA"),
     ]
     _missing_cols_sqlite = [
         ("materials_json", "TEXT"),
         ("img_original", "BLOB"),
         ("img_thick_walls", "BLOB"),
+        ("img_flooring_mask", "BLOB"),
+        ("img_skeleton", "BLOB"),
+        ("img_concrete_mask", "BLOB"),
+        ("img_blocks_mask", "BLOB"),
     ]
     try:
         conn2 = get_connection()
@@ -655,6 +663,28 @@ def load_plan_images(filename: str):
     conn = get_connection()
     if not conn:
         return None, None, None, None, None, None
+
+    # וודא שכל עמודות ה-BLOB קיימות לפני ה-SELECT (migration בטוחה)
+    _blob_cols_pg = [
+        ("img_original", "BYTEA"), ("img_thick_walls", "BYTEA"),
+        ("img_flooring_mask", "BYTEA"), ("img_skeleton", "BYTEA"),
+        ("img_concrete_mask", "BYTEA"), ("img_blocks_mask", "BYTEA"),
+    ]
+    try:
+        cur = conn.cursor()
+        if DB_URL:
+            for col, col_type in _blob_cols_pg:
+                cur.execute(f"ALTER TABLE plans ADD COLUMN IF NOT EXISTS {col} {col_type};")
+        else:
+            cur.execute("PRAGMA table_info(plans)")
+            existing = {row[1] for row in cur.fetchall()}
+            for col, _ in _blob_cols_pg:
+                if col not in existing:
+                    cur.execute(f"ALTER TABLE plans ADD COLUMN {col} BLOB")
+        conn.commit()
+    except Exception as e:
+        print(f"[DB] load_plan_images add-columns warning: {e}")
+
     try:
         cur = conn.cursor()
         query = """SELECT img_original, img_thick_walls,

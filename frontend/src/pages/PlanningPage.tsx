@@ -557,6 +557,7 @@ export const PlanningPage: React.FC = () => {
   // ── Auto-analyze state ──
   const [autoSegments, setAutoSegments] = React.useState<AutoSegment[] | null>(null);
   const [autoVisionData, setAutoVisionData] = React.useState<AutoAnalyzeVisionData | null>(null);
+  const [visionActiveCard, setVisionActiveCard] = React.useState<string | null>(null);
   const [autoLoading, setAutoLoading] = React.useState(false);
   const [autoSelected, setAutoSelected] = React.useState<Set<string>>(new Set());
   const [autoConfirmedKeys, setAutoConfirmedKeys] = React.useState<Record<string, string>>({}); // segId→catKey
@@ -954,6 +955,7 @@ export const PlanningPage: React.FC = () => {
       const result = await autoAnalyzePlan(selectedPlanId);
       setAutoSegments(result.segments);
       setAutoVisionData(result.vision_data ?? null);
+      setVisionActiveCard(null);
       // Pre-select all
       setAutoSelected(new Set(result.segments.map(s => s.segment_id)));
       // Pre-fill category keys: find best match for walls; leave blank for fixtures
@@ -1002,6 +1004,7 @@ export const PlanningPage: React.FC = () => {
       setPlanningState(lastState);
       setAutoSegments(null);
       setAutoVisionData(null);
+      setVisionActiveCard(null);
       setAutoSelected(new Set());
       setError("");
     } catch (e) {
@@ -1622,16 +1625,50 @@ export const PlanningPage: React.FC = () => {
                   </>
                 )}
 
-                {/* Vision Data Panel — shown whenever vision_data is available */}
+                {/* Vision Data Panel — Summary Cards + Detail Panel */}
                 {autoVisionData && (() => {
                   const vd = autoVisionData;
-                  const hasRooms = vd.rooms && vd.rooms.length > 0;
-                  const hasElements = vd.elements && vd.elements.length > 0;
-                  const hasMaterials = vd.materials && vd.materials.length > 0;
-                  const hasDims = vd.dimensions && vd.dimensions.length > 0;
-                  const hasSystems = vd.systems && Object.keys(vd.systems).length > 0;
-                  const hasNotes = vd.execution_notes && vd.execution_notes.length > 0;
+                  const hasRooms = !!(vd.rooms && vd.rooms.length > 0);
+                  const hasElements = !!(vd.elements && vd.elements.length > 0);
+                  const hasMaterials = !!(vd.materials && vd.materials.length > 0);
+                  const hasDims = !!(vd.dimensions && vd.dimensions.length > 0);
+                  const hasSystems = !!(vd.systems && Object.keys(vd.systems).length > 0);
+                  const hasNotes = !!(vd.execution_notes && vd.execution_notes.length > 0);
                   if (!hasRooms && !hasElements && !hasMaterials && !hasDims && !hasSystems && !hasNotes) return null;
+
+                  // Group elements by type
+                  const elementGroups: Record<string, Array<{ type: string; id?: string; location?: string; notes?: string }>> = {};
+                  if (vd.elements) {
+                    for (const el of vd.elements) {
+                      const key = el.type || "אחר";
+                      if (!elementGroups[key]) elementGroups[key] = [];
+                      elementGroups[key].push(el);
+                    }
+                  }
+
+                  const elementIcon = (type: string) => {
+                    const t = type.toLowerCase();
+                    if (t.includes("דלת")) return "🚪";
+                    if (t.includes("חלון")) return "🪟";
+                    if (t.includes("עמוד")) return "🏛️";
+                    if (t.includes("מדרגות") || t.includes("מדרגה")) return "🪜";
+                    if (t.includes("מעלית")) return "🛗";
+                    if (t.includes("שירותים")) return "🚽";
+                    if (t.includes("מקלחת") || t.includes("אמבט")) return "🚿";
+                    return "📌";
+                  };
+
+                  const cards = [
+                    hasRooms    ? { id: "rooms",      icon: "🏠", label: "חדרים",        count: vd.rooms!.length,                        color: "#EFF6FF", border: "#BFDBFE", text: "#1E40AF" } : null,
+                    hasElements ? { id: "elements",   icon: "🔧", label: "אלמנטים",      count: vd.elements!.length,                     color: "#F0FDF4", border: "#BBF7D0", text: "#166534" } : null,
+                    hasMaterials? { id: "materials",  icon: "🧱", label: "חומרים",        count: vd.materials!.length,                    color: "#FFF7ED", border: "#FED7AA", text: "#9A3412" } : null,
+                    hasDims     ? { id: "dimensions", icon: "📏", label: "מידות",         count: vd.dimensions!.length,                   color: "#FAF5FF", border: "#E9D5FF", text: "#6B21A8" } : null,
+                    hasSystems  ? { id: "systems",    icon: "⚙️", label: "מערכות",        count: Object.keys(vd.systems!).length,         color: "#F8FAFC", border: "#CBD5E1", text: "#334155" } : null,
+                    hasNotes    ? { id: "notes",      icon: "📝", label: "הערות ביצוע",   count: vd.execution_notes!.length,              color: "#FFFBEB", border: "#FDE68A", text: "#92400E" } : null,
+                  ].filter(Boolean) as Array<{ id: string; icon: string; label: string; count: number; color: string; border: string; text: string }>;
+
+                  const active = visionActiveCard ?? (cards[0]?.id ?? null);
+
                   return (
                     <div style={{ marginTop: 20, borderTop: "2px solid #E2E8F0", paddingTop: 16 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, color: "#1B3A6B", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
@@ -1640,118 +1677,164 @@ export const PlanningPage: React.FC = () => {
 
                       {/* Title-block info */}
                       {(vd.plan_title || vd.project_name || vd.scale || vd.architect || vd.date || vd.sheet_number) && (
-                        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 13 }}>
+                        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
                           <div style={{ fontWeight: 600, color: "#475569", marginBottom: 6 }}>פרטי תוכנית</div>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
-                            {vd.plan_title && <div><span style={{ color: "#94A3B8" }}>כותרת: </span>{vd.plan_title}</div>}
+                            {vd.plan_title   && <div><span style={{ color: "#94A3B8" }}>כותרת: </span>{vd.plan_title}</div>}
                             {vd.project_name && <div><span style={{ color: "#94A3B8" }}>פרויקט: </span>{vd.project_name}</div>}
-                            {vd.scale && <div><span style={{ color: "#94A3B8" }}>קנ"מ: </span>{vd.scale}</div>}
-                            {vd.architect && <div><span style={{ color: "#94A3B8" }}>אדריכל: </span>{vd.architect}</div>}
-                            {vd.date && <div><span style={{ color: "#94A3B8" }}>תאריך: </span>{vd.date}</div>}
+                            {vd.scale        && <div><span style={{ color: "#94A3B8" }}>קנ"מ: </span>{vd.scale}</div>}
+                            {vd.architect    && <div><span style={{ color: "#94A3B8" }}>אדריכל: </span>{vd.architect}</div>}
+                            {vd.date         && <div><span style={{ color: "#94A3B8" }}>תאריך: </span>{vd.date}</div>}
                             {vd.sheet_number && <div><span style={{ color: "#94A3B8" }}>מספר דף: </span>{vd.sheet_number}</div>}
                             {vd.total_area_m2 && <div><span style={{ color: "#94A3B8" }}>שטח כולל: </span>{vd.total_area_m2} מ"ר</div>}
-                            {vd.status && <div><span style={{ color: "#94A3B8" }}>סטטוס: </span>{vd.status}</div>}
+                            {vd.status       && <div><span style={{ color: "#94A3B8" }}>סטטוס: </span>{vd.status}</div>}
                           </div>
                         </div>
                       )}
 
-                      {/* Rooms */}
-                      {hasRooms && (
-                        <div style={{ marginBottom: 14 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", marginBottom: 6 }}>חדרים / מרחבים ({vd.rooms!.length})</div>
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                            <thead>
-                              <tr style={{ background: "#F1F5F9" }}>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>שם</th>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>שטח</th>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>מידות</th>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>ריצוף</th>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>הגובה</th>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>הערות</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {vd.rooms!.map((r, i) => (
-                                <tr key={i} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                                  <td style={{ padding: "5px 8px", fontWeight: 600 }}>{r.name}</td>
-                                  <td style={{ padding: "5px 8px" }}>{r.area_m2 ? `${r.area_m2} מ"ר` : "—"}</td>
-                                  <td style={{ padding: "5px 8px" }}>{r.dimensions ?? "—"}</td>
-                                  <td style={{ padding: "5px 8px" }}>{r.flooring ?? "—"}</td>
-                                  <td style={{ padding: "5px 8px" }}>{r.ceiling_height_m ? `${r.ceiling_height_m} מ'` : "—"}</td>
-                                  <td style={{ padding: "5px 8px", color: "#64748B" }}>{r.notes ?? "—"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-
-                      {/* Elements (doors, windows, etc.) */}
-                      {hasElements && (
-                        <div style={{ marginBottom: 14 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", marginBottom: 6 }}>אלמנטים ({vd.elements!.length})</div>
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                            <thead>
-                              <tr style={{ background: "#F1F5F9" }}>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>סוג</th>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>מזהה</th>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>מיקום</th>
-                                <th style={{ textAlign: "right", padding: "5px 8px", borderBottom: "1px solid #E2E8F0" }}>הערות</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {vd.elements!.map((el, i) => (
-                                <tr key={i} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                                  <td style={{ padding: "5px 8px", fontWeight: 600 }}>{el.type}</td>
-                                  <td style={{ padding: "5px 8px" }}>{el.id ?? "—"}</td>
-                                  <td style={{ padding: "5px 8px" }}>{el.location ?? "—"}</td>
-                                  <td style={{ padding: "5px 8px", color: "#64748B" }}>{el.notes ?? "—"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-
-                      {/* Materials + Dimensions + Systems in 3 columns */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-                        {hasMaterials && (
-                          <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
-                            <div style={{ fontWeight: 600, fontSize: 12, color: "#475569", marginBottom: 6 }}>חומרים</div>
-                            {vd.materials!.map((m, i) => (
-                              <div key={i} style={{ fontSize: 12, color: "#334155", padding: "2px 0" }}>• {m}</div>
-                            ))}
-                          </div>
-                        )}
-                        {hasDims && (
-                          <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
-                            <div style={{ fontWeight: 600, fontSize: 12, color: "#475569", marginBottom: 6 }}>מידות שנמצאו</div>
-                            {vd.dimensions!.slice(0, 10).map((d, i) => (
-                              <div key={i} style={{ fontSize: 12, color: "#334155", padding: "2px 0" }}>• {d}</div>
-                            ))}
-                            {vd.dimensions!.length > 10 && (
-                              <div style={{ fontSize: 11, color: "#94A3B8" }}>ועוד {vd.dimensions!.length - 10}...</div>
-                            )}
-                          </div>
-                        )}
-                        {hasSystems && (
-                          <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
-                            <div style={{ fontWeight: 600, fontSize: 12, color: "#475569", marginBottom: 6 }}>מערכות</div>
-                            {Object.entries(vd.systems!).map(([k, v]) => v ? (
-                              <div key={k} style={{ fontSize: 12, color: "#334155", padding: "2px 0" }}>
-                                <span style={{ color: "#94A3B8" }}>{k}: </span>{String(v)}
-                              </div>
-                            ) : null)}
-                          </div>
-                        )}
+                      {/* Summary cards */}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+                        {cards.map(card => (
+                          <button
+                            key={card.id}
+                            type="button"
+                            onClick={() => setVisionActiveCard(card.id)}
+                            style={{
+                              background: active === card.id ? card.color : "#fff",
+                              border: `2px solid ${active === card.id ? card.border : "#E2E8F0"}`,
+                              borderRadius: 10,
+                              padding: "10px 18px",
+                              cursor: "pointer",
+                              textAlign: "center",
+                              minWidth: 84,
+                              transition: "all 0.15s",
+                              boxShadow: active === card.id ? `0 2px 8px ${card.border}88` : "none",
+                            }}
+                          >
+                            <div style={{ fontSize: 22, marginBottom: 2 }}>{card.icon}</div>
+                            <div style={{ fontWeight: 700, fontSize: 18, color: active === card.id ? card.text : "#1E293B" }}>{card.count}</div>
+                            <div style={{ fontSize: 11, color: active === card.id ? card.text : "#64748B", fontWeight: 600 }}>{card.label}</div>
+                          </button>
+                        ))}
                       </div>
 
-                      {/* Execution notes */}
-                      {hasNotes && (
-                        <div style={{ marginTop: 12, background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px" }}>
-                          <div style={{ fontWeight: 600, fontSize: 12, color: "#92400E", marginBottom: 4 }}>הערות ביצוע</div>
+                      {/* Detail panel — Rooms */}
+                      {active === "rooms" && hasRooms && (
+                        <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: 14 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#1E40AF", marginBottom: 10 }}>🏠 חדרים / מרחבים ({vd.rooms!.length})</div>
+                          <div style={{ overflowX: "auto" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                              <thead>
+                                <tr style={{ background: "#DBEAFE" }}>
+                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>שם</th>
+                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>שטח</th>
+                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>מידות</th>
+                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>ריצוף</th>
+                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>גובה</th>
+                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>הערות</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {vd.rooms!.map((r, i) => (
+                                  <tr key={i} style={{ borderBottom: "1px solid #DBEAFE", background: i % 2 === 0 ? "#fff" : "#EFF6FF" }}>
+                                    <td style={{ padding: "6px 8px", fontWeight: 600, color: "#1E40AF" }}>{r.name || "—"}</td>
+                                    <td style={{ padding: "6px 8px" }}>{r.area_m2 ? `${r.area_m2} מ"ר` : "—"}</td>
+                                    <td style={{ padding: "6px 8px" }}>{r.dimensions ?? "—"}</td>
+                                    <td style={{ padding: "6px 8px" }}>{r.flooring ?? "—"}</td>
+                                    <td style={{ padding: "6px 8px" }}>{r.ceiling_height_m ? `${r.ceiling_height_m} מ'` : "—"}</td>
+                                    <td style={{ padding: "6px 8px", color: "#64748B" }}>{r.notes ?? "—"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Detail panel — Elements (grouped by type) */}
+                      {active === "elements" && hasElements && (
+                        <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: 14 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#166534", marginBottom: 10 }}>🔧 אלמנטים ({vd.elements!.length} סה"כ, {Object.keys(elementGroups).length} סוגים)</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
+                            {Object.entries(elementGroups).map(([type, items]) => (
+                              <div key={type} style={{ background: "#fff", border: "1px solid #BBF7D0", borderRadius: 8, padding: "10px 12px" }}>
+                                <div style={{ fontWeight: 700, fontSize: 13, color: "#15803D", marginBottom: 6 }}>
+                                  {elementIcon(type)} {type} <span style={{ fontWeight: 400, color: "#86EFAC" }}>× {items.length}</span>
+                                </div>
+                                {items.map((el, i) => (
+                                  <div key={i} style={{ fontSize: 11, color: "#334155", padding: "3px 0", borderTop: i > 0 ? "1px solid #F0FDF4" : "none" }}>
+                                    {el.id && <span style={{ color: "#64748B", marginLeft: 4, fontWeight: 600 }}>{el.id}</span>}
+                                    {el.location && <span>{el.location}</span>}
+                                    {!el.id && !el.location && <span style={{ color: "#94A3B8" }}>ללא פרטים</span>}
+                                    {el.notes && <span style={{ color: "#94A3B8" }}> — {el.notes}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Detail panel — Materials */}
+                      {active === "materials" && hasMaterials && (
+                        <div style={{ background: "#FFF7ED", border: "1px solid #FED7AA", borderRadius: 10, padding: 14 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#9A3412", marginBottom: 10 }}>🧱 חומרים ({vd.materials!.length})</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 6 }}>
+                            {vd.materials!.map((m, i) => {
+                              const legend = vd.materials_legend?.find(l => l.description === m);
+                              return (
+                                <div key={i} style={{ background: "#fff", border: "1px solid #FED7AA", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "#431407" }}>
+                                  {legend?.symbol && <span style={{ fontWeight: 700, marginLeft: 6, color: "#EA580C" }}>{legend.symbol}</span>}
+                                  {m}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {vd.materials_legend && vd.materials_legend.length > 0 && (
+                            <div style={{ marginTop: 10, fontSize: 11, color: "#9A3412" }}>
+                              מקרא: {vd.materials_legend.map(l => l.symbol ? `${l.symbol}=${l.description}` : l.description).filter(Boolean).join(" | ")}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Detail panel — Dimensions */}
+                      {active === "dimensions" && hasDims && (
+                        <div style={{ background: "#FAF5FF", border: "1px solid #E9D5FF", borderRadius: 10, padding: 14 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#6B21A8", marginBottom: 10 }}>📏 מידות ({vd.dimensions!.length})</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 6 }}>
+                            {vd.dimensions!.map((d, i) => (
+                              <div key={i} style={{ background: "#fff", border: "1px solid #E9D5FF", borderRadius: 6, padding: "5px 10px", fontSize: 12, color: "#4C1D95", fontFamily: "monospace" }}>
+                                {d}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Detail panel — Systems */}
+                      {active === "systems" && hasSystems && (
+                        <div style={{ background: "#F8FAFC", border: "1px solid #CBD5E1", borderRadius: 10, padding: 14 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", marginBottom: 10 }}>⚙️ מערכות</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                            {Object.entries(vd.systems!).filter(([, v]) => v).map(([k, v]) => (
+                              <div key={k} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, padding: "8px 10px", fontSize: 12 }}>
+                                <span style={{ color: "#64748B", fontWeight: 600 }}>{k}: </span>
+                                <span style={{ color: "#1E293B" }}>{String(v)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Detail panel — Notes */}
+                      {active === "notes" && hasNotes && (
+                        <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 10, padding: 14 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "#92400E", marginBottom: 10 }}>📝 הערות ביצוע ({vd.execution_notes!.length})</div>
                           {vd.execution_notes!.map((n, i) => (
-                            <div key={i} style={{ fontSize: 12, color: "#78350F", padding: "2px 0" }}>• {n}</div>
+                            <div key={i} style={{ fontSize: 12, color: "#78350F", padding: "5px 0", borderBottom: i < vd.execution_notes!.length - 1 ? "1px solid #FDE68A" : "none" }}>
+                              {i + 1}. {n}
+                            </div>
                           ))}
                         </div>
                       )}

@@ -3,11 +3,52 @@
 @tailwind utilities;
 
 :root {
-  --primary: #ff4b4b;
-  --bg: #f0f2f6;
+  /* Legacy tokens (kept for compatibility) */
+  --primary: #2563EB;
+  --bg: #F1F5F9;
   --card-bg: #ffffff;
-  --text: #31333f;
-  --border: #e6e6ea;
+  --text: #0F172A;
+  --border: #E2E8F0;
+
+  /* Design system — navy */
+  --navy: #0D1F3C;
+  --navy-2: #1B3A6B;
+
+  /* Design system — blue */
+  --blue: #2563EB;
+  --blue-h: #1D4ED8;
+  --blue-50: #EFF6FF;
+  --blue-100: #DBEAFE;
+
+  /* Design system — green */
+  --green: #059669;
+  --green-50: #ECFDF5;
+
+  /* Design system — amber */
+  --amber: #D97706;
+  --amber-50: #FFFBEB;
+
+  /* Design system — red */
+  --red: #DC2626;
+  --red-50: #FEF2F2;
+
+  /* Design system — slate scale */
+  --s50: #F8FAFC;
+  --s100: #F1F5F9;
+  --s200: #E2E8F0;
+  --s300: #CBD5E1;
+  --s400: #94A3B8;
+  --s500: #64748B;
+  --s700: #334155;
+  --s900: #0F172A;
+
+  /* Shadows */
+  --sh1: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --sh2: 0 4px 16px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.03);
+
+  /* Border radius */
+  --r: 12px;
+  --r-sm: 8px;
 }
 
 body {
@@ -15,5 +56,23 @@ body {
   background-color: var(--bg);
   color: var(--text);
   font-family: 'Heebo', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Responsive helpers ── */
+.worker-main-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  flex: 1;
+  overflow: hidden;
+  min-height: 480px;
+}
+
+@media (max-width: 768px) {
+  .worker-main-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 44vw 1fr;
+    min-height: unset;
+    overflow: visible;
+  }
 }
 

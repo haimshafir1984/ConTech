@@ -59,17 +59,65 @@ const ZoomCanvas: React.FC<ZoomCanvasProps> = ({ imageUrl, overlayUrl, onImageLo
 
   const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
 
+  // ── Touch support (pan + pinch-to-zoom) ──
+  const lastPinchDistRef = React.useRef<number | null>(null);
+  const lastTouchPosRef = React.useRef<{ x: number; y: number } | null>(null);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+      lastPinchDistRef.current = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      lastTouchPosRef.current = null;
+    } else if (e.touches.length === 1) {
+      lastPinchDistRef.current = null;
+      lastTouchPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      setIsPanning(true);
+    }
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2 && lastPinchDistRef.current !== null) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const ratio = dist / lastPinchDistRef.current;
+      setZoom((z) => clampZoom(z * ratio));
+      lastPinchDistRef.current = dist;
+    } else if (e.touches.length === 1 && lastTouchPosRef.current) {
+      const t = e.touches[0];
+      const dx = t.clientX - lastTouchPosRef.current.x;
+      const dy = t.clientY - lastTouchPosRef.current.y;
+      lastTouchPosRef.current = { x: t.clientX, y: t.clientY };
+      setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+    }
+  };
+
+  const onTouchEnd = (e: React.TouchEvent) => {
+    e.preventDefault();
+    lastPinchDistRef.current = null;
+    lastTouchPosRef.current = null;
+    setIsPanning(false);
+  };
+
   return (
     <div className="relative bg-slate-100 rounded-xl overflow-hidden border border-slate-200" style={{ minHeight: 480 }}>
       <div
         ref={containerRef}
         className="w-full h-full overflow-hidden"
-        style={{ cursor: isPanning ? "grabbing" : "grab", minHeight: 480 }}
+        style={{ cursor: isPanning ? "grabbing" : "grab", minHeight: 480, touchAction: "none" }}
         onWheel={onWheel}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
       >
         <div
           style={{
@@ -161,24 +209,26 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading, compact }) =
   return (
     <div
       style={{
-        border: `2px dashed ${drag ? "#1B3A6B" : "#CBD5E1"}`,
-        borderRadius: 16,
-        padding: "40px 24px",
+        border: `2px dashed ${drag ? "var(--blue)" : "var(--s300)"}`,
+        borderRadius: "var(--r)",
+        padding: "44px 32px",
         textAlign: "center",
         cursor: "pointer",
-        background: drag ? "#EFF6FF" : "#F8FAFC",
+        background: drag ? "var(--blue-50)" : "var(--s50)",
         transition: "border-color 0.15s, background 0.15s",
+        marginBottom: 24,
       }}
       onClick={() => inputRef.current?.click()}
       onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
       onDragLeave={() => setDrag(false)}
       onDrop={handleDrop}
     >
-      <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
-      <p style={{ fontWeight: 700, fontSize: 15, color: "#1B3A6B", margin: 0 }}>
-        {isLoading ? "מעלה ומנתח..." : "גרור קובץ PDF לכאן"}
+      <div style={{ fontSize: 38, marginBottom: 10 }}>📄</div>
+      <p style={{ fontWeight: 700, fontSize: 15, color: drag ? "var(--blue)" : "var(--s900)", margin: 0 }}>
+        {isLoading ? "מעלה ומנתח..." : "גרור קובץ PDF לכאן להעלאה"}
       </p>
-      <p style={{ fontSize: 12, color: "#94A3B8", marginTop: 6 }}>או לחץ לבחירת קובץ · תוכניות בניה PDF</p>
+      <p style={{ fontSize: 13, color: "var(--s400)", marginTop: 6 }}>או לחץ לבחירת קובץ מהמחשב</p>
+      <p style={{ fontSize: 11, color: "var(--s300)", marginTop: 5 }}>PDF בלבד · מקסימום 50MB</p>
       <input
         ref={inputRef}
         id="workshop-upload-input"
@@ -553,49 +603,63 @@ export const WorkshopPage: React.FC = () => {
       {plansLoading && plans.length === 0 && <SkeletonGrid count={3} />}
 
       {plans.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 14 }}>
-          {plans.map((p) => {
-            const active = p.id === selectedPlanId;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setSelectedPlanId(p.id)}
-                style={{
-                  textAlign: "right",
-                  background: "#fff",
-                  border: active ? "2.5px solid #1B3A6B" : "1.5px solid #E2E8F0",
-                  borderRadius: 14,
-                  overflow: "hidden",
-                  cursor: "pointer",
-                  boxShadow: active ? "0 4px 16px rgba(27,58,107,0.15)" : "0 1px 4px rgba(0,0,0,0.06)",
-                  transition: "box-shadow 0.15s, border-color 0.15s",
-                  padding: 0,
-                }}
-              >
-                {/* Thumbnail */}
-                <div style={{ height: 120, background: "#F1F5F9", overflow: "hidden" }}>
-                  <img
-                    src={`${apiClient.defaults.baseURL}/manager/workshop/plans/${encodeURIComponent(p.id)}/image`}
-                    alt={p.plan_name}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-                  />
-                </div>
-                {/* Info */}
-                <div style={{ padding: "10px 12px" }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: "#1B3A6B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.plan_name}</div>
-                  <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
-                    {p.total_wall_length_m != null ? `${p.total_wall_length_m.toFixed(1)} מ' קירות` : "—"}
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.8px", color: "var(--s400)", marginBottom: 14 }}>
+            תוכניות קומה · {plans.length} קבצים
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 18 }}>
+            {plans.map((p) => {
+              const active = p.id === selectedPlanId;
+              const analyzed = p.total_wall_length_m != null && p.total_wall_length_m > 0;
+              const thumbBg = active
+                ? "linear-gradient(140deg, #EFF6FF, #DBEAFE)"
+                : analyzed
+                  ? "linear-gradient(140deg, #ECFDF5, #D1FAE5)"
+                  : "linear-gradient(140deg, #FFFBEB, #FEF3C7)";
+              const badgeColor = active ? "var(--blue)" : analyzed ? "var(--green)" : "var(--amber)";
+              const badgeLabel = active ? "✓ פעיל" : analyzed ? "✓ נותח" : "⏳ ממתין";
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setSelectedPlanId(p.id)}
+                  style={{
+                    textAlign: "right",
+                    background: "#fff",
+                    border: active ? "2px solid var(--blue)" : "1px solid var(--s200)",
+                    borderRadius: "var(--r)",
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    boxShadow: active ? "var(--sh2)" : "var(--sh1)",
+                    transition: "box-shadow 0.15s, border-color 0.15s, transform 0.15s",
+                    padding: 0,
+                  }}
+                  onMouseEnter={(e) => { if (!active) { (e.currentTarget as HTMLButtonElement).style.boxShadow = "var(--sh2)"; (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-2px)"; } }}
+                  onMouseLeave={(e) => { if (!active) { (e.currentTarget as HTMLButtonElement).style.boxShadow = "var(--sh1)"; (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)"; } }}
+                >
+                  {/* Thumbnail */}
+                  <div style={{ height: 136, background: thumbBg, overflow: "hidden", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <img
+                      src={`${apiClient.defaults.baseURL}/manager/workshop/plans/${encodeURIComponent(p.id)}/image`}
+                      alt={p.plan_name}
+                      style={{ width: "100%", height: "100%", objectFit: "cover", position: "absolute", inset: 0 }}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                    />
+                    <span style={{ fontSize: 44, opacity: 0.18 }}>🏛️</span>
+                    <span style={{ position: "absolute", top: 10, right: 10, background: badgeColor, color: "#fff", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 12 }}>{badgeLabel}</span>
                   </div>
-                  {active && (
-                    <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: "#fff", background: "#1B3A6B", borderRadius: 6, padding: "2px 8px", display: "inline-block" }}>✓ פעיל</div>
-                  )}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+                  {/* Info */}
+                  <div style={{ padding: "12px 14px" }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: "var(--s900)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>{p.plan_name}</div>
+                    <div style={{ fontSize: 11, color: "var(--s400)" }}>
+                      {p.total_wall_length_m != null ? `${p.total_wall_length_m.toFixed(1)} מ' קירות` : "טרם נותח"}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* ── Empty state ── */}

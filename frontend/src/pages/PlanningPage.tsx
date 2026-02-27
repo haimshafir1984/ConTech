@@ -381,6 +381,79 @@ const ZoomModal: React.FC<ZoomModalProps> = ({
     void e; // suppress unused warning
   };
 
+  // ── Touch support for ZoomModal ──
+  const lastPinchDist = React.useRef<number | null>(null);
+  const lastTouchPan = React.useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+      lastPinchDist.current = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      lastTouchPan.current = null;
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0];
+      lastTouchPan.current = { x: t.clientX - pan.x, y: t.clientY - pan.y };
+      lastPinchDist.current = null;
+      // Also start drawing
+      const p = toNatural(t.clientX, t.clientY);
+      setDrawing(true); setStartPt(p); setTempPt(p);
+      if (modalDrawMode === "path") setPathPts([p]);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2 && lastPinchDist.current !== null) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const ratio = dist / lastPinchDist.current;
+      const rect = containerRef.current?.getBoundingClientRect();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - (rect?.left ?? 0);
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - (rect?.top ?? 0);
+      setZoom((prev) => {
+        const next = Math.max(0.25, Math.min(10, prev * ratio));
+        setPan((p) => ({ x: cx - (cx - p.x) * (next / prev), y: cy - (cy - p.y) * (next / prev) }));
+        return next;
+      });
+      lastPinchDist.current = dist;
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0];
+      if (lastTouchPan.current && !drawing) {
+        setPan({ x: t.clientX - lastTouchPan.current.x, y: t.clientY - lastTouchPan.current.y });
+      } else if (drawing) {
+        const p = toNatural(t.clientX, t.clientY);
+        setTempPt(p);
+        if (modalDrawMode === "path") setPathPts((prev) => [...prev, p]);
+      }
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    e.preventDefault();
+    lastPinchDist.current = null;
+    lastTouchPan.current = null;
+    if (drawing && startPt && tempPt) {
+      setDrawing(false);
+      const dx = tempPt.x - startPt.x, dy = tempPt.y - startPt.y;
+      if (modalDrawMode !== "path" && Math.sqrt(dx * dx + dy * dy) < 4) return;
+      let raw_object: Record<string, unknown>;
+      if (modalDrawMode === "line") {
+        raw_object = { x1: startPt.x, y1: startPt.y, x2: tempPt.x, y2: tempPt.y };
+      } else if (modalDrawMode === "rect") {
+        raw_object = { x: Math.min(startPt.x, tempPt.x), y: Math.min(startPt.y, tempPt.y), width: Math.abs(tempPt.x - startPt.x), height: Math.abs(tempPt.y - startPt.y) };
+      } else {
+        raw_object = { points: pathPts.map((p) => [p.x, p.y]) };
+      }
+      onDrawComplete({ id: generateTempId(), object_type: modalDrawMode, raw_object, display_scale: 1 });
+      setStartPt(null); setTempPt(null); setPathPts([]);
+    }
+  };
+
   const imgW = imgNatural.w;
   const imgH = imgNatural.h;
 
@@ -444,10 +517,13 @@ const ZoomModal: React.FC<ZoomModalProps> = ({
       {/* Canvas area */}
       <div
         ref={containerRef}
-        style={{ flex: 1, overflow: "hidden", position: "relative", cursor: drawing ? "crosshair" : "grab" }}
+        style={{ flex: 1, overflow: "hidden", position: "relative", cursor: drawing ? "crosshair" : "grab", touchAction: "none" }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         <div style={{ position: "absolute", transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "0 0", userSelect: "none" }}>
           <img
@@ -681,6 +757,17 @@ export const PlanningPage: React.FC = () => {
     if (!rect) return { x: 0, y: 0 };
     return { x: Math.max(0, Math.min(displaySize.width, clientX - rect.left)), y: Math.max(0, Math.min(displaySize.height, clientY - rect.top)) };
   };
+
+  // ── Touch support: wraps a mouse handler to accept touch events ──
+  const makeTouchHandler = <T extends SVGSVGElement>(
+    handler: React.MouseEventHandler<T>
+  ): React.TouchEventHandler<T> =>
+    (e: React.TouchEvent<T>) => {
+      e.preventDefault();
+      const touch = e.touches[0] ?? e.changedTouches[0];
+      if (!touch) return;
+      handler({ clientX: touch.clientX, clientY: touch.clientY, currentTarget: e.currentTarget, preventDefault: () => {} } as unknown as React.MouseEvent<T>);
+    };
 
   // ── Category helpers ──
   const handleAddCategory = () => {
@@ -1184,18 +1271,19 @@ export const PlanningPage: React.FC = () => {
                   style={{ flexShrink: 0, textAlign: "center", background: "none", border: "none", padding: "0 4px", cursor: isLocked ? "not-allowed" : "pointer", opacity: isLocked ? 0.45 : 1 }}
                 >
                   <div style={{
-                    width: 36, height: 36, borderRadius: "50%", margin: "0 auto 5px",
-                    background: isActive ? "#FF4B4B" : isDone ? "#10B981" : "#F1F5F9",
-                    color: isActive || isDone ? "#fff" : "#64748b",
+                    width: 28, height: 28, borderRadius: "50%", margin: "0 auto 5px",
+                    background: isActive ? "var(--blue)" : isDone ? "var(--green)" : "var(--s200)",
+                    color: isActive || isDone ? "#fff" : "var(--s500)",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: isActive || isDone ? 15 : 14, fontWeight: 700,
-                    boxShadow: isActive ? "0 0 0 4px rgba(255,75,75,0.18)" : isDone ? "0 0 0 3px rgba(16,185,129,0.14)" : "none",
+                    fontSize: 11, fontWeight: 700,
+                    outline: isActive ? "3px solid var(--blue-100)" : "none",
+                    outlineOffset: 2,
                     transition: "all 0.2s",
                   }}>
-                    {isDone ? "✓" : <span style={{ fontSize: 11, fontWeight: 700 }}>{s}</span>}
+                    {isDone ? "✓" : s}
                   </div>
-                  <div style={{ fontSize: 10.5, color: isActive ? "#FF4B4B" : isDone ? "#10B981" : "#94a3b8", fontWeight: isActive ? 700 : 500, whiteSpace: "nowrap", lineHeight: 1.2 }}>
-                    {icon} {label}
+                  <div style={{ fontSize: 10.5, color: isActive ? "var(--blue)" : isDone ? "var(--green)" : "var(--s400)", fontWeight: isActive ? 700 : 600, whiteSpace: "nowrap", lineHeight: 1.2 }}>
+                    {label}
                   </div>
                 </button>
                 {idx < 4 && (
@@ -1249,7 +1337,7 @@ export const PlanningPage: React.FC = () => {
           )}
           <div className="flex justify-end">
             <button type="button" onClick={() => setStep(2)} disabled={!selectedPlanId}
-              style={{ padding: "10px 28px", borderRadius: 10, background: selectedPlanId ? "#FF4B4B" : "#CBD5E1", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: selectedPlanId ? "pointer" : "not-allowed", boxShadow: selectedPlanId ? "0 3px 10px rgba(255,75,75,0.3)" : "none", transition: "all 0.15s" }}>
+              style={{ padding: "10px 28px", borderRadius: 10, background: selectedPlanId ? "var(--blue)" : "var(--s300)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: selectedPlanId ? "pointer" : "not-allowed", transition: "all 0.15s" }}>
               המשך לשלב 2 ←
             </button>
           </div>
@@ -1263,6 +1351,7 @@ export const PlanningPage: React.FC = () => {
           <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4">
             <p className="text-sm font-semibold text-[#31333F] mb-1">שלב 2: כיול סקייל</p>
             <p className="text-xs text-slate-500 mb-3">גרור קו על אורך ידוע בתוכנית, הזן את האורך האמיתי ולחץ &quot;עדכן סקייל&quot;.</p>
+            <div style={{ background: "#1A2744", borderRadius: 12, padding: 8, display: "inline-block" }}>
             <div className="relative border border-slate-300 rounded-lg overflow-hidden w-fit cursor-crosshair bg-slate-50">
               <img
                 ref={calibrationImageRef}
@@ -1278,10 +1367,14 @@ export const PlanningPage: React.FC = () => {
                 width={displaySize.width}
                 height={displaySize.height}
                 className="absolute inset-0"
+                style={{ touchAction: "none" }}
                 onMouseDown={handleCalMouseDown}
                 onMouseMove={handleCalMouseMove}
                 onMouseUp={handleCalMouseUp}
                 onMouseLeave={() => setCalDrawing(false)}
+                onTouchStart={makeTouchHandler(handleCalMouseDown)}
+                onTouchMove={makeTouchHandler(handleCalMouseMove)}
+                onTouchEnd={makeTouchHandler(handleCalMouseUp)}
               >
                 {calStart && (calEnd || calTemp) && (
                   <line x1={calStart.x} y1={calStart.y} x2={(calEnd ?? calTemp)?.x ?? calStart.x} y2={(calEnd ?? calTemp)?.y ?? calStart.y} stroke="#FF4B4B" strokeWidth={3} />
@@ -1289,6 +1382,7 @@ export const PlanningPage: React.FC = () => {
                 {calStart && <circle cx={calStart.x} cy={calStart.y} r={5} fill="#FF4B4B" />}
                 {calEnd && <circle cx={calEnd.x} cy={calEnd.y} r={5} fill="#FF4B4B" />}
               </svg>
+            </div>
             </div>
           </div>
 
@@ -1309,7 +1403,7 @@ export const PlanningPage: React.FC = () => {
                 <input type="number" className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" min={0.1} step={0.1} value={calibrationLengthM} onChange={(e) => setCalibrationLengthM(Number(e.target.value))} />
               </label>
               <button type="button" onClick={handleCalibrate} disabled={!calStart || !calEnd}
-                style={{ width: "100%", padding: "10px 0", borderRadius: 9, background: (!calStart || !calEnd) ? "#CBD5E1" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: (!calStart || !calEnd) ? "not-allowed" : "pointer", boxShadow: (!calStart || !calEnd) ? "none" : "0 2px 8px rgba(255,75,75,0.28)", transition: "all 0.15s" }}>
+                style={{ width: "100%", padding: "10px 0", borderRadius: 9, background: (!calStart || !calEnd) ? "var(--s300)" : "var(--blue)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: (!calStart || !calEnd) ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
                 📏 עדכן סקייל
               </button>
               <button type="button" onClick={() => { setCalStart(null); setCalEnd(null); setCalTemp(null); setCalDrawing(false); }}
@@ -1872,15 +1966,20 @@ export const PlanningPage: React.FC = () => {
                   )}
                 </div>
 
-                <div className="overflow-auto max-h-[72vh] border border-slate-200 rounded-lg bg-slate-50 p-1">
-                  <div className="relative border border-slate-300 rounded-lg overflow-hidden w-fit select-none">
+                <div className="overflow-auto max-h-[72vh]">
+                  <div style={{ background: "#1A2744", borderRadius: 12, padding: 8, display: "inline-block" }}>
+                  <div className="relative border border-slate-700 rounded-lg overflow-hidden w-fit select-none">
                     <img ref={drawingImageRef} src={imageUrl} alt="plan" className="block"
                       style={{ width: displaySize.width, height: displaySize.height }}
                       onLoad={() => updateDisplaySizeFromImage(drawingImageRef.current)} draggable={false} />
                     <svg ref={zoneCanvasRef} width={displaySize.width} height={displaySize.height}
                       className="absolute inset-0 cursor-crosshair"
+                      style={{ touchAction: "none" }}
                       onMouseDown={handleZoneMouseDown} onMouseMove={handleZoneMouseMove}
-                      onMouseUp={handleZoneMouseUp} onMouseLeave={() => setZoneDrawing(false)}>
+                      onMouseUp={handleZoneMouseUp} onMouseLeave={() => setZoneDrawing(false)}
+                      onTouchStart={makeTouchHandler(handleZoneMouseDown)}
+                      onTouchMove={makeTouchHandler(handleZoneMouseMove)}
+                      onTouchEnd={makeTouchHandler(handleZoneMouseUp)}>
                       {/* Existing items overlay */}
                       {planningState.items.filter(it => it.type === "zone" || it.type === "rect").map(item => {
                         const obj = item.raw_object;
@@ -1898,6 +1997,7 @@ export const PlanningPage: React.FC = () => {
                           fill={hexToRgba("#1B3A6B", 0.15)} stroke="#1B3A6B" strokeWidth={2} strokeDasharray="8 4" />;
                       })()}
                     </svg>
+                  </div>
                   </div>
                 </div>
               </div>
@@ -1925,15 +2025,20 @@ export const PlanningPage: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className="overflow-auto max-h-[72vh] border border-slate-200 rounded-lg bg-slate-50 p-1">
-                  <div className="relative border border-slate-300 rounded-lg overflow-hidden w-fit select-none bg-slate-50">
+                <div className="overflow-auto max-h-[72vh]">
+                  <div style={{ background: "#1A2744", borderRadius: 12, padding: 8, display: "inline-block" }}>
+                  <div className="relative border border-slate-700 rounded-lg overflow-hidden w-fit select-none">
                     <img ref={drawingImageRef} src={imageUrl} alt="plan" className="block"
                       style={{ width: displaySize.width, height: displaySize.height }}
                       onLoad={() => updateDisplaySizeFromImage(drawingImageRef.current)} draggable={false} />
                     <svg ref={drawingSurfaceRef} width={displaySize.width} height={displaySize.height}
                       className="absolute inset-0 cursor-crosshair"
+                      style={{ touchAction: "none" }}
                       onMouseDown={handleCanvasMouseDown} onMouseMove={handleCanvasMouseMove}
-                      onMouseUp={handleCanvasMouseUp} onMouseLeave={() => setDrawing(false)}>
+                      onMouseUp={handleCanvasMouseUp} onMouseLeave={() => setDrawing(false)}
+                      onTouchStart={makeTouchHandler(handleCanvasMouseDown)}
+                      onTouchMove={makeTouchHandler(handleCanvasMouseMove)}
+                      onTouchEnd={makeTouchHandler(handleCanvasMouseUp)}>
                       {planningState.items.map((item) => {
                         const obj = item.raw_object;
                         const cat = planningState.categories[item.category];
@@ -1948,6 +2053,7 @@ export const PlanningPage: React.FC = () => {
                       {drawing && startPoint && tempPoint && drawMode === "rect" && <rect x={Math.min(startPoint.x, tempPoint.x)} y={Math.min(startPoint.y, tempPoint.y)} width={Math.abs(tempPoint.x - startPoint.x)} height={Math.abs(tempPoint.y - startPoint.y)} fill={hexToRgba(PENDING_COLOR, 0.15)} stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
                       {drawing && drawMode === "path" && pathPoints.length > 1 && <polyline points={pathPoints.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
                     </svg>
+                  </div>
                   </div>
                 </div>
               </div>
@@ -2247,10 +2353,14 @@ export const PlanningPage: React.FC = () => {
                   width={secImageRef.current?.clientWidth || displaySize.width}
                   height={secImageRef.current?.clientHeight || displaySize.height}
                   className="absolute inset-0 cursor-crosshair"
+                  style={{ touchAction: "none" }}
                   onMouseDown={handleSecMouseDown}
                   onMouseMove={handleSecMouseMove}
                   onMouseUp={handleSecMouseUp}
                   onMouseLeave={() => setSecDrawing(false)}
+                  onTouchStart={makeTouchHandler(handleSecMouseDown)}
+                  onTouchMove={makeTouchHandler(handleSecMouseMove)}
+                  onTouchEnd={makeTouchHandler(handleSecMouseUp)}
                 >
                   {/* Existing sections */}
                   {planningState.sections.map((sec) => {

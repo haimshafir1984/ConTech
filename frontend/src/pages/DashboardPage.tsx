@@ -115,6 +115,36 @@ function printBoqReport(
   }
 }
 
+// ─── Export BOQ as CSV ────────────────────────────────────────────────────────
+function exportBoqCsv(dashboard: DashboardResponse, planName: string) {
+  const rows: string[][] = [
+    ["קטגוריה", "יחידה", "מתוכנן", "בוצע", "נותר", "התקדמות %"],
+  ];
+  for (const row of dashboard.boq_progress) {
+    rows.push([
+      row.label,
+      row.unit,
+      row.planned_qty.toFixed(2),
+      row.built_qty.toFixed(2),
+      row.remaining_qty.toFixed(2),
+      row.progress_percent.toFixed(1) + "%",
+    ]);
+  }
+  // Summary row
+  rows.push(["", "", "", "", "", ""]);
+  rows.push(["סה\"כ קירות מ'", "מ'", dashboard.planned_walls_m.toFixed(2), dashboard.built_walls_m.toFixed(2), (dashboard.planned_walls_m - dashboard.built_walls_m).toFixed(2), ""]);
+  rows.push(["סה\"כ ריצוף מ\"ר", "מ\"ר", dashboard.planned_floor_m2.toFixed(2), dashboard.built_floor_m2.toFixed(2), (dashboard.planned_floor_m2 - dashboard.built_floor_m2).toFixed(2), ""]);
+
+  const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `boq-${planName}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── Mini bar chart ───────────────────────────────────────────────────────────
 const MiniBarChart: React.FC<{ data: { date: string; value: number; max: number }[] }> = ({ data }) => (
   <div className="space-y-1">
@@ -266,13 +296,22 @@ export const DashboardPage: React.FC = () => {
             {plans.map((p) => <option key={p.id} value={p.id}>{p.plan_name}</option>)}
           </select>
           {dashboard && (
-            <button
-              type="button"
-              onClick={() => printBoqReport(dashboard, summary, selectedPlan?.plan_name ?? "פרויקט", snapshotUrl)}
-              className="bg-white border border-[#FF4B4B] text-[#FF4B4B] px-3 py-2 rounded text-sm font-semibold hover:bg-red-50"
-            >
-              🖨️ הדפס דוח מלא
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => exportBoqCsv(dashboard, selectedPlan?.plan_name ?? "פרויקט")}
+                style={{ background: "var(--s50)", border: "1px solid var(--s300)", color: "var(--s700)", padding: "7px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              >
+                📥 ייצוא CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => printBoqReport(dashboard, summary, selectedPlan?.plan_name ?? "פרויקט", snapshotUrl)}
+                style={{ background: "var(--blue)", border: "none", color: "#fff", padding: "7px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              >
+                🖨️ הדפס / PDF
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -290,7 +329,7 @@ export const DashboardPage: React.FC = () => {
             key={t.id}
             type="button"
             onClick={() => setActiveView(t.id)}
-            className={`px-5 py-3 text-sm border-b-[3px] -mb-px ${activeView === t.id ? "border-[#FF4B4B] text-[#FF4B4B] font-semibold" : "border-transparent text-slate-600"}`}
+            className={`px-5 py-3 text-sm border-b-[3px] -mb-px ${activeView === t.id ? "border-blue-600 text-blue-600 font-semibold" : "border-transparent text-slate-600"}`}
           >
             {t.label}
           </button>
@@ -306,16 +345,16 @@ export const DashboardPage: React.FC = () => {
       {dashboard && activeView === "dashboard" && (
         <>
           <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-            {[
-              { label: "סך מתוכנן", value: `${dashboard.total_planned_m.toFixed(1)} מ'` },
-              { label: "בוצע בפועל", value: `${dashboard.built_m.toFixed(1)} מ'`, sub: `${pct.toFixed(1)}%` },
-              { label: "נותר", value: `${dashboard.remaining_m.toFixed(1)} מ'`, sub: dashboard.days_to_finish != null ? `~${dashboard.days_to_finish.toFixed(0)} ימים` : "" },
-              { label: "עלות מצטברת", value: `${dashboard.current_cost_ils.toLocaleString()} ₪` },
-            ].map((c) => (
-              <div key={c.label} className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm">
-                <div className="text-xs text-slate-500">{c.label}</div>
-                <div className="text-lg font-semibold">{c.value}</div>
-                {c.sub && <div className="text-xs text-slate-400">{c.sub}</div>}
+            {([
+              { label: "⚡ התקדמות כללית", value: `${pct.toFixed(1)}%`, sub: `${dashboard.average_daily_m.toFixed(2)} מ'/יום`, topColor: "var(--blue)" },
+              { label: "🏗️ בוצע בפועל", value: `${dashboard.built_m.toFixed(1)} מ'`, sub: `מתוך ${dashboard.total_planned_m.toFixed(1)} מ' מתוכנן`, topColor: "var(--green)" },
+              { label: "⏳ נותר לביצוע", value: `${dashboard.remaining_m.toFixed(1)} מ'`, sub: dashboard.days_to_finish != null ? `~${dashboard.days_to_finish.toFixed(0)} ימים` : "", topColor: "var(--amber)" },
+              { label: "💰 עלות מצטברת", value: `${dashboard.current_cost_ils.toLocaleString()} ₪`, sub: "", topColor: "#6366F1" },
+            ] as { label: string; value: string; sub: string; topColor: string }[]).map((c) => (
+              <div key={c.label} style={{ background: "#fff", border: "1px solid var(--s200)", borderTop: `3px solid ${c.topColor}`, borderRadius: "var(--r)", padding: "16px", boxShadow: "var(--sh1)" }}>
+                <div style={{ fontSize: 12, color: "var(--s500)", marginBottom: 8 }}>{c.label}</div>
+                <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, lineHeight: 1, marginBottom: 6, color: "var(--s900)" }}>{c.value}</div>
+                {c.sub && <div style={{ fontSize: 11, color: "var(--s400)" }}>{c.sub}</div>}
               </div>
             ))}
           </section>
@@ -343,9 +382,9 @@ export const DashboardPage: React.FC = () => {
               {dashboard.recent_reports.length === 0
                 ? <p className="text-sm text-slate-400">אין דיווחים.</p>
                 : dashboard.recent_reports.map((r) => (
-                  <div key={r.id} className="flex justify-between items-center text-xs bg-slate-50 rounded p-2 mb-1">
-                    <span>{r.date} | {r.shift} | {r.report_type === "walls" ? "קירות" : "ריצוף"}</span>
-                    <span className="font-bold text-[#FF4B4B]">
+                  <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, background: "var(--s50)", borderRadius: 8, padding: "8px 10px", marginBottom: 4, borderBottom: "1px solid var(--s100)" }}>
+                    <span style={{ color: "var(--s700)" }}>{r.date} | {r.shift} | {r.report_type === "walls" ? "קירות" : "ריצוף"}</span>
+                    <span style={{ fontWeight: 700, color: r.report_type === "walls" ? "var(--blue)" : "var(--amber)" }}>
                       {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
                     </span>
                   </div>
@@ -380,33 +419,39 @@ export const DashboardPage: React.FC = () => {
             <p className="text-sm text-slate-400">אין נתונים. הגדר תכולה בעמוד תכנון.</p>
           ) : (
             <div className="overflow-auto">
-              <table className="w-full text-sm min-w-[560px]">
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 560 }}>
                 <thead>
-                  <tr className="text-slate-500 border-b">
-                    <th className="p-2 text-right">קטגוריה</th>
-                    <th className="p-2 text-right">מתוכנן</th>
-                    <th className="p-2 text-right">בוצע</th>
-                    <th className="p-2 text-right">נותר</th>
-                    <th className="p-2 w-40">אחוז</th>
+                  <tr>
+                    {["קטגוריה", "יחידה", "מתוכנן", "בוצע", "נותר", "התקדמות"].map((h) => (
+                      <th key={h} style={{ textAlign: "right", padding: "9px 16px", fontSize: 11, fontWeight: 700, color: "var(--s500)", background: "var(--s50)", borderBottom: "2px solid var(--s200)" }}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {dashboard.boq_progress.map((row) => (
-                    <tr key={row.label} className="border-b last:border-0 hover:bg-slate-50">
-                      <td className="p-2 font-semibold">{row.label}</td>
-                      <td className="p-2">{row.planned_qty.toFixed(2)} {row.unit}</td>
-                      <td className="p-2">{row.built_qty.toFixed(2)} {row.unit}</td>
-                      <td className="p-2">{row.remaining_qty.toFixed(2)} {row.unit}</td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-slate-100 rounded overflow-hidden">
-                            <div className="h-full bg-[#FF4B4B]" style={{ width: `${Math.min(100, row.progress_percent)}%` }} />
+                  {dashboard.boq_progress.map((row, i) => {
+                    const pctRow = Math.min(100, row.progress_percent);
+                    const barColor = pctRow >= 100 ? "var(--green)" : pctRow >= 50 ? "var(--blue)" : "var(--amber)";
+                    return (
+                      <tr key={row.label} style={{ borderBottom: i < dashboard.boq_progress.length - 1 ? "1px solid var(--s100)" : "none" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--s50)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <td style={{ padding: "10px 16px", fontWeight: 600, color: "var(--s900)" }}>{row.label}</td>
+                        <td style={{ padding: "10px 16px", color: "var(--s500)" }}>{row.unit}</td>
+                        <td style={{ padding: "10px 16px", color: "var(--s700)" }}>{row.planned_qty.toFixed(2)}</td>
+                        <td style={{ padding: "10px 16px", color: "var(--green)", fontWeight: 600 }}>{row.built_qty.toFixed(2)}</td>
+                        <td style={{ padding: "10px 16px", color: "var(--s500)" }}>{row.remaining_qty.toFixed(2)}</td>
+                        <td style={{ padding: "10px 16px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ width: 80, height: 5, background: "var(--s200)", borderRadius: 3, overflow: "hidden", flexShrink: 0, display: "inline-block" }}>
+                              <div style={{ height: "100%", width: `${pctRow}%`, background: barColor, borderRadius: 3, transition: "width 0.3s" }} />
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: barColor }}>{row.progress_percent.toFixed(0)}%</span>
                           </div>
-                          <span className="text-xs w-10 text-right">{row.progress_percent.toFixed(0)}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

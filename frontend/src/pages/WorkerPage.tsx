@@ -206,17 +206,104 @@ const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, 
     void e;
   }, [finishDraw]);
 
+  // ── Touch support ──
+  const lastPinchDistRef = React.useRef<number | null>(null);
+  const lastTouchPosRef = React.useRef<{ x: number; y: number } | null>(null);
+
+  const onTouchStart = React.useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+      lastPinchDistRef.current = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      lastTouchPosRef.current = null;
+      isPanningRef.current = false;
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0];
+      lastPinchDistRef.current = null;
+      lastTouchPosRef.current = { x: t.clientX, y: t.clientY };
+      isDrawingRef.current = true;
+      setIsDrawingState(true);
+      const p = toCanvasPoint(t.clientX, t.clientY);
+      setStartPt(p); setTempPt(p);
+      if (drawMode === "path") setPathPts([p]);
+    }
+  }, [toCanvasPoint, drawMode]);
+
+  const onTouchMove = React.useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2 && lastPinchDistRef.current !== null) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const ratio = dist / lastPinchDistRef.current;
+      const rect = containerRef.current?.getBoundingClientRect();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - (rect?.left ?? 0);
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - (rect?.top ?? 0);
+      const oldZ = zoomRef.current;
+      const newZ = clampZ(oldZ * ratio);
+      const newP = {
+        x: cx - (cx - panRef.current.x) * (newZ / oldZ),
+        y: cy - (cy - panRef.current.y) * (newZ / oldZ),
+      };
+      setZoomSync(newZ);
+      setPanSync(newP);
+      lastPinchDistRef.current = dist;
+    } else if (e.touches.length === 1 && lastTouchPosRef.current) {
+      const t = e.touches[0];
+      if (!isDrawingRef.current) {
+        const dx = t.clientX - lastTouchPosRef.current.x;
+        const dy = t.clientY - lastTouchPosRef.current.y;
+        setPanSync({ x: panRef.current.x + dx, y: panRef.current.y + dy });
+        lastTouchPosRef.current = { x: t.clientX, y: t.clientY };
+      } else {
+        const p = toCanvasPoint(t.clientX, t.clientY);
+        setTempPt(p);
+        if (drawMode === "path") {
+          const now = Date.now();
+          if (now - lastPathPointTime.current >= 66) {
+            lastPathPointTime.current = now;
+            setPathPts((prev) => [...prev, p]);
+          }
+        }
+      }
+    }
+  }, [toCanvasPoint, drawMode]);
+
+  const onTouchEnd = React.useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    lastPinchDistRef.current = null;
+    lastTouchPosRef.current = null;
+    if (isDrawingRef.current) {
+      setStartPt(sp => {
+        setTempPt(tp => {
+          setPathPts(pp => {
+            finishDraw(sp, tp, pp);
+            return [];
+          });
+          return null;
+        });
+        return null;
+      });
+    }
+  }, [finishDraw]);
+
   return (
     <div style={{ position: "relative", background: "#F1F5F9", borderRadius: 12, overflow: "hidden", border: "1px solid #E2E8F0", minHeight: 420 }}>
       <div
         ref={containerRef}
-        style={{ width: "100%", overflow: "hidden", userSelect: "none", cursor: isDrawingState ? "crosshair" : isPanningState ? "grabbing" : "crosshair", minHeight: 420 }}
+        style={{ width: "100%", overflow: "hidden", userSelect: "none", cursor: isDrawingState ? "crosshair" : isPanningState ? "grabbing" : "crosshair", minHeight: 420, touchAction: "none" }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={() => {
           if (isPanningRef.current) { isPanningRef.current = false; setIsPanningState(false); }
         }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
       >
         <div style={{
           transform: `translate(${renderPan.x}px,${renderPan.y}px) scale(${renderZoom})`,
@@ -432,15 +519,17 @@ export const WorkerPage: React.FC = () => {
     { id: "history", icon: "📋", label: "היסטוריה" },
   ];
 
+  const panelTabItems = TAB_ITEMS.filter((t) => t.id !== "map");
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0, minHeight: "100%" }}>
 
       {/* ── Top bar ── */}
-      <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 14, padding: "14px 18px", marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 160 }}>
-          <span style={{ fontSize: 11, color: "#64748b" }}>פרויקט</span>
+      <div style={{ background: "#fff", borderBottom: "1px solid var(--s200)", padding: "10px 20px", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", flexShrink: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 140 }}>
+          <span style={{ fontSize: 11, color: "var(--s500)" }}>פרויקט</span>
           <select
-            style={{ padding: "7px 10px", border: "1px solid #CBD5E1", borderRadius: 8, fontSize: 13, background: "#fff" }}
+            style={{ padding: "7px 10px", border: "1px solid var(--s300)", borderRadius: "var(--r-sm)", fontSize: 13, background: "#fff" }}
             value={selectedPlanId}
             onChange={(e) => setSelectedPlanId(e.target.value)}
           >
@@ -450,10 +539,10 @@ export const WorkerPage: React.FC = () => {
         </div>
 
         {sections.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 160 }}>
-            <span style={{ fontSize: 11, color: "#64748b" }}>גזרת עבודה</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 140 }}>
+            <span style={{ fontSize: 11, color: "var(--s500)" }}>גזרת עבודה</span>
             <select
-              style={{ padding: "7px 10px", border: "1px solid #CBD5E1", borderRadius: 8, fontSize: 13, background: "#fff" }}
+              style={{ padding: "7px 10px", border: "1px solid var(--s300)", borderRadius: "var(--r-sm)", fontSize: 13, background: "#fff" }}
               value={selectedSectionUid}
               onChange={(e) => setSelectedSectionUid(e.target.value)}
             >
@@ -467,260 +556,249 @@ export const WorkerPage: React.FC = () => {
           </div>
         )}
 
-        {reports.length > 0 && (
-          <button
-            type="button"
-            onClick={() => printProgressReport(reports, selectedPlan?.plan_name ?? "פרויקט")}
-            style={{ padding: "7px 14px", border: "1.5px solid #1B3A6B", color: "#1B3A6B", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#fff", cursor: "pointer" }}
-          >
-            🖨️ הדפס דוח
-          </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginRight: "auto" }}>
+          <label style={{ fontSize: 12, color: "var(--s500)", display: "flex", alignItems: "center", gap: 4 }}>
+            סוג:
+            <select
+              style={{ padding: "6px 8px", border: "1px solid var(--s300)", borderRadius: "var(--r-sm)", fontSize: 12, background: "#fff" }}
+              value={reportType}
+              onChange={(e) => setReportType(e.target.value as "walls" | "floor")}
+            >
+              <option value="walls">קירות</option>
+              <option value="floor">ריצוף/חיפוי</option>
+            </select>
+          </label>
+          {reports.length > 0 && (
+            <button
+              type="button"
+              onClick={() => printProgressReport(reports, selectedPlan?.plan_name ?? "פרויקט")}
+              style={{ padding: "7px 14px", border: "1px solid var(--s300)", color: "var(--s700)", borderRadius: "var(--r-sm)", fontSize: 12, fontWeight: 600, background: "#fff", cursor: "pointer" }}
+            >
+              🖨️ הדפס
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Stats strip ── */}
+      <div style={{ background: "#fff", borderBottom: "1px solid var(--s200)", padding: "10px 20px", display: "flex", gap: 20, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
+        <div style={{ textAlign: "center", minWidth: 52 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--green)" }}>{reports.length}</div>
+          <div style={{ fontSize: 11, color: "var(--s400)" }}>דיווחים</div>
+        </div>
+        <div style={{ textAlign: "center", minWidth: 52 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--blue)" }}>{totalReportWalls.toFixed(1)}</div>
+          <div style={{ fontSize: 11, color: "var(--s400)" }}>מ' קירות</div>
+        </div>
+        <div style={{ textAlign: "center", minWidth: 52 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--amber)" }}>{totalReportFloor.toFixed(1)}</div>
+          <div style={{ fontSize: 11, color: "var(--s400)" }}>מ"ר ריצוף</div>
+        </div>
+        {items.length > 0 && (
+          <>
+            <div style={{ width: 1, height: 32, background: "var(--s200)" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--amber-50)", border: "1px solid #FCD34D", borderRadius: 8, padding: "5px 12px" }}>
+              <span style={{ fontSize: 12 }}>⚡</span>
+              <span style={{ fontWeight: 700, fontSize: 12, color: "#92400E" }}>סשן פעיל · {items.length} פריטים</span>
+              {totalLength > 0 && <span style={{ fontSize: 12, color: "#78350F" }}>{totalLength.toFixed(2)} מ'</span>}
+              {totalArea > 0 && <span style={{ fontSize: 12, color: "#78350F" }}>{totalArea.toFixed(2)} מ"ר</span>}
+              {measuring && <span style={{ fontSize: 11, color: "var(--blue)" }}>מודד...</span>}
+            </div>
+          </>
         )}
       </div>
 
-      {/* ── Amber alert bar (active session) ── */}
-      {(items.length > 0 || measuring) && (
-        <div style={{
-          background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 12,
-          padding: "10px 18px", marginBottom: 16,
-          display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-        }}>
-          <span style={{ fontSize: 14 }}>⚡</span>
-          <span style={{ fontWeight: 700, fontSize: 13, color: "#92400E" }}>סשן פעיל</span>
-          <span style={{ fontSize: 13, color: "#78350F" }}>{items.length} פריטים</span>
-          {totalLength > 0 && <span style={{ fontSize: 13, color: "#78350F" }}>{totalLength.toFixed(2)} מ' קירות</span>}
-          {totalArea > 0 && <span style={{ fontSize: 13, color: "#78350F" }}>{totalArea.toFixed(2)} מ"ר ריצוף</span>}
-          {measuring && <span style={{ fontSize: 12, color: "#1d4ed8" }}>מודד...</span>}
-        </div>
-      )}
-
       {error && <ErrorAlert message={error} onDismiss={() => setError("")} />}
 
-      {/* ── Tab bar ── */}
-      <div style={{ display: "flex", borderBottom: "2px solid #E2E8F0", marginBottom: 16, gap: 4 }}>
-        {TAB_ITEMS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setActiveTab(t.id)}
-            style={{
-              padding: "10px 20px",
-              border: "none",
-              borderBottom: activeTab === t.id ? "2px solid #1B3A6B" : "2px solid transparent",
-              marginBottom: -2,
-              background: "none",
-              color: activeTab === t.id ? "#1B3A6B" : "#64748b",
-              fontWeight: activeTab === t.id ? 700 : 400,
-              fontSize: 14,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <span>{t.icon}</span>
-            <span>{t.label}</span>
-            {t.id === "notes" && items.length > 0 && (
-              <span style={{ background: "#EF4444", color: "#fff", borderRadius: 99, fontSize: 10, fontWeight: 700, padding: "1px 6px" }}>{items.length}</span>
-            )}
-            {t.id === "history" && reports.length > 0 && (
-              <span style={{ background: "#E2E8F0", color: "#475569", borderRadius: 99, fontSize: 10, fontWeight: 700, padding: "1px 6px" }}>{reports.length}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* ── Main body: canvas + side panel ── */}
+      <div className="worker-main-grid">
 
-      {/* ── Map tab ── */}
-      {activeTab === "map" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* Draw mode toolbar */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-            <div style={{ display: "flex", gap: 6 }}>
-              {([
-                { val: "line", label: "—  קו", icon: "📏" },
-                { val: "rect", label: "□  מלבן", icon: "⬛" },
-                { val: "path", label: "〰  חופשי", icon: "✏️" },
-              ] as { val: DrawMode; label: string; icon: string }[]).map((m) => (
-                <button
-                  key={m.val}
-                  type="button"
-                  onClick={() => setDrawMode(m.val)}
-                  style={{
-                    padding: "7px 14px",
-                    border: drawMode === m.val ? "2px solid #1B3A6B" : "1.5px solid #CBD5E1",
-                    borderRadius: 8,
-                    background: drawMode === m.val ? "#EFF6FF" : "#fff",
-                    color: drawMode === m.val ? "#1B3A6B" : "#475569",
-                    fontWeight: drawMode === m.val ? 700 : 400,
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  {m.icon} {m.label}
-                </button>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <label style={{ fontSize: 12, color: "#64748b", display: "flex", alignItems: "center", gap: 4 }}>
-                סוג:
-                <select
-                  style={{ padding: "5px 8px", border: "1px solid #CBD5E1", borderRadius: 7, fontSize: 12, background: "#fff" }}
-                  value={reportType}
-                  onChange={(e) => setReportType(e.target.value as "walls" | "floor")}
-                >
-                  <option value="walls">קירות</option>
-                  <option value="floor">ריצוף/חיפוי</option>
-                </select>
-              </label>
-            </div>
+        {/* Canvas area */}
+        <div style={{ background: "#1A2744", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {/* Draw toolbar */}
+          <div style={{ display: "flex", gap: 6, padding: "8px 14px", background: "rgba(0,0,0,0.3)", flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+            {([
+              { val: "line", icon: "📏", label: "קו" },
+              { val: "rect", icon: "⬛", label: "מלבן" },
+              { val: "path", icon: "✏️", label: "חופשי" },
+            ] as { val: DrawMode; icon: string; label: string }[]).map((m) => (
+              <button
+                key={m.val}
+                type="button"
+                onClick={() => setDrawMode(m.val)}
+                style={{
+                  padding: "5px 12px", border: "none", borderRadius: 20,
+                  background: drawMode === m.val ? "rgba(255,255,255,0.2)" : "transparent",
+                  color: drawMode === m.val ? "#fff" : "rgba(255,255,255,0.55)",
+                  fontSize: 12, fontWeight: drawMode === m.val ? 700 : 400, cursor: "pointer",
+                }}
+              >
+                {m.icon} {m.label}
+              </button>
+            ))}
           </div>
-
-          <WorkerCanvas
-            imageUrl={imageUrl}
-            items={items}
-            drawMode={drawMode}
-            sections={sections}
-            activeSectionUid={selectedSectionUid}
-            onDrawComplete={(p) => void handleDrawComplete(p)}
-          />
-        </div>
-      )}
-
-      {/* ── Notes tab ── */}
-      {activeTab === "notes" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 600 }}>
-          {/* Date / shift / report type */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 11, color: "#64748b" }}>תאריך</span>
-              <input type="date" style={fieldStyle} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 11, color: "#64748b" }}>משמרת</span>
-              <select style={fieldStyle} value={shift} onChange={(e) => setShift(e.target.value)}>
-                <option>בוקר</option>
-                <option>צהריים</option>
-                <option>לילה</option>
-              </select>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 11, color: "#64748b" }}>סוג דיווח</span>
-              <select style={fieldStyle} value={reportType} onChange={(e) => setReportType(e.target.value as "walls" | "floor")}>
-                <option value="walls">קירות</option>
-                <option value="floor">ריצוף/חיפוי</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Items list */}
-          {items.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>פריטים מסומנים ({items.length})</div>
-              {items.map((item, idx) => (
-                <div key={item.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 12px" }}>
-                  <span style={{ fontSize: 13 }}>#{idx + 1} {item.type}</span>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: "#1B3A6B" }}>{item.measurement.toFixed(2)} {item.unit}</span>
-                    <button
-                      type="button"
-                      title="הסר פריט"
-                      onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
-                      style={{ color: "#EF4444", background: "none", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "4px 6px", borderRadius: 6, transition: "background 0.12s" }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#FEE2E2"; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
-                    >✕</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ fontSize: 13, color: "#94A3B8", background: "#F8FAFC", border: "1px dashed #CBD5E1", borderRadius: 10, padding: "24px", textAlign: "center" }}>
-              עבור לטאב מפה וסמן פריטים על השרטוט
-            </div>
-          )}
-
-          {/* Note */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 11, color: "#64748b" }}>הערה</span>
-            <textarea
-              style={{ ...fieldStyle, minHeight: 80, resize: "vertical" }}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="הערות לדיווח..."
+          {/* Canvas */}
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <WorkerCanvas
+              imageUrl={imageUrl}
+              items={items}
+              drawMode={drawMode}
+              sections={sections}
+              activeSectionUid={selectedSectionUid}
+              onDrawComplete={(p) => void handleDrawComplete(p)}
             />
           </div>
-
-          {/* Actions */}
-          <div style={{ display: "flex", gap: 10 }}>
-            <button
-              type="button"
-              onClick={async () => {
-                const ok = await confirm({ title: "נקה סימון", message: "האם למחוק את כל הפריטים המסומנים?", confirmText: "נקה", danger: true });
-                if (ok) setItems([]);
-              }}
-              style={{ flex: 1, padding: "10px", border: "1.5px solid #CBD5E1", borderRadius: 9, fontSize: 13, background: "#fff", cursor: "pointer", fontWeight: 600, color: "#475569" }}
-            >
-              🗑️ נקה
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveReport()}
-              disabled={items.length === 0 || saving}
-              style={{ flex: 2, padding: "10px", background: items.length === 0 ? "#94A3B8" : "#1B3A6B", color: "#fff", borderRadius: 9, fontSize: 13, fontWeight: 700, border: "none", cursor: items.length === 0 ? "not-allowed" : "pointer" }}
-            >
-              {saving ? "שומר..." : "💾 שמור דיווח"}
-            </button>
-          </div>
         </div>
-      )}
 
-      {/* ── History tab ── */}
-      {activeTab === "history" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Totals */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px" }}>
-              <div style={{ fontSize: 11, color: "#94A3B8" }}>סה"כ קירות</div>
-              <div style={{ fontWeight: 700, fontSize: 20, color: "#1B3A6B", marginTop: 4 }}>{totalReportWalls.toFixed(2)} מ'</div>
-            </div>
-            <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px" }}>
-              <div style={{ fontSize: 11, color: "#94A3B8" }}>סה"כ ריצוף</div>
-              <div style={{ fontWeight: 700, fontSize: 20, color: "#1B3A6B", marginTop: 4 }}>{totalReportFloor.toFixed(2)} מ"ר</div>
-            </div>
+        {/* Right panel */}
+        <div style={{ background: "#fff", borderRight: "1px solid var(--s200)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* Panel tab bar */}
+          <div style={{ display: "flex", borderBottom: "1px solid var(--s200)", flexShrink: 0 }}>
+            {panelTabItems.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTab(t.id)}
+                style={{
+                  flex: 1, padding: "12px 6px", border: "none",
+                  borderBottom: activeTab === t.id ? `2px solid var(--blue)` : "2px solid transparent",
+                  background: "none",
+                  color: activeTab === t.id ? "var(--blue)" : "var(--s500)",
+                  fontWeight: activeTab === t.id ? 700 : 400,
+                  fontSize: 12, cursor: "pointer", textAlign: "center",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+                }}
+              >
+                <span style={{ fontSize: 16 }}>{t.icon}</span>
+                <span>{t.label}</span>
+                {t.id === "notes" && items.length > 0 && (
+                  <span style={{ background: "var(--red)", color: "#fff", borderRadius: 99, fontSize: 10, fontWeight: 700, padding: "1px 6px" }}>{items.length}</span>
+                )}
+                {t.id === "history" && reports.length > 0 && (
+                  <span style={{ background: "var(--s200)", color: "var(--s700)", borderRadius: 99, fontSize: 10, fontWeight: 700, padding: "1px 6px" }}>{reports.length}</span>
+                )}
+              </button>
+            ))}
           </div>
 
-          {reports.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 0", color: "#94A3B8", fontSize: 14 }}>אין דיווחים עדיין.</div>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse", minWidth: 480 }}>
-                <thead>
-                  <tr style={{ color: "#94A3B8", borderBottom: "1px solid #E2E8F0" }}>
-                    <th style={{ textAlign: "right", padding: "8px 10px" }}>תאריך</th>
-                    <th style={{ textAlign: "right", padding: "8px 10px" }}>משמרת</th>
-                    <th style={{ textAlign: "right", padding: "8px 10px" }}>סוג</th>
-                    <th style={{ textAlign: "right", padding: "8px 10px" }}>כמות</th>
-                    <th style={{ textAlign: "right", padding: "8px 10px" }}>הערה</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reports.slice().reverse().map((r) => (
-                    <tr key={r.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                      <td style={{ padding: "8px 10px" }}>{r.date}</td>
-                      <td style={{ padding: "8px 10px" }}>{r.shift}</td>
-                      <td style={{ padding: "8px 10px" }}>{r.report_type === "walls" ? "קירות" : "ריצוף"}</td>
-                      <td style={{ padding: "8px 10px", fontWeight: 700, color: "#1B3A6B" }}>
-                        {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
-                      </td>
-                      <td style={{ padding: "8px 10px", color: "#64748b" }}>{r.note || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {/* Panel body */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
+
+            {/* ── Notes panel ── */}
+            {activeTab === "notes" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <span style={{ fontSize: 11, color: "var(--s500)" }}>תאריך</span>
+                    <input type="date" style={fieldStyle} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <span style={{ fontSize: 11, color: "var(--s500)" }}>משמרת</span>
+                    <select style={fieldStyle} value={shift} onChange={(e) => setShift(e.target.value)}>
+                      <option>בוקר</option>
+                      <option>צהריים</option>
+                      <option>לילה</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Items list */}
+                {items.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ fontSize: 11, color: "var(--s500)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.7px" }}>פריטים ({items.length})</div>
+                    {items.map((item, idx) => (
+                      <div key={item.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--s50)", border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "7px 10px" }}>
+                        <span style={{ fontSize: 12, color: "var(--s700)" }}>#{idx + 1} {item.type}</span>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                          <span style={{ fontWeight: 700, fontSize: 12, color: "var(--blue)" }}>{item.measurement.toFixed(2)} {item.unit}</span>
+                          <button
+                            type="button"
+                            title="הסר"
+                            onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
+                            style={{ color: "var(--red)", background: "none", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "2px 4px", borderRadius: 4 }}
+                          >✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: "var(--s400)", background: "var(--s50)", border: "1px dashed var(--s300)", borderRadius: "var(--r-sm)", padding: "20px", textAlign: "center" }}>
+                    סמן פריטים על השרטוט
+                  </div>
+                )}
+
+                {/* Note */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <span style={{ fontSize: 11, color: "var(--s500)" }}>הערה</span>
+                  <textarea
+                    style={{ ...fieldStyle, minHeight: 64, resize: "vertical" }}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="הערות לדיווח..."
+                  />
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = await confirm({ title: "נקה סימון", message: "האם למחוק את כל הפריטים המסומנים?", confirmText: "נקה", danger: true });
+                      if (ok) setItems([]);
+                    }}
+                    style={{ flex: 1, padding: "9px", border: "1px solid var(--s300)", borderRadius: "var(--r-sm)", fontSize: 12, background: "#fff", cursor: "pointer", fontWeight: 600, color: "var(--s700)" }}
+                  >
+                    🗑️ נקה
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveReport()}
+                    disabled={items.length === 0 || saving}
+                    style={{ flex: 2, padding: "9px", background: items.length === 0 ? "var(--s400)" : "var(--blue)", color: "#fff", borderRadius: "var(--r-sm)", fontSize: 12, fontWeight: 700, border: "none", cursor: items.length === 0 ? "not-allowed" : "pointer" }}
+                  >
+                    {saving ? "שומר..." : "💾 שמור דיווח"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── History panel ── */}
+            {activeTab === "history" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div style={{ background: "var(--s50)", border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, color: "var(--s400)" }}>סה"כ קירות</div>
+                    <div style={{ fontWeight: 800, fontSize: 18, color: "var(--blue)" }}>{totalReportWalls.toFixed(2)} מ'</div>
+                  </div>
+                  <div style={{ background: "var(--s50)", border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, color: "var(--s400)" }}>סה"כ ריצוף</div>
+                    <div style={{ fontWeight: 800, fontSize: 18, color: "var(--amber)" }}>{totalReportFloor.toFixed(2)} מ"ר</div>
+                  </div>
+                </div>
+
+                {reports.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "32px 0", color: "var(--s400)", fontSize: 13 }}>אין דיווחים עדיין.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {reports.slice().reverse().map((r) => (
+                      <div key={r.id} style={{ background: "var(--s50)", border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "9px 12px", fontSize: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                          <span style={{ fontWeight: 700, color: "var(--s900)" }}>{r.date}</span>
+                          <span style={{ fontWeight: 800, color: r.report_type === "walls" ? "var(--blue)" : "var(--amber)" }}>
+                            {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
+                          </span>
+                        </div>
+                        <div style={{ color: "var(--s500)" }}>{r.shift} · {r.report_type === "walls" ? "קירות" : "ריצוף"}{r.note ? ` · ${r.note}` : ""}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };

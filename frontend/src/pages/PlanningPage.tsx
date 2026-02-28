@@ -1061,8 +1061,10 @@ export const PlanningPage: React.FC = () => {
       setAutoSegments(result.segments);
       setAutoVisionData(result.vision_data ?? null);
       setVisionActiveCard(null);
-      // Pre-select all
-      setAutoSelected(new Set(result.segments.map(s => s.segment_id)));
+      // Pre-select all except unidentified small fixtures ("פרט קטן")
+      setAutoSelected(new Set(
+        result.segments.filter(s => s.suggested_subtype !== "פרט קטן").map(s => s.segment_id)
+      ));
       // Pre-fill category keys: find best match for walls; leave blank for fixtures
       const keys: Record<string, string> = {};
       if (planningState) {

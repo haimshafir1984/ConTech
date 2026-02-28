@@ -1,6 +1,6 @@
 import React from "react";
 import axios from "axios";
-import { ErrorAlert } from "../components/UiHelpers";
+import { ErrorAlert, PlanningCanvasErrorBoundary } from "../components/UiHelpers";
 import { apiClient } from "../api/client";
 import { listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
@@ -347,6 +347,8 @@ const ZoomModal: React.FC<ZoomModalProps> = ({
   React.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    // `el` is captured in the closure, so cleanup removes from the same element
+    // even if containerRef.current later changes. This is the correct pattern.
     el.addEventListener("wheel", handleWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleWheel);
   }, [handleWheel]);
@@ -814,37 +816,52 @@ export const PlanningPage: React.FC = () => {
     if (!selectedPlanId || pendingShapes.length === 0 || loading) return;
     setCategoryPickerOpen(false);
     setLoading(true);
+    let lastState = planningState!;
+    const failures: string[] = [];
     try {
-      let lastState = planningState!;
       for (const shape of pendingShapes) {
-        lastState = await addPlanningItem(selectedPlanId, {
-          category_key: categoryKey,
-          object_type: shape.object_type,
-          raw_object: shape.raw_object,
-          display_scale: shape.display_scale,
-        });
-        // Handle prompts for last item
-        const latest = lastState.items[lastState.items.length - 1];
-        if (latest?.analysis?.requires_wall_confirmation) {
-          setWallPrompt({ itemUid: latest.uid, overlapRatio: latest.analysis.wall_overlap_ratio });
-          setOpeningPrompt(null);
-        } else {
-          setWallPrompt(null);
-          const opening = latest?.analysis?.openings?.[0];
-          if (latest?.uid && latest?.analysis?.prompt_opening_question) {
-            setOpeningPrompt({ itemUid: latest.uid, gapId: opening?.gap_id, gapLengthM: typeof opening?.length_m === "number" ? opening.length_m : latest?.analysis?.estimated_opening_length_m });
-          } else {
+        try {
+          lastState = await addPlanningItem(selectedPlanId, {
+            category_key: categoryKey,
+            object_type: shape.object_type,
+            raw_object: shape.raw_object,
+            display_scale: shape.display_scale,
+          });
+          // Handle prompts for last saved item
+          const latest = lastState.items[lastState.items.length - 1];
+          if (latest?.analysis?.requires_wall_confirmation) {
+            setWallPrompt({ itemUid: latest.uid, overlapRatio: latest.analysis.wall_overlap_ratio });
             setOpeningPrompt(null);
+          } else {
+            setWallPrompt(null);
+            const opening = latest?.analysis?.openings?.[0];
+            if (latest?.uid && latest?.analysis?.prompt_opening_question) {
+              setOpeningPrompt({ itemUid: latest.uid, gapId: opening?.gap_id, gapLengthM: typeof opening?.length_m === "number" ? opening.length_m : latest?.analysis?.estimated_opening_length_m });
+            } else {
+              setOpeningPrompt(null);
+            }
           }
+        } catch (itemErr) {
+          console.error("[handleAssignCategory] item failed:", itemErr);
+          const detail = axios.isAxiosError(itemErr)
+            ? (itemErr.response?.data?.detail as string | undefined) || itemErr.message
+            : String(itemErr);
+          failures.push(detail);
         }
       }
+      // Always save whatever succeeded
       setPlanningState(lastState);
-      setPendingShapes([]); // clear after assigning
-      setError("");
-    } catch (e) {
-      console.error(e);
-      const detail = axios.isAxiosError(e) ? (e.response?.data?.detail as string | undefined) || e.message : String(e);
-      setError(`שגיאה בשיוך פריטים: ${detail}`);
+      const saved = pendingShapes.length - failures.length;
+      if (failures.length === 0) {
+        setPendingShapes([]);
+        setError("");
+      } else if (saved > 0) {
+        // Partial success: clear only the saved shapes
+        setPendingShapes(prev => prev.slice(saved));
+        setError(`נשמרו ${saved} מתוך ${pendingShapes.length} פריטים. ${failures.length} נכשלו — נסה שוב.`);
+      } else {
+        setError(`שגיאה בשיוך פריטים: ${failures[0]}`);
+      }
     } finally { setLoading(false); }
   };
 
@@ -1482,6 +1499,7 @@ export const PlanningPage: React.FC = () => {
 
           {/* ── LEFT: Dark canvas area ── */}
           <div style={{ background: "#1A2744", position: "relative", overflow: "auto", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: 16, minHeight: 400 }}>
+            <PlanningCanvasErrorBoundary>
             <div className="relative select-none" style={{ flexShrink: 0 }}>
               <img
                 ref={drawingImageRef}
@@ -1577,6 +1595,7 @@ export const PlanningPage: React.FC = () => {
                 </svg>
               )}
             </div>
+            </PlanningCanvasErrorBoundary>
 
             {/* Zoom indicator — top-right */}
             <div style={{ position: "absolute", top: 12, right: 12, background: "rgba(0,0,0,.35)", color: "rgba(255,255,255,.6)", fontSize: 11, padding: "3px 10px", borderRadius: 20, pointerEvents: "none" }}>

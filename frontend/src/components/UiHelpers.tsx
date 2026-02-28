@@ -1,5 +1,50 @@
 import React from "react";
 
+// ── PlanningCanvasErrorBoundary ───────────────────────────────────────────────
+// Catches render errors inside the SVG/canvas area (e.g. NaN coordinates, bad
+// data) so a corrupt item doesn't crash the entire planning page.
+interface EBState { hasError: boolean; message: string }
+export class PlanningCanvasErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  EBState
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+  static getDerivedStateFromError(error: unknown): EBState {
+    const message = error instanceof Error ? error.message : String(error);
+    return { hasError: true, message };
+  }
+  override componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    console.error("[PlanningCanvasErrorBoundary]", error, info.componentStack);
+  }
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: "flex", flexDirection: "column", alignItems: "center",
+          justifyContent: "center", gap: 12, padding: 32, color: "#fff",
+          background: "#1A2744", borderRadius: 8, minHeight: 200,
+        }}>
+          <span style={{ fontSize: 28 }}>⚠️</span>
+          <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>שגיאה בהצגת הקנבס</p>
+          <p style={{ fontSize: 12, opacity: 0.7, margin: 0, maxWidth: 280, textAlign: "center" }}>
+            {this.state.message}
+          </p>
+          <button
+            onClick={() => this.setState({ hasError: false, message: "" })}
+            style={{ marginTop: 8, padding: "8px 20px", borderRadius: 8, background: "var(--blue)", color: "#fff", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+          >
+            נסה שוב
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ── ErrorAlert ────────────────────────────────────────────────────────────────
 // רכיב שגיאה אחיד לכל הדפים
 interface ErrorAlertProps {

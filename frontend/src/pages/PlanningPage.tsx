@@ -85,6 +85,20 @@ function generateTempId(): string {
   return `pending_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function getFixGroupLabel(type: string): { label: string; icon: string } {
+  const t = type.toLowerCase();
+  if (t.includes("door") || t.includes("דלת")) return { label: "דלתות", icon: "🚪" };
+  if (t.includes("window") || t.includes("חלון")) return { label: "חלונות", icon: "🪟" };
+  if (t.includes("column") || t.includes("pillar") || t.includes("עמוד")) return { label: "עמודים", icon: "🏛️" };
+  if (t.includes("stair") || t.includes("מדרגה") || t.includes("מדרגות")) return { label: "מדרגות", icon: "🪜" };
+  if (t.includes("elevator") || t.includes("lift") || t.includes("מעלית")) return { label: "מעליות", icon: "🛗" };
+  if (t.includes("toilet") || t.includes("bathroom") || t.includes("שירותים") || t.includes("אמבט") || t.includes("מקלחת")) return { label: "שרותים/אמבטיה", icon: "🚿" };
+  if (t.includes("kitchen") || t.includes("מטבח") || t.includes("sink") || t.includes("כיור")) return { label: "מטבח/כיורים", icon: "🍳" };
+  if (t.includes("beam") || t.includes("קורה")) return { label: "קורות", icon: "🔩" };
+  if (t.includes("fixture") || t.includes("אביזר")) return { label: "אביזרים כלליים", icon: "🔧" };
+  return { label: type || "אחר", icon: "📌" };
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // CategoryPickerModal — choose or create a category for pending shapes
 // ──────────────────────────────────────────────────────────────────────────────
@@ -637,6 +651,7 @@ export const PlanningPage: React.FC = () => {
   const [autoLoading, setAutoLoading] = React.useState(false);
   const [autoSelected, setAutoSelected] = React.useState<Set<string>>(new Set());
   const [autoConfirmedKeys, setAutoConfirmedKeys] = React.useState<Record<string, string>>({}); // segId→catKey
+  const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set(["walls"]));
 
   // ── Zone state ──
   const [zoneDrawing, setZoneDrawing] = React.useState(false);
@@ -1633,8 +1648,17 @@ export const PlanningPage: React.FC = () => {
 
                         {wallSegs.length > 0 && (
                           <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--s400)", textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>🧱 קטעים שזוהו ({wallSegs.length})</div>
-                            {wallSegs.map((seg) => {
+                            {/* ── Collapsible walls group header ── */}
+                            <div
+                              onClick={() => setExpandedGroups(prev => { const n = new Set(prev); n.has("walls") ? n.delete("walls") : n.add("walls"); return n; })}
+                              style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "7px 10px", borderRadius: "var(--r-sm)", background: "var(--s100)", marginBottom: 6, userSelect: "none" }}
+                            >
+                              <span style={{ fontSize: 14 }}>🧱</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, flex: 1, color: "var(--s700)" }}>קירות וקטעים</span>
+                              <span style={{ fontSize: 10, background: "var(--s200)", color: "var(--s500)", borderRadius: 10, padding: "1px 7px", fontWeight: 600 }}>{wallSegs.length}</span>
+                              <span style={{ fontSize: 11, color: "var(--s400)", marginRight: 2 }}>{expandedGroups.has("walls") ? "▲" : "▼"}</span>
+                            </div>
+                            {expandedGroups.has("walls") && wallSegs.map((seg) => {
                               const checked = autoSelected.has(seg.segment_id);
                               const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
                               const conf = seg.confidence;
@@ -1646,7 +1670,7 @@ export const PlanningPage: React.FC = () => {
                                     background: checked ? "var(--blue-50)" : "var(--s50)",
                                     borderRadius: "var(--r-sm)",
                                     border: `1px solid ${checked ? "#93C5FD" : "var(--s200)"}`,
-                                    padding: "9px 11px", marginBottom: 7,
+                                    padding: "9px 11px", marginBottom: 5,
                                     display: "flex", alignItems: "center", gap: 9,
                                     cursor: "pointer",
                                   }}
@@ -1675,48 +1699,86 @@ export const PlanningPage: React.FC = () => {
                           </div>
                         )}
 
-                        {fixSegs.length > 0 && (
-                          <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: "#7C3AED", textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>🔧 אביזרים ({fixSegs.length})</div>
-                            {fixSegs.map((seg) => {
-                              const checked = autoSelected.has(seg.segment_id);
-                              const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
-                              return (
-                                <div
-                                  key={seg.segment_id}
-                                  onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}
-                                  style={{
-                                    background: checked ? "#EDE9FE" : "var(--s50)",
-                                    borderRadius: "var(--r-sm)",
-                                    border: `1px solid ${checked ? "#C4B5FD" : "var(--s200)"}`,
-                                    padding: "9px 11px", marginBottom: 7,
-                                    display: "flex", alignItems: "center", gap: 9,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  <div style={{ width: 17, height: 17, borderRadius: 4, background: checked ? "#7C3AED" : "var(--s300)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0, fontWeight: 700 }}>
-                                    {checked ? "✓" : "—"}
+                        {fixSegs.length > 0 && (() => {
+                          // Group fixtures by suggested_type
+                          const fixGroups = fixSegs.reduce<Record<string, typeof fixSegs>>((acc, seg) => {
+                            const key = seg.suggested_type || "אחר";
+                            if (!acc[key]) acc[key] = [];
+                            acc[key].push(seg);
+                            return acc;
+                          }, {});
+                          return (
+                            <div>
+                              {/* ── Collapsible fixtures parent group header ── */}
+                              <div
+                                onClick={() => setExpandedGroups(prev => { const n = new Set(prev); n.has("fixtures") ? n.delete("fixtures") : n.add("fixtures"); return n; })}
+                                style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "7px 10px", borderRadius: "var(--r-sm)", background: "#F5F3FF", marginBottom: 6, userSelect: "none" }}
+                              >
+                                <span style={{ fontSize: 14 }}>🔧</span>
+                                <span style={{ fontSize: 11, fontWeight: 700, flex: 1, color: "#5B21B6" }}>אביזרים</span>
+                                <span style={{ fontSize: 10, background: "#EDE9FE", color: "#7C3AED", borderRadius: 10, padding: "1px 7px", fontWeight: 600 }}>{fixSegs.length}</span>
+                                <span style={{ fontSize: 11, color: "#A78BFA", marginRight: 2 }}>{expandedGroups.has("fixtures") ? "▲" : "▼"}</span>
+                              </div>
+                              {expandedGroups.has("fixtures") && Object.entries(fixGroups).map(([typeKey, segs]) => {
+                                const { label, icon } = getFixGroupLabel(typeKey);
+                                const subGroupKey = `fix_${typeKey}`;
+                                const subOpen = expandedGroups.has(subGroupKey);
+                                const anyChecked = segs.some(s => autoSelected.has(s.segment_id));
+                                return (
+                                  <div key={typeKey} style={{ marginBottom: 6 }}>
+                                    {/* Sub-category header */}
+                                    <div
+                                      onClick={() => setExpandedGroups(prev => { const n = new Set(prev); n.has(subGroupKey) ? n.delete(subGroupKey) : n.add(subGroupKey); return n; })}
+                                      style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "5px 10px 5px 18px", borderRadius: "var(--r-sm)", background: anyChecked ? "#EDE9FE" : "var(--s50)", border: `1px solid ${anyChecked ? "#C4B5FD" : "var(--s200)"}`, marginBottom: 4, userSelect: "none" }}
+                                    >
+                                      <span style={{ fontSize: 13 }}>{icon}</span>
+                                      <span style={{ fontSize: 11, fontWeight: 600, flex: 1, color: "var(--s700)" }}>{label}</span>
+                                      <span style={{ fontSize: 10, background: "#EDE9FE", color: "#7C3AED", borderRadius: 10, padding: "1px 6px", fontWeight: 600 }}>{segs.length}</span>
+                                      <span style={{ fontSize: 10, color: "var(--s400)" }}>{subOpen ? "▲" : "▼"}</span>
+                                    </div>
+                                    {subOpen && segs.map((seg) => {
+                                      const checked = autoSelected.has(seg.segment_id);
+                                      const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
+                                      return (
+                                        <div
+                                          key={seg.segment_id}
+                                          onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}
+                                          style={{
+                                            background: checked ? "#EDE9FE" : "var(--s50)",
+                                            borderRadius: "var(--r-sm)",
+                                            border: `1px solid ${checked ? "#C4B5FD" : "var(--s200)"}`,
+                                            padding: "9px 11px", marginBottom: 5, marginRight: 12,
+                                            display: "flex", alignItems: "center", gap: 9,
+                                            cursor: "pointer",
+                                          }}
+                                        >
+                                          <div style={{ width: 17, height: 17, borderRadius: 4, background: checked ? "#7C3AED" : "var(--s300)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0, fontWeight: 700 }}>
+                                            {checked ? "✓" : "—"}
+                                          </div>
+                                          <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 12, fontWeight: 600, color: "#7C3AED", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{seg.label}</div>
+                                            <div style={{ fontSize: 11, color: "var(--s400)" }}>{seg.area_m2.toFixed(2)} מ"ר</div>
+                                          </div>
+                                          <select
+                                            value={catKey}
+                                            onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
+                                            onClick={e => e.stopPropagation()}
+                                            style={{ fontSize: 11, border: "1px solid #E9D5FF", borderRadius: 5, padding: "3px 6px", color: "var(--s700)", background: "#fff", flexShrink: 0, maxWidth: 110 }}
+                                          >
+                                            <option value="">-- ללא --</option>
+                                            {Object.values(planningState.categories).map(c => (
+                                              <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 12, fontWeight: 600, color: "#7C3AED", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{seg.label}</div>
-                                    <div style={{ fontSize: 11, color: "var(--s400)" }}>{seg.area_m2.toFixed(2)} מ"ר</div>
-                                  </div>
-                                  <select
-                                    value={catKey}
-                                    onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
-                                    onClick={e => e.stopPropagation()}
-                                    style={{ fontSize: 11, border: "1px solid #E9D5FF", borderRadius: 5, padding: "3px 6px", color: "var(--s700)", background: "#fff", flexShrink: 0, maxWidth: 110 }}
-                                  >
-                                    <option value="">-- ללא --</option>
-                                    {Object.values(planningState.categories).map(c => (
-                                      <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
-                                    ))}
-                                  </select>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
 
                         <div className="flex gap-2 flex-wrap">
                           <button type="button" disabled={loading} onClick={() => void handleConfirmAutoSegments(false)}
@@ -2009,6 +2071,20 @@ export const PlanningPage: React.FC = () => {
 
               {/* ── Shared: Categories + Items ── */}
               <div style={{ marginTop: 20, borderTop: "1px solid var(--s200)", paddingTop: 14 }}>
+                {/* Add category — pinned at TOP so it's always reachable */}
+                <details className="text-xs mb-3">
+                  <summary className="cursor-pointer select-none py-1.5 px-2 rounded-lg hover:bg-slate-50" style={{ fontWeight: 600, color: "var(--blue)", border: "1px dashed var(--s300)", display: "flex", alignItems: "center", gap: 5, listStyle: "none" }}>
+                    <span style={{ fontSize: 15, lineHeight: 1 }}>＋</span> הוסף קטגוריה
+                  </summary>
+                  <div className="mt-2 space-y-2 bg-slate-50 rounded-lg p-2">
+                    <label>סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newType} onChange={e => setNewType(e.target.value)}><option>קירות</option><option>ריצוף</option><option>תקרה</option></select></label>
+                    <label>תת-סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newSubtype} onChange={e => setNewSubtype(e.target.value)}>{subtypeOptions.map(s => <option key={s}>{s}</option>)}</select></label>
+                    <label>פרמטר<input type="number" className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamValue} onChange={e => setNewParamValue(Number(e.target.value))} /></label>
+                    <label>הערה<input className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamNote} onChange={e => setNewParamNote(e.target.value)} /></label>
+                    <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} className="w-full px-2 py-1.5 rounded bg-[#1B3A6B] text-white text-xs font-semibold">הוסף ושמור</button>
+                  </div>
+                </details>
+
                 {/* Categories */}
                 <p className="text-xs font-semibold text-slate-500 mb-2">קטגוריות</p>
                 <div className="space-y-1 max-h-[120px] overflow-y-auto mb-2">
@@ -2023,16 +2099,6 @@ export const PlanningPage: React.FC = () => {
                   })}
                   {Object.keys(planningState.categories).length === 0 && <p className="text-xs text-slate-400">אין קטגוריות עדיין.</p>}
                 </div>
-                <details className="text-xs mb-3">
-                  <summary className="cursor-pointer text-slate-600 hover:text-slate-900 select-none py-1">+ הוסף קטגוריה</summary>
-                  <div className="mt-2 space-y-2 bg-slate-50 rounded-lg p-2">
-                    <label>סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newType} onChange={e => setNewType(e.target.value)}><option>קירות</option><option>ריצוף</option><option>תקרה</option></select></label>
-                    <label>תת-סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newSubtype} onChange={e => setNewSubtype(e.target.value)}>{subtypeOptions.map(s => <option key={s}>{s}</option>)}</select></label>
-                    <label>פרמטר<input type="number" className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamValue} onChange={e => setNewParamValue(Number(e.target.value))} /></label>
-                    <label>הערה<input className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamNote} onChange={e => setNewParamNote(e.target.value)} /></label>
-                    <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} className="w-full px-2 py-1.5 rounded bg-[#1B3A6B] text-white text-xs font-semibold">הוסף ושמור</button>
-                  </div>
-                </details>
 
                 {/* Items list */}
                 <p className="text-xs font-semibold text-slate-500 mb-1.5">פריטים ({planningState.items.length})</p>

@@ -166,7 +166,7 @@ from concurrent.futures import ThreadPoolExecutor
 app = FastAPI(title="ConTech Analyzer API", version="1.0.0")
 
 # Thread pool for CPU-bound / blocking-IO work (keeps event loop free for /health)
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="contech-worker")
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="contech-worker")
 
 # In-memory store, מחקה את st.session_state.projects עבור צד מנהל
 PROJECTS: Dict[str, Dict] = {}
@@ -617,23 +617,16 @@ def _safe_float(value: object, default: float = 0.0) -> float:
 
 def _extract_llm_metadata(meta_clean: dict) -> dict:
     """
-    Keep same metadata extraction path as Streamlit:
-    utils.safe_process_metadata -> brain.process_plan_metadata.
+    Text-based metadata extraction via Claude (brain.process_plan_metadata).
+    Runs in a thread executor — never call directly on the event loop.
+    Note: safe_process_metadata is Streamlit-only and always fails in FastAPI context;
+    we go directly to process_plan_metadata to avoid the silent fallback.
     """
     raw_text = meta_clean.get("raw_text")
     if not raw_text:
         return {}
     try:
-        llm_data = safe_process_metadata(meta=meta_clean)
-        if isinstance(llm_data, dict) and llm_data:
-            return llm_data
-    except Exception:
-        pass
-
-    # Fallback for non-Streamlit runtime.
-    try:
         from brain import process_plan_metadata
-
         llm_data = process_plan_metadata(raw_text)
         return llm_data if isinstance(llm_data, dict) else {}
     except Exception:
@@ -1773,64 +1766,73 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
         meta_clean["blocks_length_m"] = materials.blocks_length_m
         meta_clean["flooring_area_m2"] = materials.flooring_area_m2
 
-        llm_data = _extract_llm_metadata(meta_clean)
+        # ── LLM metadata + Vision — parallel in executor (event loop stays free) ──────
+        # Merge order: LLM first (higher priority), Vision second (fills remaining gaps).
+        # This preserves the original sequential priority: LLM wins on shared fields.
+        from .vision_analyzer import analyze_plan_with_vision
+        _llm_result, _vision_result = await asyncio.gather(
+            loop.run_in_executor(_executor, _extract_llm_metadata, meta_clean),
+            loop.run_in_executor(_executor, analyze_plan_with_vision, tmp_path),
+            return_exceptions=True,
+        )
+        llm_data = _llm_result if isinstance(_llm_result, dict) else {}
+        vision_data = _vision_result if isinstance(_vision_result, dict) else {}
+        if isinstance(_llm_result, Exception):
+            print(f"[WARNING] LLM metadata skipped: {_llm_result}")
+        if isinstance(_vision_result, Exception):
+            print(f"[WARNING] Vision analysis skipped: {_vision_result}")
+
+        # Merge 1: LLM (higher priority — runs first)
         if llm_data:
             for key, value in llm_data.items():
                 if key not in meta_clean:
                     meta_clean[key] = value
 
-        # ── Vision analysis — blocking HTTP to Anthropic (runs in thread) ────────────
-        try:
-            from .vision_analyzer import analyze_plan_with_vision
-            vision_data = await loop.run_in_executor(
-                _executor, analyze_plan_with_vision, tmp_path
-            )
-            if vision_data:
-                # חדרים מהויזן → llm_rooms (מקור עיקרי ל-floor_extractor)
-                if vision_data.get("rooms"):
-                    meta_clean["llm_rooms"] = vision_data["rooms"]
-                # קנה מידה — רק אם עדיין לא זוהה
-                if vision_data.get("scale") and not meta_clean.get("scale_text"):
-                    meta_clean["scale_text"] = vision_data["scale"]
-                    _update_scale_fields_from_scale_text(
-                        meta_clean,
-                        meta_clean.get("image_width_px", 0),
-                        meta_clean.get("image_height_px", 0),
-                    )
-                # מידות, חומרים, הערות
-                if vision_data.get("dimensions_found"):
-                    meta_clean["vision_dimensions"] = vision_data["dimensions_found"]
-                if vision_data.get("materials"):
-                    meta_clean["vision_materials"] = vision_data["materials"]
-                if vision_data.get("total_area_m2"):
-                    meta_clean["vision_total_area_m2"] = vision_data["total_area_m2"]
-                if vision_data.get("plan_title") and not meta_clean.get("plan_title"):
-                    meta_clean["plan_title"] = vision_data["plan_title"]
-                # ── שדות חדשים ──────────────────────────────────────────
-                if vision_data.get("dimensions_structured"):
-                    meta_clean["vision_dimensions_structured"] = vision_data["dimensions_structured"]
-                if vision_data.get("elevations"):
-                    meta_clean["vision_elevations"] = vision_data["elevations"]
-                if vision_data.get("materials_legend"):
-                    meta_clean["vision_materials_legend"] = vision_data["materials_legend"]
-                if vision_data.get("elements"):
-                    meta_clean["vision_elements"] = vision_data["elements"]
-                if vision_data.get("grid_lines"):
-                    meta_clean["vision_grid_lines"] = vision_data["grid_lines"]
-                if vision_data.get("systems"):
-                    meta_clean["vision_systems"] = vision_data["systems"]
-                # מטה-דאטה מבלוק הכותרת
-                for _vf in ("project_name", "sheet_number", "sheet_name", "status",
-                            "revision", "date", "drawn_by", "designed_by", "approved_by",
-                            "architect", "project_address", "floor_level",
-                            "drawing_number", "default_ceiling_height_m",
-                            "execution_notes"):
-                    if vision_data.get(_vf) and not meta_clean.get(_vf):
-                        meta_clean[_vf] = vision_data[_vf]
-                if vision_data.get("_pages_processed"):
-                    meta_clean["vision_pages_processed"] = vision_data["_pages_processed"]
-        except Exception as _ve:
-            print(f"[WARNING] Vision analysis skipped: {_ve}")
+        # Merge 2: Vision (fills remaining gaps only)
+        if vision_data:
+            # חדרים מהויזן → llm_rooms (מקור עיקרי ל-floor_extractor)
+            if vision_data.get("rooms"):
+                meta_clean["llm_rooms"] = vision_data["rooms"]
+            # קנה מידה — רק אם עדיין לא זוהה
+            if vision_data.get("scale") and not meta_clean.get("scale_text"):
+                meta_clean["scale_text"] = vision_data["scale"]
+                _update_scale_fields_from_scale_text(
+                    meta_clean,
+                    meta_clean.get("image_width_px", 0),
+                    meta_clean.get("image_height_px", 0),
+                )
+            # מידות, חומרים, הערות
+            if vision_data.get("dimensions_found"):
+                meta_clean["vision_dimensions"] = vision_data["dimensions_found"]
+            if vision_data.get("materials"):
+                meta_clean["vision_materials"] = vision_data["materials"]
+            if vision_data.get("total_area_m2"):
+                meta_clean["vision_total_area_m2"] = vision_data["total_area_m2"]
+            if vision_data.get("plan_title") and not meta_clean.get("plan_title"):
+                meta_clean["plan_title"] = vision_data["plan_title"]
+            # ── שדות חדשים ──────────────────────────────────────────
+            if vision_data.get("dimensions_structured"):
+                meta_clean["vision_dimensions_structured"] = vision_data["dimensions_structured"]
+            if vision_data.get("elevations"):
+                meta_clean["vision_elevations"] = vision_data["elevations"]
+            if vision_data.get("materials_legend"):
+                meta_clean["vision_materials_legend"] = vision_data["materials_legend"]
+            if vision_data.get("elements"):
+                meta_clean["vision_elements"] = vision_data["elements"]
+            if vision_data.get("grid_lines"):
+                meta_clean["vision_grid_lines"] = vision_data["grid_lines"]
+            if vision_data.get("systems"):
+                meta_clean["vision_systems"] = vision_data["systems"]
+            # מטה-דאטה מבלוק הכותרת
+            for _vf in ("project_name", "sheet_number", "sheet_name", "status",
+                        "revision", "date", "drawn_by", "designed_by", "approved_by",
+                        "architect", "project_address", "floor_level",
+                        "drawing_number", "default_ceiling_height_m",
+                        "execution_notes"):
+                if vision_data.get(_vf) and not meta_clean.get(_vf):
+                    meta_clean[_vf] = vision_data[_vf]
+            if vision_data.get("_pages_processed"):
+                meta_clean["vision_pages_processed"] = vision_data["_pages_processed"]
         # ── Auto-generate plan_name from title-block if still using raw filename ──────
         if not meta_clean.get("plan_name") or meta_clean.get("plan_name") == filename:
             _nm_parts: list[str] = []

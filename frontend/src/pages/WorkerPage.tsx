@@ -441,18 +441,17 @@ export const WorkerPage: React.FC = () => {
     if (!selectedPlanId && list.length > 0) setSelectedPlanId(list[0].id);
   }, [selectedPlanId]);
 
-  const loadReports = React.useCallback(async (guardPlanId: string) => {
-    if (!guardPlanId) return;
-    const data = await listWorkerReports(guardPlanId);
-    // Only update if planId hasn't changed while the request was in-flight
-    setSelectedPlanId(current => {
-      if (current === guardPlanId) setReports(data);
-      return current;
-    });
-  }, []);
-
   React.useEffect(() => { void loadPlans().catch(console.error); }, [loadPlans]);
-  React.useEffect(() => { void loadReports(selectedPlanId).catch(console.error); }, [loadReports, selectedPlanId]);
+
+  // Load reports with cancellation flag to prevent stale-response race condition
+  React.useEffect(() => {
+    if (!selectedPlanId) return;
+    let cancelled = false;
+    listWorkerReports(selectedPlanId)
+      .then(data => { if (!cancelled) setReports(data); })
+      .catch(console.error);
+    return () => { cancelled = true; };
+  }, [selectedPlanId]);
 
   React.useEffect(() => {
     if (!selectedPlanId) { setSections([]); setSelectedSectionUid(""); return; }

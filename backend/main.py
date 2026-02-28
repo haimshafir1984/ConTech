@@ -171,6 +171,15 @@ _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="contech-worker
 # In-memory store, מחקה את st.session_state.projects עבור צד מנהל
 PROJECTS: Dict[str, Dict] = {}
 WORKER_REPORTS: list[Dict] = []
+
+_MAX_PROJECTS = 50  # max plans held in memory; oldest evicted when exceeded
+
+def _evict_projects_if_needed() -> None:
+    """FIFO eviction: remove oldest entry when PROJECTS exceeds _MAX_PROJECTS."""
+    while len(PROJECTS) > _MAX_PROJECTS:
+        oldest_key = next(iter(PROJECTS))
+        PROJECTS.pop(oldest_key)
+        print(f"[INFO] Evicted oldest project from memory: {oldest_key} (limit={_MAX_PROJECTS})")
 MANUAL_CORRECTIONS: Dict[str, Dict[str, np.ndarray]] = {}
 DEFAULT_UNIT_PRICES: Dict[str, float] = {
     "קירות": 800.0,
@@ -398,6 +407,7 @@ def _get_project_or_404(plan_id: str) -> Dict:
                 "db_plan_id": row.get("id"),
             }
             PROJECTS[plan_id] = proj
+            _evict_projects_if_needed()
             # ── טעינת arrays מ-DB BLOB אם הנתיבים הדיסקיים לא קיימים (Render restart) ──
             _ensure_arrays_loaded(proj)
             return proj
@@ -760,6 +770,7 @@ def _persist_plan_to_database(plan_id: str, proj: Dict) -> Optional[int]:
     if existing_db_id is not None:
         update_plan_metadata(existing_db_id, metadata_json)
         PROJECTS[plan_id] = proj
+        _evict_projects_if_needed()
         return existing_db_id
 
     # ── Strategy 2: fall back to save_plan (upsert by filename) ──
@@ -775,6 +786,7 @@ def _persist_plan_to_database(plan_id: str, proj: Dict) -> Optional[int]:
     if db_plan_id:
         proj["db_plan_id"] = int(db_plan_id)
         PROJECTS[plan_id] = proj
+        _evict_projects_if_needed()
         return int(db_plan_id)
 
     # ── Strategy 3: resolve from DB by filename and force update metadata ──
@@ -784,6 +796,7 @@ def _persist_plan_to_database(plan_id: str, proj: Dict) -> Optional[int]:
         update_plan_metadata(rid, metadata_json)
         proj["db_plan_id"] = rid
         PROJECTS[plan_id] = proj
+        _evict_projects_if_needed()
         return rid
 
     return None

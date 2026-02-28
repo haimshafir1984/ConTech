@@ -24,6 +24,12 @@ if (!document.head.querySelector("[data-dashboard-styles]")) {
   document.head.appendChild(_expandStyle);
 }
 
+// ─── HTML escape helper (prevents XSS in print template) ─────────────────────
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+
 // ─── Print BOQ report ─────────────────────────────────────────────────────────
 function printBoqReport(
   dashboard: DashboardResponse,
@@ -31,12 +37,14 @@ function printBoqReport(
   planName: string,
   snapshotUrl: string
 ) {
+  const safePlanName = escapeHtml(planName);
+
   const boqRows = dashboard.boq_progress.map((row) => `
     <tr>
-      <td>${row.label}</td>
-      <td>${row.planned_qty.toFixed(2)} ${row.unit}</td>
-      <td>${row.built_qty.toFixed(2)} ${row.unit}</td>
-      <td>${row.remaining_qty.toFixed(2)} ${row.unit}</td>
+      <td>${escapeHtml(row.label)}</td>
+      <td>${row.planned_qty.toFixed(2)} ${escapeHtml(row.unit)}</td>
+      <td>${row.built_qty.toFixed(2)} ${escapeHtml(row.unit)}</td>
+      <td>${row.remaining_qty.toFixed(2)} ${escapeHtml(row.unit)}</td>
       <td>
         <div style="background:#eee;border-radius:4px;overflow:hidden;height:10px;width:100px;display:inline-block">
           <div style="background:#FF4B4B;height:100%;width:${Math.min(100, row.progress_percent).toFixed(0)}%"></div>
@@ -47,15 +55,15 @@ function printBoqReport(
 
   const reportRows = (summary?.reports ?? []).map((r) => `
     <tr>
-      <td>${r.date}</td>
-      <td>${r.shift}</td>
+      <td>${escapeHtml(r.date)}</td>
+      <td>${escapeHtml(r.shift)}</td>
       <td>${r.report_type === "walls" ? "קירות" : "ריצוף"}</td>
       <td>${r.report_type === "walls" ? r.total_length_m.toFixed(2) + " מ'" : r.total_area_m2.toFixed(2) + " מ\"ר"}</td>
-      <td>${r.note || "—"}</td>
+      <td>${escapeHtml(r.note || "—")}</td>
     </tr>`).join("");
 
   const html = `<!doctype html><html dir="rtl" lang="he"><head>
-  <meta charset="UTF-8"><title>דוח פרויקט - ${planName}</title>
+  <meta charset="UTF-8"><title>דוח פרויקט - ${safePlanName}</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 24px 32px; direction: rtl; color: #222; }
     h1 { color: #FF4B4B; margin-bottom: 4px; }
@@ -74,7 +82,7 @@ function printBoqReport(
     .progress-fill { height: 100%; background: #FF4B4B; }
     @media print { body { padding: 12px; } }
   </style></head><body>
-  <h1>📊 דוח פרויקט: ${planName}</h1>
+  <h1>📊 דוח פרויקט: ${safePlanName}</h1>
   <div class="meta">הופק: ${new Date().toLocaleDateString("he-IL")} | סה"כ דיווחים: ${summary?.total_reports ?? 0}</div>
 
   <div class="kpi-grid">

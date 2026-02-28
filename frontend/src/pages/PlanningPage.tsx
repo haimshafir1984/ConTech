@@ -85,18 +85,21 @@ function generateTempId(): string {
   return `pending_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function getFixGroupLabel(type: string): { label: string; icon: string } {
-  const t = type.toLowerCase();
+// Maps suggested_subtype (from backend) → Hebrew label + icon
+function getFixGroupLabel(subtype: string): { label: string; icon: string } {
+  const t = subtype.toLowerCase();
+  // Backend exact values (Hebrew)
+  if (t.includes("כיור") || t.includes("אסלה")) return { label: "כיורים ואסלות", icon: "🚰" };
+  if (t.includes("אמבטיה") || t.includes("מקלחת")) return { label: "אמבטיות ומקלחות", icon: "🚿" };
+  if (t.includes("ריהוט") || t.includes("מכשיר")) return { label: "ריהוט ומכשירים", icon: "🛋️" };
+  // English fallbacks
   if (t.includes("door") || t.includes("דלת")) return { label: "דלתות", icon: "🚪" };
   if (t.includes("window") || t.includes("חלון")) return { label: "חלונות", icon: "🪟" };
   if (t.includes("column") || t.includes("pillar") || t.includes("עמוד")) return { label: "עמודים", icon: "🏛️" };
   if (t.includes("stair") || t.includes("מדרגה") || t.includes("מדרגות")) return { label: "מדרגות", icon: "🪜" };
   if (t.includes("elevator") || t.includes("lift") || t.includes("מעלית")) return { label: "מעליות", icon: "🛗" };
-  if (t.includes("toilet") || t.includes("bathroom") || t.includes("שירותים") || t.includes("אמבט") || t.includes("מקלחת")) return { label: "שרותים/אמבטיה", icon: "🚿" };
-  if (t.includes("kitchen") || t.includes("מטבח") || t.includes("sink") || t.includes("כיור")) return { label: "מטבח/כיורים", icon: "🍳" };
   if (t.includes("beam") || t.includes("קורה")) return { label: "קורות", icon: "🔩" };
-  if (t.includes("fixture") || t.includes("אביזר")) return { label: "אביזרים כלליים", icon: "🔧" };
-  return { label: type || "אחר", icon: "📌" };
+  return { label: subtype || "אחר", icon: "📌" };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1700,82 +1703,101 @@ export const PlanningPage: React.FC = () => {
                         )}
 
                         {fixSegs.length > 0 && (() => {
-                          // Group fixtures by suggested_type
-                          const fixGroups = fixSegs.reduce<Record<string, typeof fixSegs>>((acc, seg) => {
-                            const key = seg.suggested_type || "אחר";
+                          // Split: known (plumbing/furniture) vs unidentified (פרט קטן)
+                          const knownSegs    = fixSegs.filter(s => s.suggested_subtype !== "פרט קטן");
+                          const unknownSegs  = fixSegs.filter(s => s.suggested_subtype === "פרט קטן");
+                          // Group known fixtures by suggested_subtype
+                          const knownGroups  = knownSegs.reduce<Record<string, typeof fixSegs>>((acc, seg) => {
+                            const key = seg.suggested_subtype || "אחר";
                             if (!acc[key]) acc[key] = [];
                             acc[key].push(seg);
                             return acc;
                           }, {});
+                          // Reusable segment row
+                          const FixRow = ({ seg, indented }: { seg: typeof fixSegs[0]; indented?: boolean }) => {
+                            const checked = autoSelected.has(seg.segment_id);
+                            const catKey  = autoConfirmedKeys[seg.segment_id] ?? "";
+                            return (
+                              <div
+                                key={seg.segment_id}
+                                onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}
+                                style={{ background: checked ? "#EDE9FE" : "var(--s50)", borderRadius: "var(--r-sm)", border: `1px solid ${checked ? "#C4B5FD" : "var(--s200)"}`, padding: "9px 11px", marginBottom: 5, marginRight: indented ? 12 : 0, display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}
+                              >
+                                <div style={{ width: 17, height: 17, borderRadius: 4, background: checked ? "#7C3AED" : "var(--s300)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0, fontWeight: 700 }}>
+                                  {checked ? "✓" : "—"}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: "#7C3AED", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{seg.label}</div>
+                                  <div style={{ fontSize: 11, color: "var(--s400)" }}>{seg.area_m2.toFixed(2)} מ"ר</div>
+                                </div>
+                                <select value={catKey} onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))} onClick={e => e.stopPropagation()} style={{ fontSize: 11, border: "1px solid #E9D5FF", borderRadius: 5, padding: "3px 6px", color: "var(--s700)", background: "#fff", flexShrink: 0, maxWidth: 110 }}>
+                                  <option value="">-- ללא --</option>
+                                  {Object.values(planningState.categories).map(c => (
+                                    <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          };
                           return (
                             <div>
-                              {/* ── Collapsible fixtures parent group header ── */}
-                              <div
-                                onClick={() => setExpandedGroups(prev => { const n = new Set(prev); n.has("fixtures") ? n.delete("fixtures") : n.add("fixtures"); return n; })}
-                                style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "7px 10px", borderRadius: "var(--r-sm)", background: "#F5F3FF", marginBottom: 6, userSelect: "none" }}
-                              >
+                              {/* ── Parent: אביזרים ── */}
+                              <div onClick={() => setExpandedGroups(prev => { const n = new Set(prev); n.has("fixtures") ? n.delete("fixtures") : n.add("fixtures"); return n; })}
+                                style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "7px 10px", borderRadius: "var(--r-sm)", background: "#F5F3FF", marginBottom: 6, userSelect: "none" }}>
                                 <span style={{ fontSize: 14 }}>🔧</span>
                                 <span style={{ fontSize: 11, fontWeight: 700, flex: 1, color: "#5B21B6" }}>אביזרים</span>
                                 <span style={{ fontSize: 10, background: "#EDE9FE", color: "#7C3AED", borderRadius: 10, padding: "1px 7px", fontWeight: 600 }}>{fixSegs.length}</span>
                                 <span style={{ fontSize: 11, color: "#A78BFA", marginRight: 2 }}>{expandedGroups.has("fixtures") ? "▲" : "▼"}</span>
                               </div>
-                              {expandedGroups.has("fixtures") && Object.entries(fixGroups).map(([typeKey, segs]) => {
-                                const { label, icon } = getFixGroupLabel(typeKey);
-                                const subGroupKey = `fix_${typeKey}`;
-                                const subOpen = expandedGroups.has(subGroupKey);
-                                const anyChecked = segs.some(s => autoSelected.has(s.segment_id));
-                                return (
-                                  <div key={typeKey} style={{ marginBottom: 6 }}>
-                                    {/* Sub-category header */}
-                                    <div
-                                      onClick={() => setExpandedGroups(prev => { const n = new Set(prev); n.has(subGroupKey) ? n.delete(subGroupKey) : n.add(subGroupKey); return n; })}
-                                      style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "5px 10px 5px 18px", borderRadius: "var(--r-sm)", background: anyChecked ? "#EDE9FE" : "var(--s50)", border: `1px solid ${anyChecked ? "#C4B5FD" : "var(--s200)"}`, marginBottom: 4, userSelect: "none" }}
-                                    >
-                                      <span style={{ fontSize: 13 }}>{icon}</span>
-                                      <span style={{ fontSize: 11, fontWeight: 600, flex: 1, color: "var(--s700)" }}>{label}</span>
-                                      <span style={{ fontSize: 10, background: "#EDE9FE", color: "#7C3AED", borderRadius: 10, padding: "1px 6px", fontWeight: 600 }}>{segs.length}</span>
-                                      <span style={{ fontSize: 10, color: "var(--s400)" }}>{subOpen ? "▲" : "▼"}</span>
+
+                              {expandedGroups.has("fixtures") && (
+                                <>
+                                  {/* ── Section A: אביזרים מזוהים ── */}
+                                  {knownSegs.length > 0 && (
+                                    <div style={{ marginBottom: 8 }}>
+                                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--s500)", textTransform: "uppercase", letterSpacing: "0.6px", padding: "0 4px", marginBottom: 5 }}>
+                                        🏠 אביזרים מזוהים ({knownSegs.length})
+                                      </div>
+                                      {Object.entries(knownGroups).map(([subtypeKey, segs]) => {
+                                        const { label, icon } = getFixGroupLabel(subtypeKey);
+                                        const subKey = `fix_k_${subtypeKey}`;
+                                        const subOpen = expandedGroups.has(subKey);
+                                        const anyChecked = segs.some(s => autoSelected.has(s.segment_id));
+                                        return (
+                                          <div key={subtypeKey} style={{ marginBottom: 5 }}>
+                                            <div onClick={() => setExpandedGroups(prev => { const n = new Set(prev); n.has(subKey) ? n.delete(subKey) : n.add(subKey); return n; })}
+                                              style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "5px 10px 5px 18px", borderRadius: "var(--r-sm)", background: anyChecked ? "#EDE9FE" : "var(--s50)", border: `1px solid ${anyChecked ? "#C4B5FD" : "var(--s200)"}`, marginBottom: 4, userSelect: "none" }}>
+                                              <span style={{ fontSize: 13 }}>{icon}</span>
+                                              <span style={{ fontSize: 11, fontWeight: 600, flex: 1, color: "var(--s700)" }}>{label}</span>
+                                              <span style={{ fontSize: 10, background: "#EDE9FE", color: "#7C3AED", borderRadius: 10, padding: "1px 6px", fontWeight: 600 }}>{segs.length}</span>
+                                              <span style={{ fontSize: 10, color: "var(--s400)" }}>{subOpen ? "▲" : "▼"}</span>
+                                            </div>
+                                            {subOpen && segs.map(seg => <FixRow key={seg.segment_id} seg={seg} indented />)}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
-                                    {subOpen && segs.map((seg) => {
-                                      const checked = autoSelected.has(seg.segment_id);
-                                      const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
-                                      return (
-                                        <div
-                                          key={seg.segment_id}
-                                          onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}
-                                          style={{
-                                            background: checked ? "#EDE9FE" : "var(--s50)",
-                                            borderRadius: "var(--r-sm)",
-                                            border: `1px solid ${checked ? "#C4B5FD" : "var(--s200)"}`,
-                                            padding: "9px 11px", marginBottom: 5, marginRight: 12,
-                                            display: "flex", alignItems: "center", gap: 9,
-                                            cursor: "pointer",
-                                          }}
-                                        >
-                                          <div style={{ width: 17, height: 17, borderRadius: 4, background: checked ? "#7C3AED" : "var(--s300)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0, fontWeight: 700 }}>
-                                            {checked ? "✓" : "—"}
-                                          </div>
-                                          <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: 12, fontWeight: 600, color: "#7C3AED", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{seg.label}</div>
-                                            <div style={{ fontSize: 11, color: "var(--s400)" }}>{seg.area_m2.toFixed(2)} מ"ר</div>
-                                          </div>
-                                          <select
-                                            value={catKey}
-                                            onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
-                                            onClick={e => e.stopPropagation()}
-                                            style={{ fontSize: 11, border: "1px solid #E9D5FF", borderRadius: 5, padding: "3px 6px", color: "var(--s700)", background: "#fff", flexShrink: 0, maxWidth: 110 }}
-                                          >
-                                            <option value="">-- ללא --</option>
-                                            {Object.values(planningState.categories).map(c => (
-                                              <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
-                                            ))}
-                                          </select>
+                                  )}
+
+                                  {/* ── Section B: פרטים לא מזוהים ── closed by default, grayed */}
+                                  {unknownSegs.length > 0 && (
+                                    <div>
+                                      <div onClick={() => setExpandedGroups(prev => { const n = new Set(prev); n.has("fix_unknown") ? n.delete("fix_unknown") : n.add("fix_unknown"); return n; })}
+                                        style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "5px 10px", borderRadius: "var(--r-sm)", background: "var(--s100)", border: "1px dashed var(--s300)", marginBottom: 4, userSelect: "none", opacity: 0.8 }}>
+                                        <span style={{ fontSize: 13 }}>📌</span>
+                                        <span style={{ fontSize: 11, fontWeight: 600, flex: 1, color: "var(--s500)" }}>פרטים לא מזוהים</span>
+                                        <span style={{ fontSize: 10, background: "var(--s200)", color: "var(--s500)", borderRadius: 10, padding: "1px 6px", fontWeight: 600 }}>{unknownSegs.length}</span>
+                                        <span style={{ fontSize: 10, color: "var(--s400)" }}>{expandedGroups.has("fix_unknown") ? "▲" : "▼"}</span>
+                                      </div>
+                                      {expandedGroups.has("fix_unknown") && (
+                                        <div style={{ opacity: 0.75 }}>
+                                          {unknownSegs.map(seg => <FixRow key={seg.segment_id} seg={seg} />)}
                                         </div>
-                                      );
-                                    })}
-                                  </div>
-                                );
-                              })}
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              )}
                             </div>
                           );
                         })()}

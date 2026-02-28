@@ -315,7 +315,7 @@ export const App: React.FC = () => {
           }}
           className="main-content"
         >
-          {activeTab === "workshop"     && <WorkshopPage />}
+          {activeTab === "workshop"     && <WorkshopPage onNavigatePlanning={() => setActiveTab("planning")} />}
           {activeTab === "planning"     && <PlanningPage />}
           {activeTab === "drawingData"  && <DrawingDataPage />}
           {activeTab === "corrections"  && <CorrectionsPage />}

@@ -145,20 +145,6 @@ function exportBoqCsv(dashboard: DashboardResponse, planName: string) {
   URL.revokeObjectURL(url);
 }
 
-// ─── Mini bar chart ───────────────────────────────────────────────────────────
-const MiniBarChart: React.FC<{ data: { date: string; value: number; max: number }[] }> = ({ data }) => (
-  <div className="space-y-1">
-    {data.map((d) => (
-      <div key={d.date} className="flex items-center gap-2 text-xs">
-        <span className="w-24 text-slate-500 shrink-0 text-left" dir="ltr">{d.date}</span>
-        <div className="flex-1 h-4 bg-slate-100 rounded overflow-hidden">
-          <div className="h-full bg-[#FF4B4B] rounded" style={{ width: `${Math.min(100, (d.value / Math.max(d.max, 0.001)) * 100)}%` }} />
-        </div>
-        <span className="w-16 text-right font-semibold">{d.value.toFixed(2)} מ'</span>
-      </div>
-    ))}
-  </div>
-);
 
 // ─── Report card with image preview ──────────────────────────────────────────
 const ReportCard: React.FC<{
@@ -274,7 +260,6 @@ export const DashboardPage: React.FC = () => {
   }, [selectedPlanId]);
 
   const pct = dashboard?.percent_complete ?? 0;
-  const progressColor = pct < 30 ? "bg-red-500" : pct < 70 ? "bg-amber-500" : "bg-emerald-500";
   const snapshotUrl = React.useMemo(() => getWorkerReportSnapshotUrl(selectedPlanId), [selectedPlanId]);
   const selectedPlan = React.useMemo(() => plans.find((p) => p.id === selectedPlanId), [plans, selectedPlanId]);
 
@@ -344,54 +329,152 @@ export const DashboardPage: React.FC = () => {
       {/* ── DASHBOARD VIEW ── */}
       {dashboard && activeView === "dashboard" && (
         <>
-          <section className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          {/* KPI grid */}
+          <section style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
             {([
-              { label: "⚡ התקדמות כללית", value: `${pct.toFixed(1)}%`, sub: `${dashboard.average_daily_m.toFixed(2)} מ'/יום`, topColor: "var(--blue)" },
-              { label: "🏗️ בוצע בפועל", value: `${dashboard.built_m.toFixed(1)} מ'`, sub: `מתוך ${dashboard.total_planned_m.toFixed(1)} מ' מתוכנן`, topColor: "var(--green)" },
-              { label: "⏳ נותר לביצוע", value: `${dashboard.remaining_m.toFixed(1)} מ'`, sub: dashboard.days_to_finish != null ? `~${dashboard.days_to_finish.toFixed(0)} ימים` : "", topColor: "var(--amber)" },
-              { label: "💰 עלות מצטברת", value: `${dashboard.current_cost_ils.toLocaleString()} ₪`, sub: "", topColor: "#6366F1" },
-            ] as { label: string; value: string; sub: string; topColor: string }[]).map((c) => (
-              <div key={c.label} style={{ background: "#fff", border: "1px solid var(--s200)", borderTop: `3px solid ${c.topColor}`, borderRadius: "var(--r)", padding: "16px", boxShadow: "var(--sh1)" }}>
-                <div style={{ fontSize: 12, color: "var(--s500)", marginBottom: 8 }}>{c.label}</div>
-                <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, lineHeight: 1, marginBottom: 6, color: "var(--s900)" }}>{c.value}</div>
-                {c.sub && <div style={{ fontSize: 11, color: "var(--s400)" }}>{c.sub}</div>}
+              { label: "⚡ התקדמות כללית", value: `${pct.toFixed(1)}%`, sub: `${dashboard.average_daily_m.toFixed(2)} מ'/יום`, topColor: "var(--blue)", extraContent: (
+                <div style={{ height: 5, background: "var(--s200)", borderRadius: 3, overflow: "hidden", marginBottom: 8 }}>
+                  <div style={{ width: `${Math.min(100, pct)}%`, height: "100%", background: "var(--blue)", borderRadius: 3 }} />
+                </div>
+              ) },
+              { label: "✓ בוצע בפועל", value: `${dashboard.built_m.toFixed(1)} מ'`, sub: `מתוך ${dashboard.total_planned_m.toFixed(1)} מ' מתוכנן`, topColor: "var(--green)", extraContent: null },
+              { label: "⏳ נותר לביצוע", value: `${dashboard.remaining_m.toFixed(1)} מ'`, sub: dashboard.days_to_finish != null ? `~${dashboard.days_to_finish.toFixed(0)} ימים` : "", topColor: "var(--amber)", extraContent: null },
+              { label: "💰 עלות מצטברת", value: `${dashboard.current_cost_ils.toLocaleString()} ₪`, sub: `שטח: ${dashboard.planned_floor_m2.toFixed(0)} מ"ר`, topColor: "#6366F1", extraContent: null },
+            ] as { label: string; value: string; sub: string; topColor: string; extraContent: React.ReactNode }[]).map((c) => (
+              <div key={c.label} style={{ background: "#fff", borderTop: `3px solid ${c.topColor}`, borderRadius: "var(--r)", padding: "18px 20px", boxShadow: "var(--sh1)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--s400)", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>{c.label}</div>
+                <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: -1.5, lineHeight: 1, marginBottom: 8, color: "var(--s900)" }}>{c.value}</div>
+                {c.extraContent}
+                {c.sub && <div style={{ fontSize: 12, color: "var(--s400)" }}>{c.sub}</div>}
               </div>
             ))}
           </section>
 
-          <section className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm">
-            <h3 className="text-sm font-semibold mb-2">התקדמות כללית</h3>
-            <div className="w-full h-7 bg-slate-100 rounded-lg overflow-hidden">
-              <div className={`h-full ${progressColor} text-white text-sm font-semibold flex items-center justify-center`} style={{ width: `${Math.min(100, pct)}%` }}>
-                {pct > 8 ? `${pct.toFixed(1)}%` : ""}
-              </div>
-            </div>
-            <div className="text-xs text-slate-500 mt-1">קצב ממוצע: {dashboard.average_daily_m.toFixed(2)} מ'/יום</div>
-          </section>
+          {/* Dash grid: BOQ table left + side panels right */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 330px", gap: 16 }}>
 
-          <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm">
-              <h3 className="text-sm font-semibold mb-3">📈 גרף יומי</h3>
-              {dashboard.timeline.length === 0
-                ? <p className="text-sm text-slate-400">אין דיווחים.</p>
-                : <MiniBarChart data={dashboard.timeline.map((p) => ({ date: p.date, value: p.quantity_m, max: dashboard.max_daily_m ?? 1 }))} />
-              }
+            {/* BOQ table */}
+            <div style={{ background: "#fff", borderRadius: "var(--r)", boxShadow: "var(--sh1)", overflow: "hidden" }}>
+              <div style={{ padding: "13px 20px", borderBottom: "1px solid var(--s100)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>📋 ריכוז כמויות — BOQ</span>
+                {dashboard.boq_progress.length > 0 && (
+                  <button type="button" onClick={() => setActiveView("boq")} style={{ fontSize: 12, color: "var(--blue)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                    הצג הכל ←
+                  </button>
+                )}
+              </div>
+              {dashboard.boq_progress.length === 0 ? (
+                <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--s400)", fontSize: 13 }}>
+                  אין נתוני BOQ. הגדר תכולה בעמוד תכנון.
+                </div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      {["פריט עבודה", "כמות", "התקדמות", "סטטוס"].map((h) => (
+                        <th key={h} style={{ textAlign: "right", padding: "9px 16px", fontSize: 11, fontWeight: 700, color: "var(--s400)", background: "var(--s50)", borderBottom: "1px solid var(--s200)" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dashboard.boq_progress.map((row) => {
+                      const pctRow = Math.min(100, row.progress_percent);
+                      const barColor = pctRow >= 100 ? "var(--green)" : pctRow >= 50 ? "var(--blue)" : pctRow > 0 ? "var(--amber)" : "var(--s300)";
+                      const badge = pctRow >= 100
+                        ? { label: "✓ הושלם", bg: "var(--green-50)", color: "var(--green)" }
+                        : pctRow > 0
+                        ? { label: "בעבודה", bg: "var(--blue-100)", color: "var(--blue)" }
+                        : { label: "ממתין", bg: "var(--s100)", color: "var(--s500)" };
+                      return (
+                        <tr
+                          key={row.label}
+                          style={{ borderBottom: "1px solid var(--s100)" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--s50)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <td style={{ padding: "10px 16px", fontWeight: 600, color: "var(--s900)" }}>{row.label}</td>
+                          <td style={{ padding: "10px 16px", color: "var(--s500)" }}>{row.planned_qty.toFixed(1)} {row.unit}</td>
+                          <td style={{ padding: "10px 16px" }}>
+                            <span style={{ fontWeight: 700, color: barColor, marginLeft: 6 }}>{pctRow.toFixed(0)}%</span>
+                            <span style={{ width: 80, height: 5, background: "var(--s200)", borderRadius: 3, overflow: "hidden", display: "inline-block", verticalAlign: "middle" }}>
+                              <span style={{ display: "block", height: "100%", width: `${pctRow}%`, background: barColor, borderRadius: 3 }} />
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px 16px" }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: badge.bg, color: badge.color }}>
+                              {badge.label}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
-            <div className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm">
-              <h3 className="text-sm font-semibold mb-3">🕒 דיווחים אחרונים</h3>
-              {dashboard.recent_reports.length === 0
-                ? <p className="text-sm text-slate-400">אין דיווחים.</p>
-                : dashboard.recent_reports.map((r) => (
-                  <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, background: "var(--s50)", borderRadius: 8, padding: "8px 10px", marginBottom: 4, borderBottom: "1px solid var(--s100)" }}>
-                    <span style={{ color: "var(--s700)" }}>{r.date} | {r.shift} | {r.report_type === "walls" ? "קירות" : "ריצוף"}</span>
-                    <span style={{ fontWeight: 700, color: r.report_type === "walls" ? "var(--blue)" : "var(--amber)" }}>
-                      {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
-                    </span>
-                  </div>
-                ))
-              }
+
+            {/* Right column: category progress + activity feed */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+              {/* Category progress */}
+              <div style={{ background: "#fff", borderRadius: "var(--r)", boxShadow: "var(--sh1)", overflow: "hidden" }}>
+                <div style={{ padding: "13px 20px", borderBottom: "1px solid var(--s100)" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>📊 לפי קטגוריה</span>
+                </div>
+                <div style={{ padding: "14px 20px" }}>
+                  {[
+                    { name: "🧱 קירות", pct: dashboard.planned_walls_m > 0 ? Math.min(100, (dashboard.built_walls_m / dashboard.planned_walls_m) * 100) : 0, color: "var(--blue)" },
+                    { name: "🪵 ריצוף", pct: dashboard.planned_floor_m2 > 0 ? Math.min(100, (dashboard.built_floor_m2 / dashboard.planned_floor_m2) * 100) : 0, color: "var(--green)" },
+                  ].map((cat) => (
+                    <div key={cat.name} style={{ marginBottom: 15 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 12 }}>
+                        <span style={{ fontWeight: 600 }}>{cat.name}</span>
+                        <span style={{ fontWeight: 700, color: cat.color }}>{cat.pct.toFixed(0)}%</span>
+                      </div>
+                      <div style={{ height: 7, background: "var(--s200)", borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${cat.pct}%`, background: cat.color, borderRadius: 4 }} />
+                      </div>
+                    </div>
+                  ))}
+                  {dashboard.timeline.length > 0 && (
+                    <div style={{ marginTop: 8, paddingTop: 12, borderTop: "1px solid var(--s100)", fontSize: 11, color: "var(--s400)" }}>
+                      קצב ממוצע: <strong style={{ color: "var(--s700)" }}>{dashboard.average_daily_m.toFixed(2)} מ'/יום</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Activity feed */}
+              <div style={{ background: "#fff", borderRadius: "var(--r)", boxShadow: "var(--sh1)", overflow: "hidden", flex: 1 }}>
+                <div style={{ padding: "13px 20px", borderBottom: "1px solid var(--s100)" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>🕐 עדכונים אחרונים</span>
+                </div>
+                <div style={{ padding: "12px 20px", fontSize: 12 }}>
+                  {dashboard.recent_reports.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "var(--s400)", padding: "16px 0" }}>אין דיווחים עדיין</div>
+                  ) : dashboard.recent_reports.slice(0, 6).map((r) => {
+                    const color = r.report_type === "walls" ? "var(--blue)" : "var(--amber)";
+                    const qty = r.report_type === "walls"
+                      ? `${r.total_length_m.toFixed(2)} מ'`
+                      : `${r.total_area_m2.toFixed(2)} מ"ר`;
+                    return (
+                      <div key={r.id} style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--s100)" }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, marginTop: 3, flexShrink: 0 }} />
+                        <div>
+                          <div>
+                            <span style={{ fontWeight: 600 }}>{r.shift}</span>
+                            {" — "}{r.report_type === "walls" ? "קירות" : "ריצוף"} · {qty}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--s400)", marginTop: 2 }}>{r.date}{r.note ? ` · ${r.note}` : ""}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
             </div>
-          </section>
+          </div>
         </>
       )}
 

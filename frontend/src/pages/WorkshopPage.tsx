@@ -242,7 +242,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading, compact }) =
 };
 
 // ── Main WorkshopPage ────────────────────────────────────────────────────────
-export const WorkshopPage: React.FC = () => {
+export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ onNavigatePlanning }) => {
   const toast = useToast();
   const [plans, setPlans] = React.useState<PlanSummary[]>([]);
   const [selectedPlanId, setSelectedPlanId] = React.useState<string | null>(null);
@@ -618,11 +618,15 @@ export const WorkshopPage: React.FC = () => {
                   : "linear-gradient(140deg, #FFFBEB, #FEF3C7)";
               const badgeColor = active ? "var(--blue)" : analyzed ? "var(--green)" : "var(--amber)";
               const badgeLabel = active ? "✓ פעיל" : analyzed ? "✓ נותח" : "⏳ ממתין";
+              const ctaLabel = analyzed ? "פתח לעריכה ←" : "🔍 התחל ניתוח";
+              const ctaPrimary = analyzed;
               return (
-                <button
+                <div
                   key={p.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedPlanId(p.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter") setSelectedPlanId(p.id); }}
                   style={{
                     textAlign: "right",
                     background: "#fff",
@@ -632,10 +636,9 @@ export const WorkshopPage: React.FC = () => {
                     cursor: "pointer",
                     boxShadow: active ? "var(--sh2)" : "var(--sh1)",
                     transition: "box-shadow 0.15s, border-color 0.15s, transform 0.15s",
-                    padding: 0,
                   }}
-                  onMouseEnter={(e) => { if (!active) { (e.currentTarget as HTMLButtonElement).style.boxShadow = "var(--sh2)"; (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-2px)"; } }}
-                  onMouseLeave={(e) => { if (!active) { (e.currentTarget as HTMLButtonElement).style.boxShadow = "var(--sh1)"; (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)"; } }}
+                  onMouseEnter={(e) => { if (!active) { (e.currentTarget as HTMLDivElement).style.boxShadow = "var(--sh2)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"; } }}
+                  onMouseLeave={(e) => { if (!active) { (e.currentTarget as HTMLDivElement).style.boxShadow = "var(--sh1)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"; } }}
                 >
                   {/* Thumbnail */}
                   <div style={{ height: 136, background: thumbBg, overflow: "hidden", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -651,11 +654,30 @@ export const WorkshopPage: React.FC = () => {
                   {/* Info */}
                   <div style={{ padding: "12px 14px" }}>
                     <div style={{ fontWeight: 700, fontSize: 13, color: "var(--s900)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>{p.plan_name}</div>
-                    <div style={{ fontSize: 11, color: "var(--s400)" }}>
+                    <div style={{ fontSize: 11, color: "var(--s400)", marginBottom: 10 }}>
                       {p.total_wall_length_m != null ? `${p.total_wall_length_m.toFixed(1)} מ' קירות` : "טרם נותח"}
                     </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPlanId(p.id);
+                        if (analyzed && onNavigatePlanning) onNavigatePlanning();
+                        else if (!analyzed) void runAnalysisNow();
+                      }}
+                      style={{
+                        width: "100%", padding: "7px 12px",
+                        borderRadius: "var(--r-sm)", fontSize: 12, fontWeight: 700,
+                        cursor: "pointer",
+                        background: ctaPrimary ? "var(--blue)" : "transparent",
+                        color: ctaPrimary ? "#fff" : "var(--s700)",
+                        border: ctaPrimary ? "none" : "1px solid var(--s300)",
+                      }}
+                    >
+                      {ctaLabel}
+                    </button>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>

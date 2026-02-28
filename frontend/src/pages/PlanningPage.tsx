@@ -1238,7 +1238,7 @@ export const PlanningPage: React.FC = () => {
       )}
 
       {/* Step nav — horizontal stepper strip */}
-      <div style={{ background: "#fff", border: "1px solid var(--s200)", borderRadius: "var(--r)", padding: "14px 20px", flexShrink: 0 }}>
+      <div style={{ background: "#fff", borderBottom: "1px solid var(--s200)", padding: "14px 20px", flexShrink: 0, margin: "0 -24px", paddingLeft: 28, paddingRight: 28 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto" }}>
           {(
             [
@@ -1632,88 +1632,89 @@ export const PlanningPage: React.FC = () => {
                         </div>
 
                         {wallSegs.length > 0 && (
-                          <div className="overflow-x-auto">
-                            <div className="text-xs font-semibold text-slate-500 mb-1">🧱 קירות שזוהו</div>
-                            <table className="w-full text-xs border-collapse">
-                              <thead>
-                                <tr className="bg-slate-50 text-slate-500">
-                                  <th className="p-1.5 text-right font-medium border-b border-slate-200 w-6">#</th>
-                                  <th className="p-1.5 text-right font-medium border-b border-slate-200 w-8">✓</th>
-                                  <th className="p-1.5 text-right font-medium border-b border-slate-200">הצעה</th>
-                                  <th className="p-1.5 text-right font-medium border-b border-slate-200">אורך</th>
-                                  <th className="p-1.5 text-right font-medium border-b border-slate-200">%</th>
-                                  <th className="p-1.5 text-right font-medium border-b border-slate-200">קטגוריה</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {wallSegs.map((seg, idx) => {
-                                  const checked = autoSelected.has(seg.segment_id);
-                                  const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
-                                  const conf = seg.confidence;
-                                  const confColor = conf >= 0.8 ? "#10B981" : conf >= 0.6 ? "#F59E0B" : "#EF4444";
-                                  return (
-                                    <tr key={seg.segment_id} className={`border-b border-slate-100 cursor-pointer ${checked ? "bg-blue-50" : "hover:bg-slate-50"}`}
-                                      onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
-                                      <td className="p-1.5 text-slate-400 font-mono">{idx + 1}</td>
-                                      <td className="p-1.5"><input type="checkbox" checked={checked} readOnly /></td>
-                                      <td className="p-1.5 text-slate-600 text-[10px]">{seg.suggested_type}/{seg.suggested_subtype}</td>
-                                      <td className="p-1.5 font-medium">{seg.length_m.toFixed(1)}מ׳</td>
-                                      <td className="p-1.5"><span style={{ color: confColor, fontWeight: 600 }}>{Math.round(conf * 100)}</span></td>
-                                      <td className="p-1.5" onClick={e => e.stopPropagation()}>
-                                        <select value={catKey} onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
-                                          className="border border-slate-300 rounded px-1 py-0.5 text-[10px] w-full" style={{ minWidth: 80 }}>
-                                          <option value="">-- --</option>
-                                          {Object.values(planningState.categories).map(c => (
-                                            <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
-                                          ))}
-                                        </select>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--s400)", textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>🧱 קטעים שזוהו ({wallSegs.length})</div>
+                            {wallSegs.map((seg) => {
+                              const checked = autoSelected.has(seg.segment_id);
+                              const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
+                              const conf = seg.confidence;
+                              return (
+                                <div
+                                  key={seg.segment_id}
+                                  onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}
+                                  style={{
+                                    background: checked ? "var(--blue-50)" : "var(--s50)",
+                                    borderRadius: "var(--r-sm)",
+                                    border: `1px solid ${checked ? "#93C5FD" : "var(--s200)"}`,
+                                    padding: "9px 11px", marginBottom: 7,
+                                    display: "flex", alignItems: "center", gap: 9,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <div style={{ width: 17, height: 17, borderRadius: 4, background: checked ? "var(--blue)" : "var(--s300)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0, fontWeight: 700 }}>
+                                    {checked ? "✓" : "—"}
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--s900)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{seg.suggested_type}/{seg.suggested_subtype}</div>
+                                    <div style={{ fontSize: 11, color: "var(--s400)" }}>{seg.length_m.toFixed(1)} מ׳ · {Math.round(conf * 100)}%</div>
+                                  </div>
+                                  <select
+                                    value={catKey}
+                                    onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ fontSize: 11, border: "1px solid var(--s300)", borderRadius: 5, padding: "3px 6px", color: "var(--s700)", background: "#fff", flexShrink: 0, maxWidth: 110 }}
+                                  >
+                                    <option value="">-- --</option>
+                                    {Object.values(planningState.categories).map(c => (
+                                      <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
 
                         {fixSegs.length > 0 && (
-                          <div className="overflow-x-auto">
-                            <div className="text-xs font-semibold mb-1" style={{ color: "#7C3AED" }}>🔧 אביזרים</div>
-                            <table className="w-full text-xs border-collapse">
-                              <thead>
-                                <tr className="text-slate-500" style={{ background: "#F5F3FF" }}>
-                                  <th className="p-1.5 text-right font-medium border-b border-purple-100 w-6">#</th>
-                                  <th className="p-1.5 text-right font-medium border-b border-purple-100 w-8">✓</th>
-                                  <th className="p-1.5 text-right font-medium border-b border-purple-100">זיהוי</th>
-                                  <th className="p-1.5 text-right font-medium border-b border-purple-100">שטח</th>
-                                  <th className="p-1.5 text-right font-medium border-b border-purple-100">קטגוריה</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {fixSegs.map((seg, idx) => {
-                                  const checked = autoSelected.has(seg.segment_id);
-                                  const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
-                                  return (
-                                    <tr key={seg.segment_id} className="border-b border-purple-50 cursor-pointer" style={{ background: checked ? "#EDE9FE" : undefined }}
-                                      onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
-                                      <td className="p-1.5 text-slate-400 font-mono">{idx + 1}</td>
-                                      <td className="p-1.5"><input type="checkbox" checked={checked} readOnly /></td>
-                                      <td className="p-1.5 font-medium text-[10px]" style={{ color: "#7C3AED" }}>{seg.label}</td>
-                                      <td className="p-1.5">{seg.area_m2.toFixed(2)}מ"ר</td>
-                                      <td className="p-1.5" onClick={e => e.stopPropagation()}>
-                                        <select value={catKey} onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
-                                          className="border border-purple-200 rounded px-1 py-0.5 text-[10px] w-full" style={{ minWidth: 80 }}>
-                                          <option value="">-- ללא --</option>
-                                          {Object.values(planningState.categories).map(c => (
-                                            <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
-                                          ))}
-                                        </select>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "#7C3AED", textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>🔧 אביזרים ({fixSegs.length})</div>
+                            {fixSegs.map((seg) => {
+                              const checked = autoSelected.has(seg.segment_id);
+                              const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
+                              return (
+                                <div
+                                  key={seg.segment_id}
+                                  onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}
+                                  style={{
+                                    background: checked ? "#EDE9FE" : "var(--s50)",
+                                    borderRadius: "var(--r-sm)",
+                                    border: `1px solid ${checked ? "#C4B5FD" : "var(--s200)"}`,
+                                    padding: "9px 11px", marginBottom: 7,
+                                    display: "flex", alignItems: "center", gap: 9,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <div style={{ width: 17, height: 17, borderRadius: 4, background: checked ? "#7C3AED" : "var(--s300)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0, fontWeight: 700 }}>
+                                    {checked ? "✓" : "—"}
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: "#7C3AED", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{seg.label}</div>
+                                    <div style={{ fontSize: 11, color: "var(--s400)" }}>{seg.area_m2.toFixed(2)} מ"ר</div>
+                                  </div>
+                                  <select
+                                    value={catKey}
+                                    onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ fontSize: 11, border: "1px solid #E9D5FF", borderRadius: 5, padding: "3px 6px", color: "var(--s700)", background: "#fff", flexShrink: 0, maxWidth: 110 }}
+                                  >
+                                    <option value="">-- ללא --</option>
+                                    {Object.values(planningState.categories).map(c => (
+                                      <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
 

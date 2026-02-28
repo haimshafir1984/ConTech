@@ -214,7 +214,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading, compact }) =
         padding: "44px 32px",
         textAlign: "center",
         cursor: "pointer",
-        background: drag ? "var(--blue-50)" : "var(--s50)",
+        background: drag ? "var(--blue-50)" : "#fff",
         transition: "border-color 0.15s, background 0.15s",
         marginBottom: 24,
       }}

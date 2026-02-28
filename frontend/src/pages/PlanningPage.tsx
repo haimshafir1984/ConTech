@@ -1191,12 +1191,8 @@ export const PlanningPage: React.FC = () => {
   const activeColor = "#10B981";
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4">
-        <h2 className="text-lg font-semibold text-[#31333F] mb-1">🧱 הגדרת תכולה</h2>
-        <p className="text-xs text-slate-500">זרימת עבודה: בחירת תוכנית → כיול סקייל → סימון תכולה → BOQ ושמירה.</p>
-        {error && <div className="mt-3"><ErrorAlert message={error} onDismiss={() => setError("")} /></div>}
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: "100%" }}>
+      {error && <ErrorAlert message={error} onDismiss={() => setError("")} />}
 
       {/* Opening prompt */}
       {openingPrompt && (
@@ -1241,8 +1237,8 @@ export const PlanningPage: React.FC = () => {
         </div>
       )}
 
-      {/* Step nav — horizontal stepper */}
-      <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm px-5 py-4">
+      {/* Step nav — horizontal stepper strip */}
+      <div style={{ background: "#fff", border: "1px solid var(--s200)", borderRadius: "var(--r)", padding: "14px 20px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto" }}>
           {(
             [
@@ -1460,795 +1456,626 @@ export const PlanningPage: React.FC = () => {
         />
       )}
 
-      {/* ── STEP 3: 4 tabs ── */}
+      {/* ── STEP 3: canvas-left + panel-right ── */}
       {step === 3 && planningState && (
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr,300px] gap-4">
-          {/* Main area */}
-          <div className="space-y-3">
-            {/* Tab bar */}
-            <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-2 flex gap-2 flex-wrap items-center">
-              {(["auto","zone","manual","text"] as Step3Tab[]).map(tab => {
-                const labels: Record<Step3Tab, string> = { auto: "🤖 ניתוח אוטומטי", zone: "🎨 אזורים", manual: "✏️ ציור ידני", text: "📋 פריטים חופשיים" };
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px]" style={{ border: "1px solid var(--s200)", borderRadius: "var(--r)", overflow: "hidden", boxShadow: "var(--sh1)", minHeight: 560 }}>
+
+          {/* ── LEFT: Dark canvas area ── */}
+          <div style={{ background: "#1A2744", position: "relative", overflow: "auto", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: 16, minHeight: 400 }}>
+            <div className="relative select-none" style={{ flexShrink: 0 }}>
+              <img
+                ref={drawingImageRef}
+                src={imageUrl}
+                alt="plan"
+                className="block"
+                style={{ width: displaySize.width, height: displaySize.height }}
+                onLoad={() => updateDisplaySizeFromImage(drawingImageRef.current)}
+                draggable={false}
+              />
+
+              {/* AUTO: segment overlays (clickable) */}
+              {step3Tab === "auto" && autoSegments !== null && autoSegments.length > 0 && (
+                <svg width={displaySize.width} height={displaySize.height} className="absolute inset-0">
+                  {autoSegments.map((seg, idx) => {
+                    const [bx, by, bw, bh] = seg.bbox.map(v => v * displayScale);
+                    const checked = autoSelected.has(seg.segment_id);
+                    const isFixture = seg.element_class === "fixture";
+                    const color = isFixture ? (checked ? "#7C3AED" : "#A78BFA") : seg.confidence >= 0.8 ? "#10B981" : seg.confidence >= 0.6 ? "#F59E0B" : "#EF4444";
+                    const opacity = checked ? 0.35 : 0.1;
+                    return (
+                      <g key={seg.segment_id} style={{ cursor: "pointer" }}
+                        onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
+                        <rect x={bx} y={by} width={bw} height={bh} fill={color} fillOpacity={opacity}
+                          stroke={color} strokeWidth={checked ? 2.5 : 1} strokeDasharray={isFixture ? "5 3" : (checked ? "none" : "6 3")} />
+                        <text x={bx + 4} y={by + 14} fill={color} fontSize={Math.max(9, Math.min(13, bw / 8))} fontWeight="700" style={{ pointerEvents: "none" }}>
+                          {isFixture ? "🔧" : idx + 1}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              )}
+
+              {/* AUTO: no analysis yet — overlay prompt */}
+              {step3Tab === "auto" && autoSegments === null && (
+                <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,.25)", borderRadius: 8 }}>
+                  <div style={{ background: "rgba(255,255,255,.92)", borderRadius: 12, padding: "16px 24px", textAlign: "center" }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: "#1B3A6B", marginBottom: 4 }}>לחץ "נתח" בפאנל</p>
+                    <p style={{ fontSize: 12, color: "#64748B" }}>המערכת תסרוק ותסמן אזורים</p>
+                  </div>
+                </div>
+              )}
+
+              {/* ZONE: interactive zone SVG */}
+              {step3Tab === "zone" && (
+                <svg ref={zoneCanvasRef} width={displaySize.width} height={displaySize.height}
+                  className="absolute inset-0 cursor-crosshair" style={{ touchAction: "none" }}
+                  onMouseDown={handleZoneMouseDown} onMouseMove={handleZoneMouseMove}
+                  onMouseUp={handleZoneMouseUp} onMouseLeave={() => setZoneDrawing(false)}
+                  onTouchStart={makeTouchHandler(handleZoneMouseDown)}
+                  onTouchMove={makeTouchHandler(handleZoneMouseMove)}
+                  onTouchEnd={makeTouchHandler(handleZoneMouseUp)}>
+                  {planningState.items.filter(it => it.type === "zone" || it.type === "rect").map(item => {
+                    const obj = item.raw_object;
+                    const cat = planningState.categories[item.category];
+                    const color = getCategoryColor(cat?.type, cat?.subtype);
+                    return <rect key={item.uid} x={Number(obj.x) * displayScale} y={Number(obj.y) * displayScale}
+                      width={Number(obj.width) * displayScale} height={Number(obj.height) * displayScale}
+                      fill={hexToRgba(color, 0.2)} stroke={color} strokeWidth={2} />;
+                  })}
+                  {zoneStart && (zoneEnd ?? zoneTemp) && (() => {
+                    const end = zoneEnd ?? zoneTemp!;
+                    return <rect x={Math.min(zoneStart.x, end.x)} y={Math.min(zoneStart.y, end.y)}
+                      width={Math.abs(end.x - zoneStart.x)} height={Math.abs(end.y - zoneStart.y)}
+                      fill={hexToRgba("#1B3A6B", 0.15)} stroke="#1B3A6B" strokeWidth={2} strokeDasharray="8 4" />;
+                  })()}
+                </svg>
+              )}
+
+              {/* MANUAL: interactive drawing SVG */}
+              {step3Tab === "manual" && (
+                <svg ref={drawingSurfaceRef} width={displaySize.width} height={displaySize.height}
+                  className="absolute inset-0 cursor-crosshair" style={{ touchAction: "none" }}
+                  onMouseDown={handleCanvasMouseDown} onMouseMove={handleCanvasMouseMove}
+                  onMouseUp={handleCanvasMouseUp} onMouseLeave={() => setDrawing(false)}
+                  onTouchStart={makeTouchHandler(handleCanvasMouseDown)}
+                  onTouchMove={makeTouchHandler(handleCanvasMouseMove)}
+                  onTouchEnd={makeTouchHandler(handleCanvasMouseUp)}>
+                  {planningState.items.map((item) => {
+                    const obj = item.raw_object;
+                    const cat = planningState.categories[item.category];
+                    const color = getCategoryColor(cat?.type, cat?.subtype);
+                    if (item.type === "line") return <line key={item.uid} x1={Number(obj.x1) * displayScale} y1={Number(obj.y1) * displayScale} x2={Number(obj.x2) * displayScale} y2={Number(obj.y2) * displayScale} stroke={color} strokeWidth={2} strokeLinecap="round" />;
+                    if (item.type === "rect" || item.type === "zone") return <rect key={item.uid} x={Number(obj.x) * displayScale} y={Number(obj.y) * displayScale} width={Number(obj.width) * displayScale} height={Number(obj.height) * displayScale} fill={hexToRgba(color, 0.15)} stroke={color} strokeWidth={2} />;
+                    const pts = Array.isArray(obj.points) ? (obj.points as number[][]).map(([px, py]) => `${px * displayScale},${py * displayScale}`).join(" ") : "";
+                    return <polyline key={item.uid} points={pts} fill="none" stroke={color} strokeWidth={2} />;
+                  })}
+                  {pendingShapes.map(renderPendingOnCanvas)}
+                  {drawing && startPoint && tempPoint && drawMode === "line" && <line x1={startPoint.x} y1={startPoint.y} x2={tempPoint.x} y2={tempPoint.y} stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
+                  {drawing && startPoint && tempPoint && drawMode === "rect" && <rect x={Math.min(startPoint.x, tempPoint.x)} y={Math.min(startPoint.y, tempPoint.y)} width={Math.abs(tempPoint.x - startPoint.x)} height={Math.abs(tempPoint.y - startPoint.y)} fill={hexToRgba(PENDING_COLOR, 0.15)} stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
+                  {drawing && drawMode === "path" && pathPoints.length > 1 && <polyline points={pathPoints.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
+                </svg>
+              )}
+            </div>
+
+            {/* Zoom indicator — top-right */}
+            <div style={{ position: "absolute", top: 12, right: 12, background: "rgba(0,0,0,.35)", color: "rgba(255,255,255,.6)", fontSize: 11, padding: "3px 10px", borderRadius: 20, pointerEvents: "none" }}>
+              {zoomPercent}%
+            </div>
+
+            {/* Floating tools pill — bottom-center */}
+            <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, background: "rgba(10,20,40,.65)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 30, padding: "5px 8px" }}>
+              <button type="button" title="הקטן" onClick={() => setZoomPercent(z => Math.max(70, z - 10))} style={{ width: 34, height: 34, borderRadius: "50%", border: "none", background: "transparent", color: "rgba(255,255,255,.7)", fontSize: 17, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+              <button type="button" title="הגדל" onClick={() => setZoomPercent(z => Math.min(220, z + 10))} style={{ width: 34, height: 34, borderRadius: "50%", border: "none", background: "transparent", color: "rgba(255,255,255,.7)", fontSize: 17, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+              <button type="button" title="איפוס" onClick={() => setZoomPercent(100)} style={{ width: 34, height: 34, borderRadius: "50%", border: "none", background: "transparent", color: "rgba(255,255,255,.45)", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>⊙</button>
+              <div style={{ width: 1, background: "rgba(255,255,255,.15)", margin: "4px 2px" }} />
+              <button type="button" title="הגדלה" onClick={() => setZoomModalOpen(true)} style={{ width: 34, height: 34, borderRadius: "50%", border: "none", background: "transparent", color: "rgba(255,255,255,.7)", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>🔍</button>
+              {pendingShapes.length > 0 && (
+                <button type="button" onClick={() => setCategoryPickerOpen(true)} style={{ height: 34, borderRadius: 17, border: "none", background: PENDING_COLOR, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", padding: "0 12px", animation: "pulse 1.8s infinite", whiteSpace: "nowrap" }}>
+                  📂 {pendingShapes.length}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* ── RIGHT: Panel ── */}
+          <div style={{ background: "#fff", borderRight: "1px solid var(--s200)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+            {/* Panel tabs */}
+            <div style={{ display: "flex", borderBottom: "1px solid var(--s200)", flexShrink: 0 }}>
+              {(["auto", "zone", "manual", "text"] as Step3Tab[]).map(tab => {
+                const labels: Record<Step3Tab, string> = { auto: "🤖 אוטו", zone: "🎨 אזור", manual: "✏️ ציור", text: "📋 טקסט" };
                 const active = step3Tab === tab;
                 return (
                   <button key={tab} type="button" onClick={() => setStep3Tab(tab)}
-                    style={{
-                      padding: "8px 14px", borderRadius: 9, fontSize: 12.5, fontWeight: active ? 700 : 500,
-                      border: active ? "none" : "1.5px solid #E2E8F0",
-                      background: active ? "#1B3A6B" : "#F8FAFC",
-                      color: active ? "#fff" : "#475569",
-                      cursor: "pointer",
-                      boxShadow: active ? "0 2px 8px rgba(27,58,107,0.22)" : "none",
-                      transition: "all 0.15s",
-                    }}>
+                    style={{ flex: 1, padding: "12px 4px", textAlign: "center", fontSize: 11.5, fontWeight: active ? 700 : 600, color: active ? "var(--blue)" : "var(--s400)", cursor: "pointer", border: "none", borderBottom: `2px solid ${active ? "var(--blue)" : "transparent"}`, background: "none", transition: "all .12s", whiteSpace: "nowrap" }}>
                     {labels[tab]}
                   </button>
                 );
               })}
-              <div style={{ marginRight: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-                <button type="button" onClick={() => setZoomModalOpen(true)}
-                  style={{ background: "#F1F5F9", color: "#1B3A6B", border: "1.5px solid #CBD5E1", borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
-                  🔍 הגדלה
-                </button>
-                {pendingShapes.length > 0 && (
-                  <button type="button" onClick={() => setCategoryPickerOpen(true)}
-                    style={{ background: PENDING_COLOR, color: "#fff", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 8px rgba(245,158,11,0.35)", animation: "pulse 1.8s infinite" }}>
-                    📂 שייך {pendingShapes.length}
-                  </button>
-                )}
-              </div>
             </div>
 
-            {/* ── TAB: AUTO ── */}
-            {step3Tab === "auto" && (
-              <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4 space-y-3">
-                {/* Header */}
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-[#31333F]">ניתוח אוטומטי</p>
-                    <p className="text-xs text-slate-500 mt-0.5">המערכת מזהה אזורי קירות ומציעה קטגוריות. אשר הכל או בחר חלק.</p>
-                  </div>
-                  <button type="button" onClick={() => void handleAutoAnalyze()} disabled={autoLoading}
-                    style={{ padding: "9px 20px", borderRadius: 10, background: autoLoading ? "#475569" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: autoLoading ? "not-allowed" : "pointer", boxShadow: autoLoading ? "none" : "0 2px 10px rgba(27,58,107,0.28)", transition: "all 0.15s", display: "flex", alignItems: "center", gap: 6 }}>
-                    {autoLoading ? <><span style={{ display: "inline-block", width: 14, height: 14, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", animation: "spin 0.7s linear infinite" }} />מנתח...</> : "🤖 נתח אוטומטית"}
-                  </button>
-                </div>
+            {/* Panel body — scrollable */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
 
-                {/* Before analysis */}
-                {autoSegments === null && (
-                  <div className="overflow-auto border border-slate-200 rounded-lg bg-slate-50">
-                    <div className="relative w-fit">
-                      <img src={imageUrl} alt="plan" className="block"
-                        style={{ width: displaySize.width, height: displaySize.height }} />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
-                        <div className="bg-white/90 rounded-xl px-6 py-4 text-center shadow-lg">
-                          <p className="text-sm font-semibold text-[#1B3A6B] mb-2">לחץ &quot;נתח אוטומטית&quot; להתחיל</p>
-                          <p className="text-xs text-slate-500">המערכת תסרוק את השרטוט ותסמן אזורים</p>
+              {/* ── TAB: AUTO ── */}
+              {step3Tab === "auto" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-[#31333F]">ניתוח אוטומטי</p>
+                      <p className="text-xs text-slate-500 mt-0.5">לחץ לניתוח — המערכת מסמנת קירות ומציעה קטגוריות.</p>
+                    </div>
+                    <button type="button" onClick={() => void handleAutoAnalyze()} disabled={autoLoading}
+                      style={{ padding: "9px 16px", borderRadius: 10, background: autoLoading ? "#475569" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: autoLoading ? "not-allowed" : "pointer", boxShadow: autoLoading ? "none" : "0 2px 10px rgba(27,58,107,0.28)", transition: "all 0.15s", display: "flex", alignItems: "center", gap: 6 }}>
+                      {autoLoading ? <><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", animation: "spin 0.7s linear infinite" }} />מנתח...</> : "🤖 נתח"}
+                    </button>
+                  </div>
+
+                  {autoSegments !== null && autoSegments.length === 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                      <div className="font-semibold mb-1">לא זוהו קירות/אזורים.</div>
+                      <div className="text-xs">נסה להעלות ולנתח בסדנת עבודה.</div>
+                    </div>
+                  )}
+
+                  {autoSegments !== null && autoSegments.length > 0 && (() => {
+                    const wallSegs = autoSegments.filter(s => s.element_class !== "fixture");
+                    const fixSegs  = autoSegments.filter(s => s.element_class === "fixture");
+                    return (
+                      <>
+                        <div className="flex gap-2 flex-wrap items-center">
+                          <span className="text-xs text-slate-500">{wallSegs.length} קירות · {fixSegs.length} אביזרים</span>
+                          <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.map(s => s.segment_id)))} className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בחר הכל</button>
+                          <button type="button" onClick={() => setAutoSelected(new Set())} className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בטל הכל</button>
+                          <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.filter(s => s.element_class !== "fixture" && s.confidence >= 0.8).map(s => s.segment_id)))} className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">ביטחון {">"}80%</button>
                         </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
-                {/* No segments found */}
-                {autoSegments !== null && autoSegments.length === 0 && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-                    <div className="font-semibold mb-1">לא זוהו קירות/אזורים בתמונה.</div>
-                    <div>ייתכן שהתוכנית לא עובדה עדיין — נסה להעלות ולנתח בסדנת עבודה.</div>
-                    {autoVisionData && <div className="mt-2 text-amber-700">נתוני Vision שחולצו בעת ההעלאה מוצגים למטה.</div>}
-                  </div>
-                )}
-
-                {/* Segments found — image + table side by side */}
-                {autoSegments !== null && autoSegments.length > 0 && (
-                  <>
-                    {/* Image with segment overlays */}
-                    <div className="overflow-auto border border-slate-200 rounded-lg bg-slate-50">
-                      <div className="relative w-fit select-none">
-                        <img ref={drawingImageRef} src={imageUrl} alt="plan" className="block"
-                          style={{ width: displaySize.width, height: displaySize.height }}
-                          onLoad={() => updateDisplaySizeFromImage(drawingImageRef.current)} />
-                        <svg width={displaySize.width} height={displaySize.height}
-                          className="absolute inset-0 pointer-events-none">
-                          {autoSegments.map((seg, idx) => {
-                            const [bx, by, bw, bh] = seg.bbox.map(v => v * displayScale);
-                            const checked = autoSelected.has(seg.segment_id);
-                            const isFixture = seg.element_class === "fixture";
-                            const color = isFixture
-                              ? (checked ? "#7C3AED" : "#A78BFA")
-                              : seg.confidence >= 0.8 ? "#10B981" : seg.confidence >= 0.6 ? "#F59E0B" : "#EF4444";
-                            const opacity = checked ? 0.35 : 0.1;
-                            return (
-                              <g key={seg.segment_id}>
-                                <rect x={bx} y={by} width={bw} height={bh}
-                                  fill={color} fillOpacity={opacity}
-                                  stroke={color} strokeWidth={checked ? 2.5 : 1}
-                                  strokeDasharray={isFixture ? "5 3" : (checked ? "none" : "6 3")} />
-                                <text x={bx + 4} y={by + 14} fill={color}
-                                  fontSize={Math.max(9, Math.min(13, bw / 8))}
-                                  fontWeight="700" style={{ pointerEvents: "none" }}>
-                                  {isFixture ? "🔧" : idx + 1}
-                                </text>
-                              </g>
-                            );
-                          })}
-                        </svg>
-                      </div>
-                    </div>
-
-                    {/* Controls */}
-                    {(() => {
-                      const wallSegs = autoSegments.filter(s => s.element_class !== "fixture");
-                      const fixSegs  = autoSegments.filter(s => s.element_class === "fixture");
-                      return (
-                        <>
-                          <div className="flex gap-2 flex-wrap items-center">
-                            <span className="text-xs text-slate-500">
-                              {wallSegs.length} קירות · {fixSegs.length} אביזרים
-                            </span>
-                            <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.map(s => s.segment_id)))}
-                              className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בחר הכל</button>
-                            <button type="button" onClick={() => setAutoSelected(new Set())}
-                              className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בטל הכל</button>
-                            <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.filter(s => s.element_class !== "fixture" && s.confidence >= 0.8).map(s => s.segment_id)))}
-                              className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">קירות ביטחון {">"}80%</button>
-                          </div>
-
-                          {/* ── Walls table ── */}
-                          {wallSegs.length > 0 && (
-                            <div className="overflow-x-auto">
-                              <div className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">🧱 קירות שזוהו</div>
-                              <table className="w-full text-xs border-collapse">
-                                <thead>
-                                  <tr className="bg-slate-50 text-slate-500">
-                                    <th className="p-2 text-right font-medium border-b border-slate-200 w-6">#</th>
-                                    <th className="p-2 text-right font-medium border-b border-slate-200 w-8">✓</th>
-                                    <th className="p-2 text-right font-medium border-b border-slate-200">הצעה</th>
-                                    <th className="p-2 text-right font-medium border-b border-slate-200">אורך</th>
-                                    <th className="p-2 text-right font-medium border-b border-slate-200">ביטחון</th>
-                                    <th className="p-2 text-right font-medium border-b border-slate-200">קטגוריה</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {wallSegs.map((seg, idx) => {
-                                    const checked = autoSelected.has(seg.segment_id);
-                                    const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
-                                    const conf = seg.confidence;
-                                    const confColor = conf >= 0.8 ? "#10B981" : conf >= 0.6 ? "#F59E0B" : "#EF4444";
-                                    return (
-                                      <tr key={seg.segment_id}
-                                        className={`border-b border-slate-100 cursor-pointer ${checked ? "bg-blue-50" : "hover:bg-slate-50"}`}
-                                        onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
-                                        <td className="p-2 text-slate-400 font-mono">{idx + 1}</td>
-                                        <td className="p-2"><input type="checkbox" checked={checked} readOnly /></td>
-                                        <td className="p-2 text-slate-600">{seg.suggested_type} / {seg.suggested_subtype}</td>
-                                        <td className="p-2 font-medium">{seg.length_m.toFixed(1)}מ׳</td>
-                                        <td className="p-2"><span style={{ color: confColor, fontWeight: 600 }}>{Math.round(conf * 100)}%</span></td>
-                                        <td className="p-2" onClick={e => e.stopPropagation()}>
-                                          <select value={catKey}
-                                            onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
-                                            className="border border-slate-300 rounded px-1 py-0.5 text-xs w-full" style={{ minWidth: 110 }}>
-                                            <option value="">-- בחר --</option>
-                                            {Object.values(planningState.categories).map(c => (
-                                              <option key={c.key} value={c.key}>{c.type} / {c.subtype}</option>
-                                            ))}
-                                          </select>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-
-                          {/* ── Fixtures table ── */}
-                          {fixSegs.length > 0 && (
-                            <div className="overflow-x-auto">
-                              <div className="text-xs font-semibold mb-1 flex items-center gap-1" style={{ color: "#7C3AED" }}>🔧 אביזרים ואלמנטים שזוהו</div>
-                              <table className="w-full text-xs border-collapse">
-                                <thead>
-                                  <tr className="text-slate-500" style={{ background: "#F5F3FF" }}>
-                                    <th className="p-2 text-right font-medium border-b border-purple-100 w-6">#</th>
-                                    <th className="p-2 text-right font-medium border-b border-purple-100 w-8">✓</th>
-                                    <th className="p-2 text-right font-medium border-b border-purple-100">זיהוי</th>
-                                    <th className="p-2 text-right font-medium border-b border-purple-100">שטח</th>
-                                    <th className="p-2 text-right font-medium border-b border-purple-100">קטגוריה (אופציונלי)</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {fixSegs.map((seg, idx) => {
-                                    const checked = autoSelected.has(seg.segment_id);
-                                    const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
-                                    return (
-                                      <tr key={seg.segment_id}
-                                        className="border-b border-purple-50 cursor-pointer"
-                                        style={{ background: checked ? "#EDE9FE" : undefined }}
-                                        onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
-                                        <td className="p-2 text-slate-400 font-mono">{idx + 1}</td>
-                                        <td className="p-2"><input type="checkbox" checked={checked} readOnly /></td>
-                                        <td className="p-2 font-medium" style={{ color: "#7C3AED" }}>{seg.label}</td>
-                                        <td className="p-2">{seg.area_m2.toFixed(2)} מ"ר</td>
-                                        <td className="p-2" onClick={e => e.stopPropagation()}>
-                                          <select value={catKey}
-                                            onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
-                                            className="border border-purple-200 rounded px-1 py-0.5 text-xs w-full" style={{ minWidth: 110 }}>
-                                            <option value="">-- ללא קטגוריה --</option>
-                                            {Object.values(planningState.categories).map(c => (
-                                              <option key={c.key} value={c.key}>{c.type} / {c.subtype}</option>
-                                            ))}
-                                          </select>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-
-                    <div style={{
-                      position: "sticky",
-                      bottom: 0,
-                      background: "#fff",
-                      borderTop: "2px solid #F1F5F9",
-                      padding: "12px 0 6px",
-                      marginTop: 10,
-                      zIndex: 5,
-                    }}>
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                        <button type="button" disabled={loading}
-                          onClick={() => void handleConfirmAutoSegments(false)}
-                          style={{ padding: "10px 22px", borderRadius: 10, background: loading ? "#94a3b8" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 3px 10px rgba(255,75,75,0.3)", transition: "all 0.15s" }}>
-                          {loading ? "שומר..." : "✓ אשר הכל"}
-                        </button>
-                        <button type="button" disabled={loading || autoSelected.size === 0}
-                          onClick={() => void handleConfirmAutoSegments(true)}
-                          style={{ padding: "10px 22px", borderRadius: 10, background: (loading || autoSelected.size === 0) ? "#94a3b8" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: (loading || autoSelected.size === 0) ? "not-allowed" : "pointer", boxShadow: (loading || autoSelected.size === 0) ? "none" : "0 3px 10px rgba(27,58,107,0.25)", transition: "all 0.15s" }}>
-                          {loading ? "שומר..." : `✓ אשר נבחרים (${autoSelected.size})`}
-                        </button>
-                        <button type="button" onClick={() => { setAutoSegments(null); setAutoVisionData(null); }}
-                          style={{ padding: "10px 16px", borderRadius: 10, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
-                          נקה
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* Vision Data Panel — Summary Cards + Detail Panel */}
-                {autoVisionData && (() => {
-                  const vd = autoVisionData;
-                  const hasRooms = !!(vd.rooms && vd.rooms.length > 0);
-                  const hasElements = !!(vd.elements && vd.elements.length > 0);
-                  const hasMaterials = !!(vd.materials && vd.materials.length > 0);
-                  const hasDims = !!(vd.dimensions && vd.dimensions.length > 0);
-                  const hasSystems = !!(vd.systems && Object.keys(vd.systems).length > 0);
-                  const hasNotes = !!(vd.execution_notes && vd.execution_notes.length > 0);
-                  if (!hasRooms && !hasElements && !hasMaterials && !hasDims && !hasSystems && !hasNotes) return null;
-
-                  // Group elements by type
-                  const elementGroups: Record<string, Array<{ type: string; id?: string; location?: string; notes?: string }>> = {};
-                  if (vd.elements) {
-                    for (const el of vd.elements) {
-                      const key = el.type || "אחר";
-                      if (!elementGroups[key]) elementGroups[key] = [];
-                      elementGroups[key].push(el);
-                    }
-                  }
-
-                  const elementIcon = (type: string) => {
-                    const t = type.toLowerCase();
-                    if (t.includes("דלת")) return "🚪";
-                    if (t.includes("חלון")) return "🪟";
-                    if (t.includes("עמוד")) return "🏛️";
-                    if (t.includes("מדרגות") || t.includes("מדרגה")) return "🪜";
-                    if (t.includes("מעלית")) return "🛗";
-                    if (t.includes("שירותים")) return "🚽";
-                    if (t.includes("מקלחת") || t.includes("אמבט")) return "🚿";
-                    return "📌";
-                  };
-
-                  const cards = [
-                    hasRooms    ? { id: "rooms",      icon: "🏠", label: "חדרים",        count: vd.rooms!.length,                        color: "#EFF6FF", border: "#BFDBFE", text: "#1E40AF" } : null,
-                    hasElements ? { id: "elements",   icon: "🔧", label: "אלמנטים",      count: vd.elements!.length,                     color: "#F0FDF4", border: "#BBF7D0", text: "#166534" } : null,
-                    hasMaterials? { id: "materials",  icon: "🧱", label: "חומרים",        count: vd.materials!.length,                    color: "#FFF7ED", border: "#FED7AA", text: "#9A3412" } : null,
-                    hasDims     ? { id: "dimensions", icon: "📏", label: "מידות",         count: vd.dimensions!.length,                   color: "#FAF5FF", border: "#E9D5FF", text: "#6B21A8" } : null,
-                    hasSystems  ? { id: "systems",    icon: "⚙️", label: "מערכות",        count: Object.keys(vd.systems!).length,         color: "#F8FAFC", border: "#CBD5E1", text: "#334155" } : null,
-                    hasNotes    ? { id: "notes",      icon: "📝", label: "הערות ביצוע",   count: vd.execution_notes!.length,              color: "#FFFBEB", border: "#FDE68A", text: "#92400E" } : null,
-                  ].filter(Boolean) as Array<{ id: string; icon: string; label: string; count: number; color: string; border: string; text: string }>;
-
-                  const active = visionActiveCard ?? (cards[0]?.id ?? null);
-
-                  return (
-                    <div style={{ marginTop: 20, borderTop: "2px solid #E2E8F0", paddingTop: 16 }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: "#1B3A6B", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                        🔍 נתוני Vision — מה המערכת מצאה בתוכנית
-                      </div>
-
-                      {/* Title-block info */}
-                      {(vd.plan_title || vd.project_name || vd.scale || vd.architect || vd.date || vd.sheet_number) && (
-                        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
-                          <div style={{ fontWeight: 600, color: "#475569", marginBottom: 6 }}>פרטי תוכנית</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
-                            {vd.plan_title   && <div><span style={{ color: "#94A3B8" }}>כותרת: </span>{vd.plan_title}</div>}
-                            {vd.project_name && <div><span style={{ color: "#94A3B8" }}>פרויקט: </span>{vd.project_name}</div>}
-                            {vd.scale        && <div><span style={{ color: "#94A3B8" }}>קנ"מ: </span>{vd.scale}</div>}
-                            {vd.architect    && <div><span style={{ color: "#94A3B8" }}>אדריכל: </span>{vd.architect}</div>}
-                            {vd.date         && <div><span style={{ color: "#94A3B8" }}>תאריך: </span>{vd.date}</div>}
-                            {vd.sheet_number && <div><span style={{ color: "#94A3B8" }}>מספר דף: </span>{vd.sheet_number}</div>}
-                            {vd.total_area_m2 && <div><span style={{ color: "#94A3B8" }}>שטח כולל: </span>{vd.total_area_m2} מ"ר</div>}
-                            {vd.status       && <div><span style={{ color: "#94A3B8" }}>סטטוס: </span>{vd.status}</div>}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Summary cards */}
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
-                        {cards.map(card => (
-                          <button
-                            key={card.id}
-                            type="button"
-                            onClick={() => setVisionActiveCard(card.id)}
-                            style={{
-                              background: active === card.id ? card.color : "#fff",
-                              border: `2px solid ${active === card.id ? card.border : "#E2E8F0"}`,
-                              borderRadius: 10,
-                              padding: "10px 18px",
-                              cursor: "pointer",
-                              textAlign: "center",
-                              minWidth: 84,
-                              transition: "all 0.15s",
-                              boxShadow: active === card.id ? `0 2px 8px ${card.border}88` : "none",
-                            }}
-                          >
-                            <div style={{ fontSize: 22, marginBottom: 2 }}>{card.icon}</div>
-                            <div style={{ fontWeight: 700, fontSize: 18, color: active === card.id ? card.text : "#1E293B" }}>{card.count}</div>
-                            <div style={{ fontSize: 11, color: active === card.id ? card.text : "#64748B", fontWeight: 600 }}>{card.label}</div>
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Detail panel — Rooms */}
-                      {active === "rooms" && hasRooms && (
-                        <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: 14 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "#1E40AF", marginBottom: 10 }}>🏠 חדרים / מרחבים ({vd.rooms!.length})</div>
-                          <div style={{ overflowX: "auto" }}>
-                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        {wallSegs.length > 0 && (
+                          <div className="overflow-x-auto">
+                            <div className="text-xs font-semibold text-slate-500 mb-1">🧱 קירות שזוהו</div>
+                            <table className="w-full text-xs border-collapse">
                               <thead>
-                                <tr style={{ background: "#DBEAFE" }}>
-                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>שם</th>
-                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>שטח</th>
-                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>מידות</th>
-                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>ריצוף</th>
-                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>גובה</th>
-                                  <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #BFDBFE" }}>הערות</th>
+                                <tr className="bg-slate-50 text-slate-500">
+                                  <th className="p-1.5 text-right font-medium border-b border-slate-200 w-6">#</th>
+                                  <th className="p-1.5 text-right font-medium border-b border-slate-200 w-8">✓</th>
+                                  <th className="p-1.5 text-right font-medium border-b border-slate-200">הצעה</th>
+                                  <th className="p-1.5 text-right font-medium border-b border-slate-200">אורך</th>
+                                  <th className="p-1.5 text-right font-medium border-b border-slate-200">%</th>
+                                  <th className="p-1.5 text-right font-medium border-b border-slate-200">קטגוריה</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {vd.rooms!.map((r, i) => (
-                                  <tr key={i} style={{ borderBottom: "1px solid #DBEAFE", background: i % 2 === 0 ? "#fff" : "#EFF6FF" }}>
-                                    <td style={{ padding: "6px 8px", fontWeight: 600, color: "#1E40AF" }}>{r.name || "—"}</td>
-                                    <td style={{ padding: "6px 8px" }}>{r.area_m2 ? `${r.area_m2} מ"ר` : "—"}</td>
-                                    <td style={{ padding: "6px 8px" }}>{r.dimensions ?? "—"}</td>
-                                    <td style={{ padding: "6px 8px" }}>{r.flooring ?? "—"}</td>
-                                    <td style={{ padding: "6px 8px" }}>{r.ceiling_height_m ? `${r.ceiling_height_m} מ'` : "—"}</td>
-                                    <td style={{ padding: "6px 8px", color: "#64748B" }}>{r.notes ?? "—"}</td>
-                                  </tr>
-                                ))}
+                                {wallSegs.map((seg, idx) => {
+                                  const checked = autoSelected.has(seg.segment_id);
+                                  const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
+                                  const conf = seg.confidence;
+                                  const confColor = conf >= 0.8 ? "#10B981" : conf >= 0.6 ? "#F59E0B" : "#EF4444";
+                                  return (
+                                    <tr key={seg.segment_id} className={`border-b border-slate-100 cursor-pointer ${checked ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                                      onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
+                                      <td className="p-1.5 text-slate-400 font-mono">{idx + 1}</td>
+                                      <td className="p-1.5"><input type="checkbox" checked={checked} readOnly /></td>
+                                      <td className="p-1.5 text-slate-600 text-[10px]">{seg.suggested_type}/{seg.suggested_subtype}</td>
+                                      <td className="p-1.5 font-medium">{seg.length_m.toFixed(1)}מ׳</td>
+                                      <td className="p-1.5"><span style={{ color: confColor, fontWeight: 600 }}>{Math.round(conf * 100)}</span></td>
+                                      <td className="p-1.5" onClick={e => e.stopPropagation()}>
+                                        <select value={catKey} onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
+                                          className="border border-slate-300 rounded px-1 py-0.5 text-[10px] w-full" style={{ minWidth: 80 }}>
+                                          <option value="">-- --</option>
+                                          {Object.values(planningState.categories).map(c => (
+                                            <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
+                                          ))}
+                                        </select>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
-                        </div>
-                      )}
+                        )}
 
-                      {/* Detail panel — Elements (grouped by type) */}
-                      {active === "elements" && hasElements && (
-                        <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: 14 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "#166534", marginBottom: 10 }}>🔧 אלמנטים ({vd.elements!.length} סה"כ, {Object.keys(elementGroups).length} סוגים)</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
-                            {Object.entries(elementGroups).map(([type, items]) => (
-                              <div key={type} style={{ background: "#fff", border: "1px solid #BBF7D0", borderRadius: 8, padding: "10px 12px" }}>
-                                <div style={{ fontWeight: 700, fontSize: 13, color: "#15803D", marginBottom: 6 }}>
-                                  {elementIcon(type)} {type} <span style={{ fontWeight: 400, color: "#86EFAC" }}>× {items.length}</span>
-                                </div>
-                                {items.map((el, i) => (
-                                  <div key={i} style={{ fontSize: 11, color: "#334155", padding: "3px 0", borderTop: i > 0 ? "1px solid #F0FDF4" : "none" }}>
-                                    {el.id && <span style={{ color: "#64748B", marginLeft: 4, fontWeight: 600 }}>{el.id}</span>}
-                                    {el.location && <span>{el.location}</span>}
-                                    {!el.id && !el.location && <span style={{ color: "#94A3B8" }}>ללא פרטים</span>}
-                                    {el.notes && <span style={{ color: "#94A3B8" }}> — {el.notes}</span>}
-                                  </div>
-                                ))}
-                              </div>
-                            ))}
+                        {fixSegs.length > 0 && (
+                          <div className="overflow-x-auto">
+                            <div className="text-xs font-semibold mb-1" style={{ color: "#7C3AED" }}>🔧 אביזרים</div>
+                            <table className="w-full text-xs border-collapse">
+                              <thead>
+                                <tr className="text-slate-500" style={{ background: "#F5F3FF" }}>
+                                  <th className="p-1.5 text-right font-medium border-b border-purple-100 w-6">#</th>
+                                  <th className="p-1.5 text-right font-medium border-b border-purple-100 w-8">✓</th>
+                                  <th className="p-1.5 text-right font-medium border-b border-purple-100">זיהוי</th>
+                                  <th className="p-1.5 text-right font-medium border-b border-purple-100">שטח</th>
+                                  <th className="p-1.5 text-right font-medium border-b border-purple-100">קטגוריה</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {fixSegs.map((seg, idx) => {
+                                  const checked = autoSelected.has(seg.segment_id);
+                                  const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
+                                  return (
+                                    <tr key={seg.segment_id} className="border-b border-purple-50 cursor-pointer" style={{ background: checked ? "#EDE9FE" : undefined }}
+                                      onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
+                                      <td className="p-1.5 text-slate-400 font-mono">{idx + 1}</td>
+                                      <td className="p-1.5"><input type="checkbox" checked={checked} readOnly /></td>
+                                      <td className="p-1.5 font-medium text-[10px]" style={{ color: "#7C3AED" }}>{seg.label}</td>
+                                      <td className="p-1.5">{seg.area_m2.toFixed(2)}מ"ר</td>
+                                      <td className="p-1.5" onClick={e => e.stopPropagation()}>
+                                        <select value={catKey} onChange={e => setAutoConfirmedKeys(prev => ({ ...prev, [seg.segment_id]: e.target.value }))}
+                                          className="border border-purple-200 rounded px-1 py-0.5 text-[10px] w-full" style={{ minWidth: 80 }}>
+                                          <option value="">-- ללא --</option>
+                                          {Object.values(planningState.categories).map(c => (
+                                            <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
+                                          ))}
+                                        </select>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
                           </div>
-                        </div>
-                      )}
+                        )}
 
-                      {/* Detail panel — Materials */}
-                      {active === "materials" && hasMaterials && (
-                        <div style={{ background: "#FFF7ED", border: "1px solid #FED7AA", borderRadius: 10, padding: 14 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "#9A3412", marginBottom: 10 }}>🧱 חומרים ({vd.materials!.length})</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 6 }}>
-                            {vd.materials!.map((m, i) => {
-                              const legend = vd.materials_legend?.find(l => l.description === m);
-                              return (
-                                <div key={i} style={{ background: "#fff", border: "1px solid #FED7AA", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "#431407" }}>
-                                  {legend?.symbol && <span style={{ fontWeight: 700, marginLeft: 6, color: "#EA580C" }}>{legend.symbol}</span>}
-                                  {m}
-                                </div>
-                              );
-                            })}
+                        <div className="flex gap-2 flex-wrap">
+                          <button type="button" disabled={loading} onClick={() => void handleConfirmAutoSegments(false)}
+                            style={{ padding: "9px 16px", borderRadius: 10, background: loading ? "#94a3b8" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: loading ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
+                            {loading ? "שומר..." : "✓ אשר הכל"}
+                          </button>
+                          <button type="button" disabled={loading || autoSelected.size === 0} onClick={() => void handleConfirmAutoSegments(true)}
+                            style={{ padding: "9px 16px", borderRadius: 10, background: (loading || autoSelected.size === 0) ? "#94a3b8" : "var(--blue)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: (loading || autoSelected.size === 0) ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
+                            {loading ? "שומר..." : `✓ נבחרים (${autoSelected.size})`}
+                          </button>
+                          <button type="button" onClick={() => { setAutoSegments(null); setAutoVisionData(null); }}
+                            style={{ padding: "9px 12px", borderRadius: 10, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 12, cursor: "pointer" }}>נקה</button>
+                        </div>
+                      </>
+                    );
+                  })()}
+
+                  {/* Vision Data Panel */}
+                  {autoVisionData && (() => {
+                    const vd = autoVisionData;
+                    const hasRooms = !!(vd.rooms && vd.rooms.length > 0);
+                    const hasElements = !!(vd.elements && vd.elements.length > 0);
+                    const hasMaterials = !!(vd.materials && vd.materials.length > 0);
+                    const hasDims = !!(vd.dimensions && vd.dimensions.length > 0);
+                    const hasSystems = !!(vd.systems && Object.keys(vd.systems).length > 0);
+                    const hasNotes = !!(vd.execution_notes && vd.execution_notes.length > 0);
+                    if (!hasRooms && !hasElements && !hasMaterials && !hasDims && !hasSystems && !hasNotes) return null;
+
+                    const elementGroups: Record<string, Array<{ type: string; id?: string; location?: string; notes?: string }>> = {};
+                    if (vd.elements) {
+                      for (const el of vd.elements) {
+                        const key = el.type || "אחר";
+                        if (!elementGroups[key]) elementGroups[key] = [];
+                        elementGroups[key].push(el);
+                      }
+                    }
+                    const elementIcon = (type: string) => {
+                      const t = type.toLowerCase();
+                      if (t.includes("דלת")) return "🚪";
+                      if (t.includes("חלון")) return "🪟";
+                      if (t.includes("עמוד")) return "🏛️";
+                      if (t.includes("מדרגות") || t.includes("מדרגה")) return "🪜";
+                      if (t.includes("מעלית")) return "🛗";
+                      if (t.includes("שירותים")) return "🚽";
+                      if (t.includes("מקלחת") || t.includes("אמבט")) return "🚿";
+                      return "📌";
+                    };
+                    const cards = [
+                      hasRooms     ? { id: "rooms",      icon: "🏠", label: "חדרים",      count: vd.rooms!.length,                  color: "#EFF6FF", border: "#BFDBFE", text: "#1E40AF" } : null,
+                      hasElements  ? { id: "elements",   icon: "🔧", label: "אלמנטים",    count: vd.elements!.length,               color: "#F0FDF4", border: "#BBF7D0", text: "#166534" } : null,
+                      hasMaterials ? { id: "materials",  icon: "🧱", label: "חומרים",      count: vd.materials!.length,              color: "#FFF7ED", border: "#FED7AA", text: "#9A3412" } : null,
+                      hasDims      ? { id: "dimensions", icon: "📏", label: "מידות",       count: vd.dimensions!.length,             color: "#FAF5FF", border: "#E9D5FF", text: "#6B21A8" } : null,
+                      hasSystems   ? { id: "systems",    icon: "⚙️", label: "מערכות",      count: Object.keys(vd.systems!).length,   color: "#F8FAFC", border: "#CBD5E1", text: "#334155" } : null,
+                      hasNotes     ? { id: "notes",      icon: "📝", label: "הערות",       count: vd.execution_notes!.length,        color: "#FFFBEB", border: "#FDE68A", text: "#92400E" } : null,
+                    ].filter(Boolean) as Array<{ id: string; icon: string; label: string; count: number; color: string; border: string; text: string }>;
+                    const active = visionActiveCard ?? (cards[0]?.id ?? null);
+
+                    return (
+                      <div style={{ marginTop: 16, borderTop: "2px solid #E2E8F0", paddingTop: 14 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: "#1B3A6B", marginBottom: 10 }}>🔍 נתוני Vision</div>
+                        {(vd.plan_title || vd.project_name || vd.scale) && (
+                          <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 12px", marginBottom: 10, fontSize: 12 }}>
+                            {vd.plan_title && <div><span style={{ color: "#94A3B8" }}>כותרת: </span>{vd.plan_title}</div>}
+                            {vd.project_name && <div><span style={{ color: "#94A3B8" }}>פרויקט: </span>{vd.project_name}</div>}
+                            {vd.scale && <div><span style={{ color: "#94A3B8" }}>קנ"מ: </span>{vd.scale}</div>}
                           </div>
-                          {vd.materials_legend && vd.materials_legend.length > 0 && (
-                            <div style={{ marginTop: 10, fontSize: 11, color: "#9A3412" }}>
-                              מקרא: {vd.materials_legend.map(l => l.symbol ? `${l.symbol}=${l.description}` : l.description).filter(Boolean).join(" | ")}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Detail panel — Dimensions */}
-                      {active === "dimensions" && hasDims && (
-                        <div style={{ background: "#FAF5FF", border: "1px solid #E9D5FF", borderRadius: 10, padding: 14 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "#6B21A8", marginBottom: 10 }}>📏 מידות ({vd.dimensions!.length})</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 6 }}>
-                            {vd.dimensions!.map((d, i) => (
-                              <div key={i} style={{ background: "#fff", border: "1px solid #E9D5FF", borderRadius: 6, padding: "5px 10px", fontSize: 12, color: "#4C1D95", fontFamily: "monospace" }}>
-                                {d}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Detail panel — Systems */}
-                      {active === "systems" && hasSystems && (
-                        <div style={{ background: "#F8FAFC", border: "1px solid #CBD5E1", borderRadius: 10, padding: 14 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", marginBottom: 10 }}>⚙️ מערכות</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                            {Object.entries(vd.systems!).filter(([, v]) => v).map(([k, v]) => (
-                              <div key={k} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, padding: "8px 10px", fontSize: 12 }}>
-                                <span style={{ color: "#64748B", fontWeight: 600 }}>{k}: </span>
-                                <span style={{ color: "#1E293B" }}>{String(v)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Detail panel — Notes */}
-                      {active === "notes" && hasNotes && (
-                        <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 10, padding: 14 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "#92400E", marginBottom: 10 }}>📝 הערות ביצוע ({vd.execution_notes!.length})</div>
-                          {vd.execution_notes!.map((n, i) => (
-                            <div key={i} style={{ fontSize: 12, color: "#78350F", padding: "5px 0", borderBottom: i < vd.execution_notes!.length - 1 ? "1px solid #FDE68A" : "none" }}>
-                              {i + 1}. {n}
-                            </div>
+                        )}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 12 }}>
+                          {cards.map(card => (
+                            <button key={card.id} type="button" onClick={() => setVisionActiveCard(card.id)}
+                              style={{ background: active === card.id ? card.color : "#fff", border: `2px solid ${active === card.id ? card.border : "#E2E8F0"}`, borderRadius: 9, padding: "8px 12px", cursor: "pointer", textAlign: "center", minWidth: 66, transition: "all 0.15s" }}>
+                              <div style={{ fontSize: 18, marginBottom: 1 }}>{card.icon}</div>
+                              <div style={{ fontWeight: 700, fontSize: 15, color: active === card.id ? card.text : "#1E293B" }}>{card.count}</div>
+                              <div style={{ fontSize: 10, color: active === card.id ? card.text : "#64748B", fontWeight: 600 }}>{card.label}</div>
+                            </button>
                           ))}
                         </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
+                        {active === "rooms" && hasRooms && (
+                          <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: 12 }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#1E40AF", marginBottom: 8 }}>🏠 חדרים ({vd.rooms!.length})</div>
+                            <div style={{ overflowX: "auto" }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                                <thead><tr style={{ background: "#DBEAFE" }}>
+                                  <th style={{ textAlign: "right", padding: "5px 7px", borderBottom: "1px solid #BFDBFE" }}>שם</th>
+                                  <th style={{ textAlign: "right", padding: "5px 7px", borderBottom: "1px solid #BFDBFE" }}>שטח</th>
+                                  <th style={{ textAlign: "right", padding: "5px 7px", borderBottom: "1px solid #BFDBFE" }}>מידות</th>
+                                  <th style={{ textAlign: "right", padding: "5px 7px", borderBottom: "1px solid #BFDBFE" }}>הערות</th>
+                                </tr></thead>
+                                <tbody>{vd.rooms!.map((r, i) => (
+                                  <tr key={i} style={{ borderBottom: "1px solid #DBEAFE", background: i % 2 === 0 ? "#fff" : "#EFF6FF" }}>
+                                    <td style={{ padding: "5px 7px", fontWeight: 600, color: "#1E40AF" }}>{r.name || "—"}</td>
+                                    <td style={{ padding: "5px 7px" }}>{r.area_m2 ? `${r.area_m2}מ"ר` : "—"}</td>
+                                    <td style={{ padding: "5px 7px" }}>{r.dimensions ?? "—"}</td>
+                                    <td style={{ padding: "5px 7px", color: "#64748B" }}>{r.notes ?? "—"}</td>
+                                  </tr>
+                                ))}</tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                        {active === "elements" && hasElements && (
+                          <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: 12 }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#166534", marginBottom: 8 }}>🔧 אלמנטים ({vd.elements!.length})</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
+                              {Object.entries(elementGroups).map(([type, items]) => (
+                                <div key={type} style={{ background: "#fff", border: "1px solid #BBF7D0", borderRadius: 8, padding: "8px 10px" }}>
+                                  <div style={{ fontWeight: 700, fontSize: 12, color: "#15803D", marginBottom: 4 }}>{elementIcon(type)} {type} ×{items.length}</div>
+                                  {items.map((el, i) => (
+                                    <div key={i} style={{ fontSize: 10, color: "#334155", padding: "2px 0", borderTop: i > 0 ? "1px solid #F0FDF4" : "none" }}>
+                                      {el.id && <span style={{ color: "#64748B", marginLeft: 4, fontWeight: 600 }}>{el.id}</span>}
+                                      {el.location && <span>{el.location}</span>}
+                                      {!el.id && !el.location && <span style={{ color: "#94A3B8" }}>ללא פרטים</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {active === "materials" && hasMaterials && (
+                          <div style={{ background: "#FFF7ED", border: "1px solid #FED7AA", borderRadius: 10, padding: 12 }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#9A3412", marginBottom: 8 }}>🧱 חומרים ({vd.materials!.length})</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {vd.materials!.map((m, i) => <div key={i} style={{ background: "#fff", border: "1px solid #FED7AA", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: "#431407" }}>{m}</div>)}
+                            </div>
+                          </div>
+                        )}
+                        {active === "dimensions" && hasDims && (
+                          <div style={{ background: "#FAF5FF", border: "1px solid #E9D5FF", borderRadius: 10, padding: 12 }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#6B21A8", marginBottom: 8 }}>📏 מידות ({vd.dimensions!.length})</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {vd.dimensions!.map((d, i) => <div key={i} style={{ background: "#fff", border: "1px solid #E9D5FF", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: "#4C1D95", fontFamily: "monospace" }}>{d}</div>)}
+                            </div>
+                          </div>
+                        )}
+                        {active === "systems" && hasSystems && (
+                          <div style={{ background: "#F8FAFC", border: "1px solid #CBD5E1", borderRadius: 10, padding: 12 }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#334155", marginBottom: 8 }}>⚙️ מערכות</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                              {Object.entries(vd.systems!).filter(([, v]) => v).map(([k, v]) => (
+                                <div key={k} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 8px", fontSize: 11 }}>
+                                  <span style={{ color: "#64748B", fontWeight: 600 }}>{k}: </span><span>{String(v)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {active === "notes" && hasNotes && (
+                          <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 10, padding: 12 }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#92400E", marginBottom: 8 }}>📝 הערות ({vd.execution_notes!.length})</div>
+                            {vd.execution_notes!.map((n, i) => (
+                              <div key={i} style={{ fontSize: 11, color: "#78350F", padding: "4px 0", borderBottom: i < vd.execution_notes!.length - 1 ? "1px solid #FDE68A" : "none" }}>{i + 1}. {n}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
-            {/* ── TAB: ZONE ── */}
-            {step3Tab === "zone" && (
-              <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4 space-y-3">
-                <p className="text-sm font-semibold text-[#31333F]">צביעת אזור</p>
-                <p className="text-xs text-slate-500">גרור מלבן סביב חדר/אזור — המערכת תחשב את הקירות בתוכו אוטומטית.</p>
+              {/* ── TAB: ZONE ── */}
+              {step3Tab === "zone" && (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-[#31333F]">צביעת אזור</p>
+                  <p className="text-xs text-slate-500">גרור מלבן סביב חדר/אזור — המערכת תחשב קירות בתוכו.</p>
+                  <div className="flex gap-2 items-center flex-wrap">
+                    <label className="text-xs w-full">קטגוריה לאזור:
+                      <select value={zoneCatKey} onChange={e => setZoneCatKey(e.target.value)}
+                        className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs">
+                        <option value="">-- בחר --</option>
+                        {Object.values(planningState.categories).map(c => (
+                          <option key={c.key} value={c.key}>{c.type} / {c.subtype}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {zoneStart && zoneEnd && (
+                      <button type="button" onClick={() => void handleAddZone()} disabled={loading || !zoneCatKey}
+                        style={{ width: "100%", padding: "9px 0", borderRadius: 9, background: (loading || !zoneCatKey) ? "#94a3b8" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: (loading || !zoneCatKey) ? "not-allowed" : "pointer" }}>
+                        {loading ? "מחשב..." : "הוסף אזור"}
+                      </button>
+                    )}
+                    {(zoneStart || zoneEnd) && (
+                      <button type="button" onClick={() => { setZoneStart(null); setZoneEnd(null); setZoneTemp(null); }}
+                        style={{ width: "100%", padding: "8px 0", borderRadius: 9, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 12, cursor: "pointer" }}>נקה</button>
+                    )}
+                  </div>
+                </div>
+              )}
 
-                <div className="flex gap-2 items-center flex-wrap">
-                  <label className="text-xs">קטגוריה לאזור:
-                    <select value={zoneCatKey} onChange={e => setZoneCatKey(e.target.value)}
-                      className="mr-2 border border-slate-300 rounded px-2 py-1 text-xs">
-                      <option value="">-- בחר --</option>
-                      {Object.values(planningState.categories).map(c => (
-                        <option key={c.key} value={c.key}>{c.type} / {c.subtype}</option>
-                      ))}
+              {/* ── TAB: MANUAL ── */}
+              {step3Tab === "manual" && (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-[#31333F]">ציור ידני</p>
+                  <div className="flex flex-wrap gap-2">
+                    <select value={drawMode} onChange={(e) => setDrawMode(e.target.value as DrawMode)} className="bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs flex-1">
+                      <option value="line">קו</option>
+                      <option value="rect">מלבן</option>
+                      <option value="path">חופשי</option>
                     </select>
-                  </label>
-                  {zoneStart && zoneEnd && (
-                    <button type="button" onClick={() => void handleAddZone()} disabled={loading || !zoneCatKey}
-                      className="px-3 py-1.5 rounded-lg bg-[#FF4B4B] text-white text-xs font-semibold disabled:opacity-40">
-                      {loading ? "מחשב..." : "הוסף אזור"}
-                    </button>
-                  )}
-                  {(zoneStart || zoneEnd) && (
-                    <button type="button" onClick={() => { setZoneStart(null); setZoneEnd(null); setZoneTemp(null); }}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs">נקה</button>
-                  )}
-                </div>
-
-                <div className="overflow-auto max-h-[72vh]">
-                  <div style={{ background: "#1A2744", borderRadius: 12, padding: 8, display: "inline-block" }}>
-                  <div className="relative border border-slate-700 rounded-lg overflow-hidden w-fit select-none">
-                    <img ref={drawingImageRef} src={imageUrl} alt="plan" className="block"
-                      style={{ width: displaySize.width, height: displaySize.height }}
-                      onLoad={() => updateDisplaySizeFromImage(drawingImageRef.current)} draggable={false} />
-                    <svg ref={zoneCanvasRef} width={displaySize.width} height={displaySize.height}
-                      className="absolute inset-0 cursor-crosshair"
-                      style={{ touchAction: "none" }}
-                      onMouseDown={handleZoneMouseDown} onMouseMove={handleZoneMouseMove}
-                      onMouseUp={handleZoneMouseUp} onMouseLeave={() => setZoneDrawing(false)}
-                      onTouchStart={makeTouchHandler(handleZoneMouseDown)}
-                      onTouchMove={makeTouchHandler(handleZoneMouseMove)}
-                      onTouchEnd={makeTouchHandler(handleZoneMouseUp)}>
-                      {/* Existing items overlay */}
-                      {planningState.items.filter(it => it.type === "zone" || it.type === "rect").map(item => {
-                        const obj = item.raw_object;
-                        const cat = planningState.categories[item.category];
-                        const color = getCategoryColor(cat?.type, cat?.subtype);
-                        return <rect key={item.uid} x={Number(obj.x) * displayScale} y={Number(obj.y) * displayScale}
-                          width={Number(obj.width) * displayScale} height={Number(obj.height) * displayScale}
-                          fill={hexToRgba(color, 0.2)} stroke={color} strokeWidth={2} />;
-                      })}
-                      {/* Live zone preview */}
-                      {zoneStart && (zoneEnd ?? zoneTemp) && (() => {
-                        const end = zoneEnd ?? zoneTemp!;
-                        return <rect x={Math.min(zoneStart.x, end.x)} y={Math.min(zoneStart.y, end.y)}
-                          width={Math.abs(end.x - zoneStart.x)} height={Math.abs(end.y - zoneStart.y)}
-                          fill={hexToRgba("#1B3A6B", 0.15)} stroke="#1B3A6B" strokeWidth={2} strokeDasharray="8 4" />;
-                      })()}
-                    </svg>
-                  </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── TAB: MANUAL ── */}
-            {step3Tab === "manual" && (
-              <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4 space-y-3">
-                <p className="text-sm font-semibold text-[#31333F]">ציור ידני</p>
-                <div className="flex flex-wrap gap-2 mb-1 items-center">
-                  <select value={drawMode} onChange={(e) => setDrawMode(e.target.value as DrawMode)} className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs">
-                    <option value="line">קו</option>
-                    <option value="rect">מלבן</option>
-                    <option value="path">חופשי</option>
-                  </select>
-                  <div className="inline-flex items-center gap-1 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs">
-                    <button type="button" onClick={() => setZoomPercent(z => Math.max(70, z - 10))} className="px-2 py-0.5 border border-slate-300 rounded">-</button>
-                    <span>{zoomPercent}%</span>
-                    <button type="button" onClick={() => setZoomPercent(z => Math.min(220, z + 10))} className="px-2 py-0.5 border border-slate-300 rounded">+</button>
-                    <button type="button" onClick={() => setZoomPercent(100)} className="px-2 py-0.5 border border-slate-300 rounded text-[10px]">איפוס</button>
                   </div>
                   {pendingShapes.length > 0 && (
-                    <span style={{ background: hexToRgba(PENDING_COLOR, 0.15), border: `1px solid ${hexToRgba(PENDING_COLOR, 0.5)}`, color: "#92400e", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 600 }}>
-                      ⏳ {pendingShapes.length} ממתין לשיוך
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: hexToRgba(PENDING_COLOR, 0.12), border: `1px solid ${hexToRgba(PENDING_COLOR, 0.4)}`, borderRadius: 8, padding: "8px 12px" }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>⏳ {pendingShapes.length} ממתין לשיוך</span>
+                      <button type="button" onClick={() => setCategoryPickerOpen(true)} style={{ background: PENDING_COLOR, color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>שייך</button>
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-400">גרור על הקנבס לציור. לחץ "שייך" לשיוך לקטגוריה.</p>
+                </div>
+              )}
+
+              {/* ── TAB: TEXT ── */}
+              {step3Tab === "text" && (
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div>
+                      <p className="text-sm font-semibold text-[#31333F]">פריטים חופשיים</p>
+                      <p className="text-xs text-slate-500">פריטים שלא ניתן לצייר (ספקלינג, פינות, תוספות וכו׳).</p>
+                    </div>
+                    <button type="button" disabled={loading}
+                      onClick={async () => {
+                        if (!selectedPlanId) return;
+                        setLoading(true);
+                        try {
+                          const state = await importVisionItems(selectedPlanId);
+                          setPlanningState(state);
+                          setError("");
+                        } catch (e) {
+                          const detail = axios.isAxiosError(e) ? (e.response?.data?.detail as string | undefined) || e.message : String(e);
+                          setError(`שגיאה בייבוא: ${detail}`);
+                        } finally { setLoading(false); }
+                      }}
+                      style={{ padding: "7px 12px", borderRadius: 9, background: "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: loading ? 0.5 : 1 }}>
+                      📥 ייבא מתוכנית
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse" style={{ minWidth: 320 }}>
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500">
+                          <th className="p-1.5 text-right font-medium border-b border-slate-200">תיאור *</th>
+                          <th className="p-1.5 text-right font-medium border-b border-slate-200">קטגוריה</th>
+                          <th className="p-1.5 text-right font-medium border-b border-slate-200 w-14">כמות</th>
+                          <th className="p-1.5 text-right font-medium border-b border-slate-200 w-14">יחידה</th>
+                          <th className="p-1.5 border-b border-slate-200 w-8"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {textRows.map((row, idx) => (
+                          <tr key={idx} className="border-b border-slate-100">
+                            <td className="p-0.5"><input value={row.description} onChange={e => handleTextRowChange(idx, "description", e.target.value)} placeholder="תיאור..." className="w-full border border-slate-300 rounded px-1.5 py-1 text-xs" /></td>
+                            <td className="p-0.5">
+                              <select value={row.category_key} onChange={e => handleTextRowChange(idx, "category_key", e.target.value)} className="w-full border border-slate-300 rounded px-1 py-1 text-xs">
+                                <option value="__manual__">ידני</option>
+                                {Object.values(planningState.categories).map(c => <option key={c.key} value={c.key}>{c.subtype}</option>)}
+                              </select>
+                            </td>
+                            <td className="p-0.5"><input type="number" min={0} step={0.01} value={row.quantity} onChange={e => handleTextRowChange(idx, "quantity", Number(e.target.value))} className="w-full border border-slate-300 rounded px-1.5 py-1 text-xs" /></td>
+                            <td className="p-0.5">
+                              <select value={row.unit} onChange={e => handleTextRowChange(idx, "unit", e.target.value)} className="w-full border border-slate-300 rounded px-1 py-1 text-xs">
+                                {["מ׳", 'מ"ר', "יח׳", "ק״ג", "ליטר", "מ״ק"].map(u => <option key={u}>{u}</option>)}
+                              </select>
+                            </td>
+                            <td className="p-0.5 text-center"><button type="button" onClick={() => handleRemoveTextRow(idx)} className="text-red-400 hover:text-red-600">🗑</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleAddTextRow} className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs hover:bg-slate-50">+ שורה</button>
+                    <button type="button" onClick={() => void handleSaveTextRows()} disabled={loading} className="px-4 py-1.5 rounded-lg bg-[#1B3A6B] text-white text-xs font-semibold disabled:opacity-40">{loading ? "שומר..." : "💾 שמור"}</button>
+                  </div>
+                  {planningState.items.filter(it => it.type === "text").length > 0 && (
+                    <div className="mt-2 border-t border-slate-100 pt-2">
+                      <p className="text-xs font-semibold text-slate-500 mb-1.5">פריטי טקסט שנשמרו:</p>
+                      <div className="space-y-1">
+                        {planningState.items.filter(it => it.type === "text").map(item => (
+                          <div key={item.uid} className="flex items-center justify-between text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                            <span className="font-medium truncate">{String(item.raw_object.description ?? "")}</span>
+                            <span className="text-slate-500 mx-1 flex-shrink-0">{String(item.raw_object.quantity ?? "")} {String(item.raw_object.unit ?? "")}</span>
+                            <button type="button" onClick={() => void handleDeleteItem(item.uid)} className="text-red-400 hover:text-red-600 flex-shrink-0">✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
-                <div className="overflow-auto max-h-[72vh]">
-                  <div style={{ background: "#1A2744", borderRadius: 12, padding: 8, display: "inline-block" }}>
-                  <div className="relative border border-slate-700 rounded-lg overflow-hidden w-fit select-none">
-                    <img ref={drawingImageRef} src={imageUrl} alt="plan" className="block"
-                      style={{ width: displaySize.width, height: displaySize.height }}
-                      onLoad={() => updateDisplaySizeFromImage(drawingImageRef.current)} draggable={false} />
-                    <svg ref={drawingSurfaceRef} width={displaySize.width} height={displaySize.height}
-                      className="absolute inset-0 cursor-crosshair"
-                      style={{ touchAction: "none" }}
-                      onMouseDown={handleCanvasMouseDown} onMouseMove={handleCanvasMouseMove}
-                      onMouseUp={handleCanvasMouseUp} onMouseLeave={() => setDrawing(false)}
-                      onTouchStart={makeTouchHandler(handleCanvasMouseDown)}
-                      onTouchMove={makeTouchHandler(handleCanvasMouseMove)}
-                      onTouchEnd={makeTouchHandler(handleCanvasMouseUp)}>
+              )}
+
+              {/* ── Shared: Categories + Items ── */}
+              <div style={{ marginTop: 20, borderTop: "1px solid var(--s200)", paddingTop: 14 }}>
+                {/* Categories */}
+                <p className="text-xs font-semibold text-slate-500 mb-2">קטגוריות</p>
+                <div className="space-y-1 max-h-[120px] overflow-y-auto mb-2">
+                  {Object.values(planningState.categories).map((cat) => {
+                    const color = getCategoryColor(cat.type, cat.subtype);
+                    return (
+                      <div key={cat.key} className="flex items-center gap-2 rounded-lg px-2 py-1 text-xs" style={{ background: hexToRgba(color, 0.08), border: `1px solid ${hexToRgba(color, 0.35)}` }}>
+                        <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+                        {cat.type} - {cat.subtype}
+                      </div>
+                    );
+                  })}
+                  {Object.keys(planningState.categories).length === 0 && <p className="text-xs text-slate-400">אין קטגוריות עדיין.</p>}
+                </div>
+                <details className="text-xs mb-3">
+                  <summary className="cursor-pointer text-slate-600 hover:text-slate-900 select-none py-1">+ הוסף קטגוריה</summary>
+                  <div className="mt-2 space-y-2 bg-slate-50 rounded-lg p-2">
+                    <label>סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newType} onChange={e => setNewType(e.target.value)}><option>קירות</option><option>ריצוף</option><option>תקרה</option></select></label>
+                    <label>תת-סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newSubtype} onChange={e => setNewSubtype(e.target.value)}>{subtypeOptions.map(s => <option key={s}>{s}</option>)}</select></label>
+                    <label>פרמטר<input type="number" className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamValue} onChange={e => setNewParamValue(Number(e.target.value))} /></label>
+                    <label>הערה<input className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamNote} onChange={e => setNewParamNote(e.target.value)} /></label>
+                    <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} className="w-full px-2 py-1.5 rounded bg-[#1B3A6B] text-white text-xs font-semibold">הוסף ושמור</button>
+                  </div>
+                </details>
+
+                {/* Items list */}
+                <p className="text-xs font-semibold text-slate-500 mb-1.5">פריטים ({planningState.items.length})</p>
+                {planningState.items.length === 0
+                  ? <p className="text-xs text-slate-400">הוסף פריטים דרך הטאבים.</p>
+                  : <div className="space-y-1 max-h-[200px] overflow-y-auto">
                       {planningState.items.map((item) => {
-                        const obj = item.raw_object;
                         const cat = planningState.categories[item.category];
                         const color = getCategoryColor(cat?.type, cat?.subtype);
-                        if (item.type === "line") return <line key={item.uid} x1={Number(obj.x1) * displayScale} y1={Number(obj.y1) * displayScale} x2={Number(obj.x2) * displayScale} y2={Number(obj.y2) * displayScale} stroke={color} strokeWidth={2} strokeLinecap="round" />;
-                        if (item.type === "rect" || item.type === "zone") return <rect key={item.uid} x={Number(obj.x) * displayScale} y={Number(obj.y) * displayScale} width={Number(obj.width) * displayScale} height={Number(obj.height) * displayScale} fill={hexToRgba(color, 0.15)} stroke={color} strokeWidth={2} />;
-                        const pts = Array.isArray(obj.points) ? (obj.points as number[][]).map(([px, py]) => `${px * displayScale},${py * displayScale}`).join(" ") : "";
-                        return <polyline key={item.uid} points={pts} fill="none" stroke={color} strokeWidth={2} />;
+                        const label = item.type === "text"
+                          ? `📋 ${String(item.raw_object.description ?? "").slice(0, 22)}`
+                          : item.type === "zone"
+                            ? `🎨 אזור | ${(item.length_m_effective ?? item.length_m).toFixed(1)}מ׳`
+                            : `✏️ ${item.type} | ${(item.length_m_effective ?? item.length_m).toFixed(2)}מ׳`;
+                        return (
+                          <div key={item.uid} className="flex items-center justify-between rounded-lg px-2 py-1 text-xs" style={{ background: hexToRgba(color, 0.07), border: `1px solid ${hexToRgba(color, 0.3)}` }}>
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+                              <span className="truncate">{cat?.subtype ?? item.category} | {label}</span>
+                            </span>
+                            <button type="button" className="text-red-500 hover:text-red-700 flex-shrink-0 mr-1" onClick={() => void handleDeleteItem(item.uid)}>✕</button>
+                          </div>
+                        );
                       })}
-                      {pendingShapes.map(renderPendingOnCanvas)}
-                      {drawing && startPoint && tempPoint && drawMode === "line" && <line x1={startPoint.x} y1={startPoint.y} x2={tempPoint.x} y2={tempPoint.y} stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
-                      {drawing && startPoint && tempPoint && drawMode === "rect" && <rect x={Math.min(startPoint.x, tempPoint.x)} y={Math.min(startPoint.y, tempPoint.y)} width={Math.abs(tempPoint.x - startPoint.x)} height={Math.abs(tempPoint.y - startPoint.y)} fill={hexToRgba(PENDING_COLOR, 0.15)} stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
-                      {drawing && drawMode === "path" && pathPoints.length > 1 && <polyline points={pathPoints.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
-                    </svg>
-                  </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── TAB: TEXT ── */}
-            {step3Tab === "text" && (
-              <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div>
-                    <p className="text-sm font-semibold text-[#31333F]">פריטים בטקסט חופשי</p>
-                    <p className="text-xs text-slate-500">פריטים שלא ניתן לצייר (ספקלינג, פינות, תוספות אחוזיות וכו׳).</p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={async () => {
-                      if (!selectedPlanId) return;
-                      setLoading(true);
-                      try {
-                        const state = await importVisionItems(selectedPlanId);
-                        setPlanningState(state);
-                        setError("");
-                      } catch (e) {
-                        const detail = axios.isAxiosError(e) ? (e.response?.data?.detail as string | undefined) || e.message : String(e);
-                        setError(`שגיאה בייבוא: ${detail}`);
-                      } finally { setLoading(false); }
-                    }}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      padding: "7px 14px", borderRadius: 9,
-                      background: "#1B3A6B", color: "#fff",
-                      border: "none", fontWeight: 700, fontSize: 13,
-                      cursor: "pointer", whiteSpace: "nowrap",
-                      opacity: loading ? 0.5 : 1,
-                      boxShadow: "0 2px 8px rgba(27,58,107,0.25)",
-                    }}
-                  >
-                    📥 ייבא מתוכנית
-                  </button>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs border-collapse min-w-[600px]">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500">
-                        <th className="p-2 text-right font-medium border-b border-slate-200 w-[30%]">תיאור *</th>
-                        <th className="p-2 text-right font-medium border-b border-slate-200 w-[20%]">קטגוריה</th>
-                        <th className="p-2 text-right font-medium border-b border-slate-200 w-[10%]">כמות *</th>
-                        <th className="p-2 text-right font-medium border-b border-slate-200 w-[12%]">יחידה</th>
-                        <th className="p-2 text-right font-medium border-b border-slate-200 w-[20%]">הערה</th>
-                        <th className="p-2 border-b border-slate-200 w-[8%]"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {textRows.map((row, idx) => (
-                        <tr key={idx} className="border-b border-slate-100">
-                          <td className="p-1">
-                            <input value={row.description} onChange={e => handleTextRowChange(idx, "description", e.target.value)}
-                              placeholder="תיאור הפריט..." className="w-full border border-slate-300 rounded px-2 py-1 text-xs" />
-                          </td>
-                          <td className="p-1">
-                            <select value={row.category_key} onChange={e => handleTextRowChange(idx, "category_key", e.target.value)}
-                              className="w-full border border-slate-300 rounded px-1 py-1 text-xs">
-                              <option value="__manual__">ידני</option>
-                              {Object.values(planningState.categories).map(c => (
-                                <option key={c.key} value={c.key}>{c.subtype}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="p-1">
-                            <input type="number" min={0} step={0.01} value={row.quantity}
-                              onChange={e => handleTextRowChange(idx, "quantity", Number(e.target.value))}
-                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs" />
-                          </td>
-                          <td className="p-1">
-                            <select value={row.unit} onChange={e => handleTextRowChange(idx, "unit", e.target.value)}
-                              className="w-full border border-slate-300 rounded px-1 py-1 text-xs">
-                              {["מ׳", 'מ"ר', "יח׳", "ק״ג", "ליטר", "מ״ק"].map(u => <option key={u}>{u}</option>)}
-                            </select>
-                          </td>
-                          <td className="p-1">
-                            <input value={row.note ?? ""} onChange={e => handleTextRowChange(idx, "note", e.target.value)}
-                              placeholder="הערה..." className="w-full border border-slate-300 rounded px-2 py-1 text-xs" />
-                          </td>
-                          <td className="p-1 text-center">
-                            <button type="button" onClick={() => handleRemoveTextRow(idx)}
-                              className="text-red-400 hover:text-red-600 text-sm">🗑</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex gap-2 flex-wrap">
-                  <button type="button" onClick={handleAddTextRow}
-                    className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs hover:bg-slate-50">
-                    + שורה חדשה
-                  </button>
-                  <button type="button" onClick={() => void handleSaveTextRows()} disabled={loading}
-                    className="px-4 py-2 rounded-lg bg-[#FF4B4B] text-white text-sm font-semibold disabled:opacity-40">
-                    {loading ? "שומר..." : "💾 שמור פריטים"}
-                  </button>
-                </div>
-
-                {/* Existing text items */}
-                {planningState.items.filter(it => it.type === "text").length > 0 && (
-                  <div className="mt-3 border-t border-slate-100 pt-3">
-                    <p className="text-xs font-semibold text-slate-500 mb-2">פריטי טקסט שנשמרו:</p>
-                    <div className="space-y-1">
-                      {planningState.items.filter(it => it.type === "text").map(item => (
-                        <div key={item.uid} className="flex items-center justify-between text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1">
-                          <span className="font-medium">{String(item.raw_object.description ?? "")}</span>
-                          <span className="text-slate-500">{String(item.raw_object.quantity ?? "")} {String(item.raw_object.unit ?? "")}</span>
-                          <button type="button" onClick={() => void handleDeleteItem(item.uid)} className="text-red-400 hover:text-red-600">✕</button>
-                        </div>
-                      ))}
                     </div>
-                  </div>
-                )}
+                }
               </div>
-            )}
-          </div>
-
-          {/* Right panel */}
-          <div className="space-y-4">
-            {/* Category manager */}
-            <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4 space-y-3">
-              <p className="text-sm font-semibold text-[#31333F]">קטגוריות</p>
-              <div className="space-y-1 max-h-[160px] overflow-y-auto">
-                {Object.values(planningState.categories).map((cat) => {
-                  const color = getCategoryColor(cat.type, cat.subtype);
-                  return (
-                    <div key={cat.key} className="flex items-center gap-2 rounded-lg px-2 py-1 text-xs" style={{ background: hexToRgba(color, 0.08), border: `1px solid ${hexToRgba(color, 0.35)}` }}>
-                      <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
-                      {cat.type} - {cat.subtype}
-                    </div>
-                  );
-                })}
-                {Object.keys(planningState.categories).length === 0 && <p className="text-xs text-slate-400">אין קטגוריות עדיין.</p>}
-              </div>
-              <details className="text-xs">
-                <summary className="cursor-pointer text-slate-600 hover:text-slate-900 select-none py-1">+ הוסף קטגוריה</summary>
-                <div className="mt-2 space-y-2">
-                  <label>סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newType} onChange={e => setNewType(e.target.value)}><option>קירות</option><option>ריצוף</option><option>תקרה</option></select></label>
-                  <label>תת-סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newSubtype} onChange={e => setNewSubtype(e.target.value)}>{subtypeOptions.map(s => <option key={s}>{s}</option>)}</select></label>
-                  <label>פרמטר<input type="number" className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamValue} onChange={e => setNewParamValue(Number(e.target.value))} /></label>
-                  <label>הערה<input className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamNote} onChange={e => setNewParamNote(e.target.value)} /></label>
-                  <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} className="w-full px-2 py-1.5 rounded bg-[#1B3A6B] text-white text-xs font-semibold">הוסף ושמור</button>
-                </div>
-              </details>
             </div>
 
-            {/* Items list */}
-            <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4">
-              <p className="text-sm font-semibold mb-2 text-[#31333F]">כל הפריטים ({planningState.items.length})</p>
-              {planningState.items.length === 0
-                ? <p className="text-xs text-slate-400">הוסף פריטים דרך אחד הטאבים.</p>
-                : <div className="space-y-1 max-h-[320px] overflow-y-auto">
-                    {planningState.items.map((item) => {
-                      const cat = planningState.categories[item.category];
-                      const color = getCategoryColor(cat?.type, cat?.subtype);
-                      const label = item.type === "text"
-                        ? `📋 ${String(item.raw_object.description ?? "").slice(0, 22)}`
-                        : item.type === "zone"
-                          ? `🎨 אזור | ${(item.length_m_effective ?? item.length_m).toFixed(1)}מ׳`
-                          : `✏️ ${item.type} | ${(item.length_m_effective ?? item.length_m).toFixed(2)}מ׳`;
-                      return (
-                        <div key={item.uid} className="flex items-center justify-between rounded-lg px-2 py-1 text-xs" style={{ background: hexToRgba(color, 0.07), border: `1px solid ${hexToRgba(color, 0.3)}` }}>
-                          <span className="flex items-center gap-1.5 min-w-0">
-                            <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                            <span className="truncate">{cat?.subtype ?? item.category} | {label}</span>
-                          </span>
-                          <button type="button" className="text-red-500 hover:text-red-700 flex-shrink-0 mr-1" onClick={() => void handleDeleteItem(item.uid)}>✕</button>
-                        </div>
-                      );
-                    })}
-                  </div>
-              }
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button type="button" onClick={() => setStep(4)} disabled={planningState.items.length === 0}
-                style={{ padding: "11px 20px", borderRadius: 10, background: planningState.items.length === 0 ? "#CBD5E1" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: planningState.items.length === 0 ? "not-allowed" : "pointer", boxShadow: planningState.items.length === 0 ? "none" : "0 3px 10px rgba(255,75,75,0.3)", transition: "all 0.15s" }}>
-                המשך לשלב 4 ←
-              </button>
+            {/* Panel footer — navigation */}
+            <div style={{ padding: "10px 14px", borderTop: "1px solid var(--s200)", background: "var(--s50)", display: "flex", gap: 8, flexShrink: 0 }}>
               <button type="button" onClick={() => setStep(2)}
-                style={{ padding: "9px 16px", borderRadius: 10, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
-                ← חזור לשלב 2
+                style={{ padding: "8px 16px", borderRadius: 9, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+                ← שלב 2
+              </button>
+              <button type="button" onClick={() => setStep(4)} disabled={planningState.items.length === 0}
+                style={{ flex: 1, padding: "9px 0", borderRadius: 10, background: planningState.items.length === 0 ? "#CBD5E1" : "var(--blue)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: planningState.items.length === 0 ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
+                שלב 4 ←
               </button>
             </div>
           </div>
         </div>
       )}
+
 
       {/* ── STEP 4: BOQ + Save ── */}
       {step === 4 && planningState && (

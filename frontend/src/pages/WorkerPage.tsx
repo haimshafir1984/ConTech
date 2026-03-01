@@ -559,22 +559,15 @@ export const WorkerPage: React.FC = () => {
           {/* Work type selector buttons */}
           <div style={{ display: "flex", gap: 6 }}>
             {([
-              { val: "walls" as const, label: "קירות", icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="9" y2="21"/><line x1="15" y1="9" x2="15" y2="21"/></svg> },
-              { val: "floor" as const, label: "ריצוף", icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="2" y="2" width="9" height="9" rx="1"/><rect x="13" y="2" width="9" height="9" rx="1"/><rect x="2" y="13" width="9" height="9" rx="1"/><rect x="13" y="13" width="9" height="9" rx="1"/></svg> },
+              { val: "walls" as const, label: "קירות", icon: <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="9" y2="21"/><line x1="15" y1="9" x2="15" y2="21"/></svg> },
+              { val: "floor" as const, label: "ריצוף", icon: <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="9" height="9" rx="1"/><rect x="13" y="2" width="9" height="9" rx="1"/><rect x="2" y="13" width="9" height="9" rx="1"/><rect x="13" y="13" width="9" height="9" rx="1"/></svg> },
             ]).map((t) => (
               <button
                 key={t.val}
                 type="button"
                 onClick={() => setReportType(t.val)}
-                style={{
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                  gap: 4, minHeight: 72, padding: "8px 18px",
-                  border: `2px solid ${reportType === t.val ? "var(--orange)" : "var(--border-dark, #cbd5e1)"}`,
-                  borderRadius: 10,
-                  background: reportType === t.val ? "#fff7ed" : "#fff",
-                  color: reportType === t.val ? "var(--orange)" : "var(--s500)",
-                  cursor: "pointer", fontSize: 11, fontWeight: 600, transition: "all .15s",
-                }}
+                className={`work-type-btn${reportType === t.val ? " selected" : ""}`}
+                style={{ minHeight: 64, padding: "10px 16px" }}
               >
                 {t.icon}
                 <span>{t.label}</span>
@@ -629,23 +622,18 @@ export const WorkerPage: React.FC = () => {
         {/* Canvas area */}
         <div style={{ background: "#1A2744", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {/* Draw toolbar */}
-          <div style={{ display: "flex", gap: 6, padding: "8px 14px", background: "rgba(0,0,0,0.3)", flexShrink: 0, alignItems: "center", overflowX: "auto", height: 48 }}>
+          <div style={{ display: "flex", gap: 6, padding: "8px 14px", background: "rgba(0,0,0,0.25)", flexShrink: 0, alignItems: "center", overflowX: "auto", minHeight: 52 }}>
             {([
-              { val: "line" as DrawMode, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>, label: "קו" },
-              { val: "rect" as DrawMode, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>, label: "מלבן" },
-              { val: "path" as DrawMode, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 17c3-3 6-3 9 0s6 3 9 0"/></svg>, label: "חופשי" },
+              { val: "line" as DrawMode, icon: <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg>, label: "קו" },
+              { val: "rect" as DrawMode, icon: <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>, label: "מלבן" },
+              { val: "path" as DrawMode, icon: <svg viewBox="0 0 24 24"><path d="M3 17c3-3 6-3 9 0s6 3 9 0"/></svg>, label: "חופשי" },
             ]).map((m) => (
               <button
                 key={m.val}
                 type="button"
                 onClick={() => setDrawMode(m.val)}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 5,
-                  height: 34, padding: "0 12px", border: "none", borderRadius: 8,
-                  background: drawMode === m.val ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.12)",
-                  color: drawMode === m.val ? "var(--navy)" : "rgba(255,255,255,0.75)",
-                  fontSize: 12, fontWeight: drawMode === m.val ? 700 : 400, cursor: "pointer", transition: "all .15s",
-                }}
+                className={`tool-btn${drawMode === m.val ? " active" : ""}`}
+                style={drawMode === m.val ? {} : { background: "rgba(255,255,255,0.1)", borderColor: "rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.8)" }}
               >
                 {m.icon} {m.label}
               </button>
@@ -718,20 +706,19 @@ export const WorkerPage: React.FC = () => {
 
                 {/* Items list */}
                 {items.length > 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ fontSize: 11, color: "var(--s500)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.7px" }}>פריטים ({items.length})</div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--s500)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 4 }}>פריטים ({items.length})</div>
                     {items.map((item, idx) => (
-                      <div key={item.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--s100)" }}>
-                        <span style={{ fontSize: 12, color: "var(--s500)" }}>#{idx + 1} {item.type}</span>
-                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                          <span style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--navy)" }}>{item.measurement.toFixed(2)} <span style={{ fontSize: 11, fontWeight: 500 }}>{item.unit}</span></span>
-                          <button
-                            type="button"
-                            title="הסר"
-                            onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
-                            style={{ color: "var(--red)", background: "none", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "2px 4px", borderRadius: 4 }}
-                          >✕</button>
-                        </div>
+                      <div key={item.uid} className="measure-row">
+                        <span className="measure-name" style={{ fontSize: 13 }}>#{idx + 1} {item.type}</span>
+                        <span className="measure-qty">{item.measurement.toFixed(2)}</span>
+                        <span className="measure-unit">{item.unit}</span>
+                        <button
+                          type="button"
+                          title="הסר"
+                          onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
+                          style={{ color: "var(--red)", background: "none", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "2px 4px" }}
+                        >✕</button>
                       </div>
                     ))}
                   </div>
@@ -779,39 +766,40 @@ export const WorkerPage: React.FC = () => {
             {/* ── History panel ── */}
             {activeTab === "history" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div style={{ background: "var(--s50)", border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "10px 12px" }}>
-                    <div style={{ fontSize: 10, color: "var(--s400)" }}>סה"כ קירות</div>
-                    <div style={{ fontWeight: 800, fontSize: 18, color: "var(--blue)" }}>{totalReportWalls.toFixed(2)} מ'</div>
+                <div className="stats-grid" style={{ marginBottom: 0 }}>
+                  <div className="stat-card info">
+                    <div className="stat-value" style={{ fontSize: "1.3rem" }}>{totalReportWalls.toFixed(1)} <span style={{ fontSize: ".7rem", fontWeight: 500 }}>מ'</span></div>
+                    <div className="stat-label">קירות כולל</div>
                   </div>
-                  <div style={{ background: "var(--s50)", border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "10px 12px" }}>
-                    <div style={{ fontSize: 10, color: "var(--s400)" }}>סה"כ ריצוף</div>
-                    <div style={{ fontWeight: 800, fontSize: 18, color: "var(--amber)" }}>{totalReportFloor.toFixed(2)} מ"ר</div>
+                  <div className="stat-card warn">
+                    <div className="stat-value" style={{ fontSize: "1.3rem" }}>{totalReportFloor.toFixed(1)} <span style={{ fontSize: ".7rem", fontWeight: 500 }}>מ"ר</span></div>
+                    <div className="stat-label">ריצוף כולל</div>
                   </div>
                 </div>
 
                 {reports.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "32px 0", color: "var(--s400)", fontSize: 13 }}>אין דיווחים עדיין.</div>
                 ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div>
                     {reports.slice().reverse().map((r) => (
-                      <div key={r.id} style={{ border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "12px", fontSize: 12 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                          <span style={{ fontWeight: 700, color: "var(--s900)" }}>{r.date}</span>
-                          <span style={{
-                            display: "inline-flex", alignItems: "center", gap: 4,
-                            padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-                            background: r.report_type === "walls" ? "var(--blue-100, #dbeafe)" : "var(--amber-light, #fef3c7)",
-                            color: r.report_type === "walls" ? "#1d4ed8" : "var(--amber)",
-                          }}>
-                            {r.report_type === "walls" ? "קירות" : "ריצוף"}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ color: "var(--s500)" }}>{r.shift}{r.note ? ` · ${r.note}` : ""}</span>
-                          <span style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--navy)" }}>
-                            {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
-                          </span>
+                      <div key={r.id} className="history-item">
+                        <div className="history-item-header">
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: ".9rem", color: "var(--text-1)" }}>{r.date} — {r.shift}</div>
+                            <div style={{ fontSize: ".75rem", color: "var(--text-2)", marginTop: 2 }}>
+                              {r.report_type === "walls" ? "קירות" : "ריצוף"}{r.note ? ` · ${r.note}` : ""}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "left" }}>
+                            <span style={{ fontWeight: 800, fontSize: "1.05rem", color: "var(--navy)" }}>
+                              {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
+                            </span>
+                            <div style={{ marginTop: 3 }}>
+                              <span className={`badge ${r.report_type === "walls" ? "badge-blue" : "badge-amber"}`}>
+                                {r.report_type === "walls" ? "קירות" : "ריצוף"}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ))}

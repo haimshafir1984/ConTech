@@ -313,29 +313,17 @@ export const DashboardPage: React.FC = () => {
       {error && <ErrorAlert message={error} onDismiss={() => setError("")} />}
 
       {/* Tab selector */}
-      <div className="flex border-b border-[#E6E6EA] bg-white rounded-t-lg px-4 gap-0 shadow-sm">
+      <div className="tabs" style={{ background: "#fff", padding: "0 16px", borderRadius: "10px 10px 0 0", boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}>
         {([
-          { id: "dashboard", label: "📊 סקירה" },
-          { id: "boq", label: "📋 כתב כמויות" },
-          { id: "reports", label: "📸 דוחות עובד" },
+          { id: "dashboard", label: "סקירה" },
+          { id: "boq", label: "כתב כמויות" },
+          { id: "reports", label: "דוחות עובד" },
         ] as { id: typeof activeView; label: string }[]).map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => setActiveView(t.id)}
-            style={{
-            padding: "0 20px",
-            height: 44,
-            fontSize: 13,
-            fontWeight: activeView === t.id ? 700 : 500,
-            border: "none",
-            borderBottom: activeView === t.id ? "3px solid var(--orange)" : "3px solid transparent",
-            marginBottom: -1,
-            cursor: "pointer",
-            background: "none",
-            color: activeView === t.id ? "var(--navy)" : "var(--s500)",
-            transition: "color .15s",
-          }}
+            className={`tab-btn${activeView === t.id ? " active" : ""}`}
           >
             {t.label}
           </button>
@@ -351,37 +339,37 @@ export const DashboardPage: React.FC = () => {
       {dashboard && activeView === "dashboard" && (
         <>
           {/* KPI grid */}
-          <section style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-            {([
-              { label: "התקדמות כללית", value: `${pct.toFixed(1)}%`, sub: `${dashboard.average_daily_m.toFixed(2)} מ'/יום`, topColor: "var(--orange)", extraContent: (
-                <div style={{ height: 6, background: "var(--s200)", borderRadius: 3, overflow: "hidden", marginBottom: 8 }}>
-                  <div style={{ width: `${Math.min(100, pct)}%`, height: "100%", background: "var(--orange)", borderRadius: 3 }} />
-                </div>
-              ) },
-              { label: "בוצע בפועל", value: `${dashboard.built_m.toFixed(1)} מ'`, sub: `מתוך ${dashboard.total_planned_m.toFixed(1)} מ' מתוכנן`, topColor: "var(--green)", extraContent: null },
-              { label: "נותר לביצוע", value: `${dashboard.remaining_m.toFixed(1)} מ'`, sub: dashboard.days_to_finish != null ? `~${dashboard.days_to_finish.toFixed(0)} ימים` : "", topColor: "var(--amber)", extraContent: null },
-              { label: "עלות מצטברת", value: `${dashboard.current_cost_ils.toLocaleString()} ₪`, sub: `שטח: ${dashboard.planned_floor_m2.toFixed(0)} מ"ר`, topColor: "var(--navy)", extraContent: null },
-            ] as { label: string; value: string; sub: string; topColor: string; extraContent: React.ReactNode }[]).map((c) => (
-              <div key={c.label} style={{ background: "#fff", borderTop: `3px solid ${c.topColor}`, borderRadius: "var(--r)", padding: "14px 18px", boxShadow: "var(--sh1)" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--s400)", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 8 }}>{c.label}</div>
-                <div style={{ fontSize: "1.6rem", fontWeight: 800, letterSpacing: "-1px", lineHeight: 1, marginBottom: 8, color: "var(--s900)" }}>{c.value}</div>
-                {c.extraContent}
-                {c.sub && <div style={{ fontSize: 12, color: "var(--s400)" }}>{c.sub}</div>}
+          <div className="stats-grid">
+            <div className="stat-card accent">
+              <div className="stat-value">{pct.toFixed(1)}%</div>
+              <div className="stat-label">התקדמות כללית</div>
+              <div style={{ height: 5, background: "var(--s200)", borderRadius: 3, overflow: "hidden", marginTop: 8 }}>
+                <div style={{ width: `${Math.min(100, pct)}%`, height: "100%", background: "var(--orange)", borderRadius: 3 }} />
               </div>
-            ))}
-          </section>
+            </div>
+            <div className="stat-card success">
+              <div className="stat-value">{dashboard.built_m.toFixed(1)} <span style={{ fontSize: ".85rem", fontWeight: 600 }}>מ'</span></div>
+              <div className="stat-label">בוצע בפועל</div>
+            </div>
+            <div className="stat-card warn">
+              <div className="stat-value">{dashboard.remaining_m.toFixed(1)} <span style={{ fontSize: ".85rem", fontWeight: 600 }}>מ'</span></div>
+              <div className="stat-label">נותר לביצוע</div>
+            </div>
+            <div className="stat-card info">
+              <div className="stat-value" style={{ fontSize: "1.2rem" }}>{dashboard.current_cost_ils.toLocaleString()} <span style={{ fontSize: ".75rem", fontWeight: 600 }}>₪</span></div>
+              <div className="stat-label">עלות מצטברת</div>
+            </div>
+          </div>
 
           {/* Dash grid: BOQ table left + side panels right */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 330px", gap: 16 }}>
 
             {/* BOQ table */}
-            <div style={{ background: "#fff", borderRadius: "var(--r)", boxShadow: "var(--sh1)", overflow: "hidden" }}>
-              <div style={{ padding: "13px 20px", borderBottom: "1px solid var(--s100)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>📋 ריכוז כמויות — BOQ</span>
+            <div className="card" style={{ marginBottom: 0, padding: 0, overflow: "hidden" }}>
+              <div className="card-header" style={{ padding: "13px 16px", borderBottom: "1px solid var(--s200)", marginBottom: 0 }}>
+                <span className="card-title">ריכוז כמויות — BOQ</span>
                 {dashboard.boq_progress.length > 0 && (
-                  <button type="button" onClick={() => setActiveView("boq")} style={{ fontSize: 12, color: "var(--blue)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
-                    הצג הכל ←
-                  </button>
+                  <button type="button" onClick={() => setActiveView("boq")} className="btn btn-ghost btn-sm">הצג הכל ←</button>
                 )}
               </div>
               {dashboard.boq_progress.length === 0 ? (
@@ -389,44 +377,39 @@ export const DashboardPage: React.FC = () => {
                   אין נתוני BOQ. הגדר תכולה בעמוד תכנון.
                 </div>
               ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead>
-                    <tr>
-                      {["פריט עבודה", "כמות", "התקדמות", "סטטוס"].map((h) => (
-                        <th key={h} style={{ textAlign: "right", padding: "9px 16px", fontSize: 11, fontWeight: 700, color: "var(--s400)", background: "var(--s50)", borderBottom: "1px solid var(--s200)" }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dashboard.boq_progress.map((row) => {
-                      const pctRow = Math.min(100, row.progress_percent);
-                      const badge = pctRow >= 100
-                        ? { label: "הושלם", bg: "var(--green-light)", color: "var(--green)" }
-                        : pctRow > 0
-                        ? { label: "בעבודה", bg: "var(--amber-light)", color: "var(--amber)" }
-                        : { label: "ממתין", bg: "var(--s100)", color: "var(--s500)" };
-                      return (
-                        <tr
-                          key={row.label}
-                          style={{ borderBottom: "1px solid var(--s100)" }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--s50)")}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                        >
-                          <td style={{ padding: "10px 16px", fontWeight: 600, color: "var(--s900)" }}>{row.label}</td>
-                          <td style={{ padding: "10px 16px", color: "var(--s500)" }}>{row.planned_qty.toFixed(1)} {row.unit}</td>
-                          <td style={{ padding: "10px 16px", minWidth: 120 }}>
-                            <ProgressBar percent={pctRow} height={8} showLabel />
-                          </td>
-                          <td style={{ padding: "10px 16px" }}>
-                            <span style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: badge.bg, color: badge.color }}>
-                              {badge.label}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <div style={{ overflowX: "auto" }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        {["פריט עבודה", "כמות", "התקדמות", "סטטוס"].map((h) => (
+                          <th key={h}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboard.boq_progress.map((row) => {
+                        const pctRow = Math.min(100, row.progress_percent);
+                        const badge = pctRow >= 100
+                          ? { label: "הושלם", cls: "badge-green" }
+                          : pctRow > 0
+                          ? { label: "בעבודה", cls: "badge-amber" }
+                          : { label: "ממתין", cls: "badge-gray" };
+                        return (
+                          <tr key={row.label}>
+                            <td style={{ fontWeight: 600 }}>{row.label}</td>
+                            <td style={{ color: "var(--s500)" }}>{row.planned_qty.toFixed(1)} {row.unit}</td>
+                            <td style={{ minWidth: 120 }}>
+                              <ProgressBar percent={pctRow} height={8} showLabel />
+                            </td>
+                            <td>
+                              <span className={`badge ${badge.cls}`}>{badge.label}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
 

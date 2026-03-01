@@ -1275,54 +1275,38 @@ export const PlanningPage: React.FC = () => {
       )}
 
       {/* Step nav — horizontal stepper strip */}
-      <div style={{ background: "#fff", borderBottom: "1px solid var(--s200)", padding: "14px 20px", flexShrink: 0, margin: "0 -24px", paddingLeft: 28, paddingRight: 28 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto" }}>
+      <div style={{ background: "#fff", borderBottom: "1px solid var(--s200)", padding: "16px 20px", flexShrink: 0, margin: "0 -24px", paddingLeft: 28, paddingRight: 28 }}>
+        <div className="wizard-steps">
           {(
             [
-              { s: 1 as WizardStep, label: "בחירת תוכנית",  icon: "📁", canGo: true },
-              { s: 2 as WizardStep, label: "כיול סקייל",    icon: "📏", canGo: canStep2 },
-              { s: 3 as WizardStep, label: "סימון תכולה",   icon: "✏️", canGo: canStep3 },
-              { s: 4 as WizardStep, label: "כתב כמויות",    icon: "📋", canGo: canStep4 },
-              { s: 5 as WizardStep, label: "גזרות עבודה",   icon: "🗺️", canGo: canStep4 },
+              { s: 1 as WizardStep, label: "בחירת\nתוכנית",  canGo: true },
+              { s: 2 as WizardStep, label: "כיול\nסקייל",    canGo: canStep2 },
+              { s: 3 as WizardStep, label: "סימון\nתכולה",   canGo: canStep3 },
+              { s: 4 as WizardStep, label: "כתב\nכמויות",    canGo: canStep4 },
+              { s: 5 as WizardStep, label: "גזרות\nעבודה",   canGo: canStep4 },
             ]
-          ).map(({ s, label, icon, canGo }, idx) => {
+          ).map(({ s, label, canGo }) => {
             const isActive = step === s;
             const isDone   = step > s;
             const isLocked = !canGo;
             return (
-              <React.Fragment key={s}>
-                <button
-                  type="button"
-                  onClick={() => {
+              <div
+                key={s}
+                className={`wizard-step${isDone ? " done" : ""}${isActive ? " active" : ""}`}
+                style={{ opacity: isLocked ? 0.45 : 1, cursor: isLocked ? "not-allowed" : "pointer" }}
+                onClick={() => {
+                  if (!isLocked) {
                     if (s === 1) setStep(1);
                     if (s === 2 && canStep2) setStep(2);
                     if (s === 3 && canStep3) setStep(3);
                     if (s === 4 && canStep4) setStep(4);
                     if (s === 5 && canStep4) setStep(5);
-                  }}
-                  disabled={isLocked}
-                  style={{ flexShrink: 0, textAlign: "center", background: "none", border: "none", padding: "0 4px", cursor: isLocked ? "not-allowed" : "pointer", opacity: isLocked ? 0.45 : 1 }}
-                >
-                  <div style={{
-                    width: 28, height: 28, borderRadius: "50%", margin: "0 auto 5px",
-                    background: isActive ? "var(--navy)" : isDone ? "var(--green)" : "var(--s200)",
-                    color: isActive || isDone ? "#fff" : "var(--s500)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 11, fontWeight: 700,
-                    outline: isActive ? "3px solid #dbeafe" : "none",
-                    outlineOffset: 2,
-                    transition: "all 0.2s",
-                  }}>
-                    {isDone ? "✓" : s}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: isActive ? "var(--navy)" : isDone ? "var(--green)" : "var(--s400)", fontWeight: isActive ? 700 : 600, whiteSpace: "nowrap", lineHeight: 1.2 }}>
-                    {label}
-                  </div>
-                </button>
-                {idx < 4 && (
-                  <div style={{ flex: 1, height: 2, minWidth: 16, background: step > idx + 1 ? "var(--green)" : "var(--s200)", marginBottom: 20, transition: "background 0.3s" }} />
-                )}
-              </React.Fragment>
+                  }
+                }}
+              >
+                <div className="step-circle">{isDone ? "✓" : s}</div>
+                <div className="step-label" style={{ whiteSpace: "pre-line" }}>{label}</div>
+              </div>
             );
           })}
         </div>
@@ -1436,11 +1420,12 @@ export const PlanningPage: React.FC = () => {
                 <input type="number" className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm" min={0.1} step={0.1} value={calibrationLengthM} onChange={(e) => setCalibrationLengthM(Number(e.target.value))} />
               </label>
               <button type="button" onClick={handleCalibrate} disabled={!calStart || !calEnd}
-                style={{ width: "100%", padding: "10px 0", borderRadius: 9, background: (!calStart || !calEnd) ? "var(--s300)" : "var(--blue)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: (!calStart || !calEnd) ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
+                className="btn btn-primary btn-full"
+                style={{ cursor: (!calStart || !calEnd) ? "not-allowed" : "pointer", opacity: (!calStart || !calEnd) ? 0.5 : 1 }}>
                 📏 עדכן סקייל
               </button>
               <button type="button" onClick={() => { setCalStart(null); setCalEnd(null); setCalTemp(null); setCalDrawing(false); }}
-                style={{ width: "100%", padding: "8px 0", borderRadius: 9, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+                className="btn btn-ghost btn-full" style={{ marginTop: 6 }}>
                 נקה קו
               </button>
             </div>
@@ -1452,15 +1437,9 @@ export const PlanningPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="xl:col-span-2 flex justify-between">
-            <button type="button" onClick={() => setStep(1)}
-              style={{ padding: "9px 18px", borderRadius: 9, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
-              ← חזור לשלב 1
-            </button>
-            <button type="button" onClick={() => setStep(3)}
-              style={{ height: 48, padding: "0 24px", borderRadius: 10, background: "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-              המשך לשלב 3 ←
-            </button>
+          <div className="xl:col-span-2" style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+            <button type="button" onClick={() => setStep(1)} className="btn btn-ghost">← חזור לשלב 1</button>
+            <button type="button" onClick={() => setStep(3)} className="btn btn-orange">המשך לשלב 3 ←</button>
           </div>
         </div>
       )}
@@ -1621,13 +1600,13 @@ export const PlanningPage: React.FC = () => {
           <div style={{ background: "#fff", borderRight: "1px solid var(--s200)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
             {/* Panel tabs */}
-            <div style={{ display: "flex", borderBottom: "1px solid var(--s200)", flexShrink: 0 }}>
+            <div className="tabs" style={{ flexShrink: 0, borderRadius: 0, marginBottom: 0 }}>
               {(["auto", "zone", "manual", "text"] as Step3Tab[]).map(tab => {
                 const labels: Record<Step3Tab, string> = { auto: "🤖 אוטו", zone: "🎨 אזור", manual: "✏️ ציור", text: "📋 טקסט" };
-                const active = step3Tab === tab;
                 return (
                   <button key={tab} type="button" onClick={() => setStep3Tab(tab)}
-                    style={{ flex: 1, padding: "12px 4px", textAlign: "center", fontSize: 11.5, fontWeight: active ? 700 : 600, color: active ? "var(--blue)" : "var(--s400)", cursor: "pointer", border: "none", borderBottom: `2px solid ${active ? "var(--blue)" : "transparent"}`, background: "none", transition: "all .12s", whiteSpace: "nowrap" }}>
+                    className={`tab-btn${step3Tab === tab ? " active" : ""}`}
+                    style={{ flex: 1, textAlign: "center", fontSize: 11.5 }}>
                     {labels[tab]}
                   </button>
                 );
@@ -2000,13 +1979,14 @@ export const PlanningPage: React.FC = () => {
                     </label>
                     {zoneStart && zoneEnd && (
                       <button type="button" onClick={() => void handleAddZone()} disabled={loading || !zoneCatKey}
-                        style={{ width: "100%", padding: "9px 0", borderRadius: 9, background: (loading || !zoneCatKey) ? "#94a3b8" : "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: (loading || !zoneCatKey) ? "not-allowed" : "pointer" }}>
+                        className="btn btn-primary btn-full"
+                        style={{ cursor: (loading || !zoneCatKey) ? "not-allowed" : "pointer", opacity: (loading || !zoneCatKey) ? 0.5 : 1 }}>
                         {loading ? "מחשב..." : "הוסף אזור"}
                       </button>
                     )}
                     {(zoneStart || zoneEnd) && (
                       <button type="button" onClick={() => { setZoneStart(null); setZoneEnd(null); setZoneTemp(null); }}
-                        style={{ width: "100%", padding: "8px 0", borderRadius: 9, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 12, cursor: "pointer" }}>נקה</button>
+                        className="btn btn-ghost btn-full" style={{ marginTop: 4 }}>נקה</button>
                     )}
                   </div>
                 </div>
@@ -2173,12 +2153,12 @@ export const PlanningPage: React.FC = () => {
 
             {/* Panel footer — navigation */}
             <div style={{ padding: "10px 14px", borderTop: "1px solid var(--s200)", background: "var(--s50)", display: "flex", gap: 8, flexShrink: 0 }}>
-              <button type="button" onClick={() => setStep(2)}
-                style={{ padding: "8px 16px", borderRadius: 9, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
+              <button type="button" onClick={() => setStep(2)} className="btn btn-ghost btn-sm">
                 ← שלב 2
               </button>
               <button type="button" onClick={() => setStep(4)} disabled={planningState.items.length === 0}
-                style={{ flex: 1, height: 48, borderRadius: 10, background: planningState.items.length === 0 ? "#CBD5E1" : "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: planningState.items.length === 0 ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
+                className="btn btn-primary"
+                style={{ flex: 1, cursor: planningState.items.length === 0 ? "not-allowed" : "pointer", opacity: planningState.items.length === 0 ? 0.5 : 1 }}>
                 שלב 4 ←
               </button>
             </div>
@@ -2250,17 +2230,12 @@ export const PlanningPage: React.FC = () => {
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <button type="button" onClick={() => void handleFinalize()} disabled={loading}
-                style={{ height: 48, padding: "0 24px", borderRadius: 10, background: loading ? "#94a3b8" : "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
-                {loading ? "שומר..." : "💾 שמירה סופית"}
+                className={`btn ${loading ? "btn-ghost" : "btn-orange"}`}
+                style={loading ? { cursor: "not-allowed", opacity: .7 } : {}}>
+                {loading ? "שומר..." : "שמירה סופית"}
               </button>
-              <button type="button" onClick={() => setStep(5)}
-                style={{ height: 48, padding: "0 20px", borderRadius: 10, background: "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-                גזרות עבודה ▶
-              </button>
-              <button type="button" onClick={() => setStep(3)}
-                style={{ padding: "10px 16px", borderRadius: 10, background: "#fff", color: "#64748b", border: "1.5px solid #CBD5E1", fontSize: 13, cursor: "pointer", fontWeight: 500 }}>
-                ← חזור לשלב 3
-              </button>
+              <button type="button" onClick={() => setStep(5)} className="btn btn-primary">גזרות עבודה ▶</button>
+              <button type="button" onClick={() => setStep(3)} className="btn btn-ghost">← חזור לשלב 3</button>
             </div>
           </div>
         </div>

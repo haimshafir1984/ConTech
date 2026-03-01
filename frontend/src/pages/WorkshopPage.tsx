@@ -208,33 +208,33 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading, compact }) =
 
   return (
     <div
-      style={{
-        border: `2px dashed ${drag ? "var(--navy)" : "var(--border-dark, #cbd5e1)"}`,
-        borderRadius: 14,
-        padding: "36px 32px",
-        textAlign: "center",
-        cursor: "pointer",
-        background: drag ? "#e0eaf5" : "#fff",
-        transition: "border-color 0.15s, background 0.15s",
-        marginBottom: 24,
-      }}
+      className="upload-zone"
+      style={drag ? { borderColor: "var(--navy)", background: "#e0eaf5" } : {}}
       onClick={() => inputRef.current?.click()}
       onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
       onDragLeave={() => setDrag(false)}
       onDrop={handleDrop}
     >
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, color: drag ? "var(--navy)" : "var(--s400)" }}>
-        <svg width={40} height={40} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, color: drag ? "var(--navy)" : "var(--text-3)" }}>
+        <svg width={44} height={44} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <polyline points="17 8 12 3 7 8"/>
           <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
       </div>
-      <p style={{ fontWeight: 700, fontSize: 15, color: drag ? "var(--navy)" : "var(--s900)", margin: 0 }}>
-        {isLoading ? "מעלה ומנתח..." : "גרור קובץ PDF לכאן להעלאה"}
-      </p>
-      <p style={{ fontSize: 13, color: "var(--s400)", marginTop: 6 }}>או לחץ לבחירת קובץ מהמחשב</p>
-      <p style={{ fontSize: 11, color: "var(--s300)", marginTop: 5 }}>PDF בלבד · מקסימום 50MB</p>
+      <h3>{isLoading ? "מעלה ומנתח..." : "גרור קובץ PDF לכאן"}</h3>
+      <p>או לחץ לבחירת קובץ מהמחשב</p>
+      <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>PDF בלבד · מקסימום 50MB</p>
+      <div style={{ marginTop: 14 }}>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+        >
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          בחר קובץ
+        </button>
+      </div>
       <input
         ref={inputRef}
         id="workshop-upload-input"
@@ -605,89 +605,63 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
 
       {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
 
-      {/* ── Plan cards grid / skeleton ── */}
+      {/* ── Plan list / skeleton ── */}
       {plansLoading && plans.length === 0 && <SkeletonGrid count={3} />}
 
       {plans.length > 0 && (
         <>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.8px", color: "var(--s400)", marginBottom: 14 }}>
-            תוכניות קומה · {plans.length} קבצים
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 18 }}>
-            {plans.map((p) => {
-              const active = p.id === selectedPlanId;
-              const analyzed = p.total_wall_length_m != null && p.total_wall_length_m > 0;
-              const thumbBg = active
-                ? "linear-gradient(140deg, #EFF6FF, #DBEAFE)"
-                : analyzed
-                  ? "linear-gradient(140deg, #ECFDF5, #D1FAE5)"
-                  : "linear-gradient(140deg, #FFFBEB, #FEF3C7)";
-              const badgeColor = active ? "var(--navy)" : analyzed ? "var(--green)" : "var(--amber)";
-              const badgeBg = active ? "#e0eaf5" : analyzed ? "var(--green-light, #dcfce7)" : "var(--amber-light, #fef3c7)";
-              const badgeLabel = active ? "פעיל" : analyzed ? "נותח" : "ממתין";
-              const ctaLabel = analyzed ? "פתח לעריכה ←" : "התחל ניתוח";
-              const ctaPrimary = analyzed;
-              return (
-                <div
-                  key={p.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSelectedPlanId(p.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter") setSelectedPlanId(p.id); }}
-                  style={{
-                    textAlign: "right",
-                    background: "#fff",
-                    border: active ? "2px solid var(--navy)" : "1px solid var(--s200)",
-                    borderRadius: "var(--r)",
-                    overflow: "hidden",
-                    cursor: "pointer",
-                    boxShadow: active ? "var(--sh2)" : "var(--sh1)",
-                    transition: "box-shadow 0.15s, border-color 0.15s, transform 0.15s",
-                  }}
-                  onMouseEnter={(e) => { if (!active) { (e.currentTarget as HTMLDivElement).style.boxShadow = "var(--sh2)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"; } }}
-                  onMouseLeave={(e) => { if (!active) { (e.currentTarget as HTMLDivElement).style.boxShadow = "var(--sh1)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"; } }}
-                >
-                  {/* Thumbnail */}
-                  <div style={{ height: 136, background: thumbBg, overflow: "hidden", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <img
-                      src={`${apiClient.defaults.baseURL}/manager/workshop/plans/${encodeURIComponent(p.id)}/image`}
-                      alt={p.plan_name}
-                      style={{ width: "100%", height: "100%", objectFit: "cover", position: "absolute", inset: 0 }}
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-                    />
-                    <span style={{ fontSize: 44, opacity: 0.18 }}>🏛️</span>
-                    <span style={{ position: "absolute", top: 10, right: 10, background: badgeBg, color: badgeColor, fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>{badgeLabel}</span>
-                  </div>
-                  {/* Info */}
-                  <div style={{ padding: "12px 14px" }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: "var(--s900)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>{p.plan_name}</div>
-                    <div style={{ fontSize: 11, color: "var(--s400)", marginBottom: 10 }}>
-                      {p.total_wall_length_m != null ? `${p.total_wall_length_m.toFixed(1)} מ' קירות` : "טרם נותח"}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedPlanId(p.id);
-                        if (analyzed && onNavigatePlanning) onNavigatePlanning();
-                        else if (!analyzed) void runAnalysisNow();
-                      }}
-                      style={{
-                        width: "100%", padding: "7px 12px",
-                        borderRadius: "var(--r-sm)", fontSize: 12, fontWeight: 700,
-                        cursor: "pointer",
-                        background: ctaPrimary ? "var(--orange)" : "transparent",
-                        color: ctaPrimary ? "#fff" : "var(--s700)",
-                        border: ctaPrimary ? "none" : "1px solid var(--s300)",
-                      }}
-                    >
-                      {ctaLabel}
-                    </button>
+          <div className="section-divider">תוכניות קומה — {plans.length} קבצים</div>
+          {plans.map((p) => {
+            const active = p.id === selectedPlanId;
+            const analyzed = p.total_wall_length_m != null && p.total_wall_length_m > 0;
+            const badgeCls = active ? "badge-navy" : analyzed ? "badge-green" : "badge-amber";
+            const badgeLabel = active ? "פעיל" : analyzed ? "נותח" : "ממתין";
+            return (
+              <div
+                key={p.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedPlanId(p.id)}
+                onKeyDown={(e) => { if (e.key === "Enter") setSelectedPlanId(p.id); }}
+                className={`plan-item${active ? " selected" : ""}`}
+              >
+                {/* Thumb */}
+                <div className="plan-thumb">
+                  <img
+                    src={`${apiClient.defaults.baseURL}/manager/workshop/plans/${encodeURIComponent(p.id)}/image`}
+                    alt=""
+                    style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 8 }}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                  />
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                {/* Meta */}
+                <div className="plan-meta">
+                  <div className="plan-name">{p.plan_name}</div>
+                  <div className="plan-sub">
+                    {p.total_wall_length_m != null ? `${p.total_wall_length_m.toFixed(1)} מ' קירות` : "טרם נותח"}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+                {/* Actions */}
+                <div className="plan-actions">
+                  <span className={`badge ${badgeCls}`}>{badgeLabel}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedPlanId(p.id);
+                      if (analyzed && onNavigatePlanning) onNavigatePlanning();
+                      else if (!analyzed) void runAnalysisNow();
+                    }}
+                    className={`btn btn-sm ${analyzed ? "btn-orange" : "btn-ghost"}`}
+                    style={{ marginTop: 4 }}
+                  >
+                    {analyzed ? "פתח ←" : "נתח"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </>
       )}
 

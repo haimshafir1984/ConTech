@@ -1,6 +1,8 @@
 import os
 import base64
 import json
+import logging
+logger = logging.getLogger(__name__)
 
 try:
     import anthropic
@@ -226,7 +228,8 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
                     result["_ocr_source"] = ocr_source
                     result["_auto_fixed"] = True
                     return result
-                except:
+                except Exception as _e:
+                    logger.warning("brain: json-fix fallback model=%s err=%s", model, _e)
                     continue
 
         except anthropic.NotFoundError:
@@ -268,13 +271,15 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
                     result["_ocr_source"] = ocr_source
                     result["_warning"] = "Used shorter text due to length limit"
                     return result
-                except:
+                except Exception as _e:
+                    logger.warning("brain: short-text fallback model=%s err=%s", model, _e)
                     continue
             else:
                 continue
         except anthropic.RateLimitError:
             continue
-        except Exception:
+        except Exception as _e:
+            logger.warning("brain: model=%s outer exception: %s", model, _e)
             continue
 
     return {

@@ -46,8 +46,8 @@ export async function createWorkerReport(payload: {
   return data;
 }
 
-export async function listWorkerReports(planId: string): Promise<WorkerReport[]> {
-  const { data } = await apiClient.get<WorkerReport[]>(`/worker/reports/${encodeURIComponent(planId)}`);
+export async function listWorkerReports(planId: string, signal?: AbortSignal): Promise<WorkerReport[]> {
+  const { data } = await apiClient.get<WorkerReport[]>(`/worker/reports/${encodeURIComponent(planId)}`, { signal });
   return data;
 }
 

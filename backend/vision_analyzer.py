@@ -288,6 +288,7 @@ def _render_page_to_b64(page) -> str:
     matrix = _fitz.Matrix(150 / 72, 150 / 72)
     pix = page.get_pixmap(matrix=matrix, alpha=False)
     img = _Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    pix = None  # שחרור pixmap מהזיכרון מיד לאחר שנוצר img
 
     quality = 70
     while quality >= 40:

@@ -443,14 +443,14 @@ export const WorkerPage: React.FC = () => {
 
   React.useEffect(() => { void loadPlans().catch(console.error); }, [loadPlans]);
 
-  // Load reports with cancellation flag to prevent stale-response race condition
+  // Load reports with AbortController to cancel stale in-flight requests
   React.useEffect(() => {
     if (!selectedPlanId) return;
-    let cancelled = false;
-    listWorkerReports(selectedPlanId)
-      .then(data => { if (!cancelled) setReports(data); })
-      .catch(console.error);
-    return () => { cancelled = true; };
+    const controller = new AbortController();
+    listWorkerReports(selectedPlanId, controller.signal)
+      .then(data => { if (!controller.signal.aborted) setReports(data); })
+      .catch(err => { if (!controller.signal.aborted) console.error(err); });
+    return () => { controller.abort(); };
   }, [selectedPlanId]);
 
   React.useEffect(() => {
@@ -467,7 +467,7 @@ export const WorkerPage: React.FC = () => {
     return () => { cancelled = true; };
   }, [selectedPlanId]);
 
-  const handleDrawComplete = async (payload: { object_type: DrawMode; raw_object: Record<string, unknown> }) => {
+  const handleDrawComplete = React.useCallback(async (payload: { object_type: DrawMode; raw_object: Record<string, unknown> }) => {
     if (!selectedPlanId) return;
     try {
       setMeasuring(true);
@@ -489,7 +489,7 @@ export const WorkerPage: React.FC = () => {
     } finally {
       setMeasuring(false);
     }
-  };
+  }, [selectedPlanId, reportType, drawMode]);
 
   const totalLength = React.useMemo(() => items.filter((i) => i.unit === "m").reduce((s, i) => s + i.measurement, 0), [items]);
   const totalArea = React.useMemo(() => items.filter((i) => i.unit !== "m").reduce((s, i) => s + i.measurement, 0), [items]);
@@ -501,7 +501,7 @@ export const WorkerPage: React.FC = () => {
       await createWorkerReport({ plan_id: selectedPlanId, date: reportDate, shift, report_type: reportType, draw_mode: drawMode, items, note });
       setItems([]);
       setNote("");
-      await loadReports(selectedPlanId);
+      setReports(await listWorkerReports(selectedPlanId));
       toast("הדיווח נשמר בהצלחה");
     } catch (e) {
       console.error(e);
@@ -782,7 +782,7 @@ export const WorkerPage: React.FC = () => {
                   <div style={{ textAlign: "center", padding: "32px 0", color: "var(--s400)", fontSize: 13 }}>אין דיווחים עדיין.</div>
                 ) : (
                   <div>
-                    {reports.slice().reverse().map((r) => (
+                    {reports.slice(-50).reverse().map((r) => (
                       <div key={r.id} className="history-item">
                         <div className="history-item-header">
                           <div>

@@ -11,20 +11,6 @@ import {
   type WorkerReportsSummary,
 } from "../api/managerInsightsApi";
 
-// ─── Inject card-expand animation once ───────────────────────────────────────
-const _expandStyle = document.createElement("style");
-_expandStyle.textContent = `
-  @keyframes card-expand {
-    from { opacity: 0; transform: translateY(-6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .report-card-body { animation: card-expand 0.18s ease; }
-`;
-if (!document.head.querySelector("[data-dashboard-styles]")) {
-  _expandStyle.setAttribute("data-dashboard-styles", "1");
-  document.head.appendChild(_expandStyle);
-}
-
 // ─── HTML escape helper (prevents XSS in print template) ─────────────────────
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -228,6 +214,21 @@ export const DashboardPage: React.FC = () => {
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [activeView, setActiveView] = React.useState<"dashboard" | "reports" | "boq">("dashboard");
+
+  React.useEffect(() => {
+    if (document.head.querySelector("[data-dashboard-styles]")) return;
+    const el = document.createElement("style");
+    el.setAttribute("data-dashboard-styles", "1");
+    el.textContent = `
+      @keyframes card-expand {
+        from { opacity: 0; transform: translateY(-6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      .report-card-body { animation: card-expand 0.18s ease; }
+    `;
+    document.head.appendChild(el);
+    return () => { el.remove(); };
+  }, []);
 
   React.useEffect(() => {
     void (async () => {
@@ -584,7 +585,7 @@ export const DashboardPage: React.FC = () => {
           {summary && summary.reports.length > 0 ? (
             <div className="space-y-2">
               <h3 className="text-sm font-semibold text-slate-700 px-1">דיווחים בודדים (לחץ להרחבה + תמונה)</h3>
-              {summary.reports.slice().reverse().map((r) => (
+              {summary.reports.slice(-50).reverse().map((r) => (
                 <ReportCard key={r.id} report={r} planId={selectedPlanId} />
               ))}
             </div>

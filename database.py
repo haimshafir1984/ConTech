@@ -167,6 +167,9 @@ def run_query(query, params=(), fetch="all"):
 
 # --- פונקציות האפליקציה ---
 
+# cache of column names for 'plans' table — populated on first save_plan call
+_plans_cols_cache: set | None = None
+
 
 def save_plan(
     filename,
@@ -186,26 +189,29 @@ def save_plan(
       - סכמה חדשה: extracted_scale, confirmed_scale, raw_pixel_count, metadata_json, material_estimate
       - סכמה ישנה: scale_text, scale_value, raw_pixels, metadata, materials_json
     """
-    # זהה איזו סכמה קיימת
-    conn_check = get_connection()
-    if conn_check:
-        try:
-            cur_check = conn_check.cursor()
-            if _is_real_postgres:
-                # Postgres: use information_schema instead of PRAGMA
-                cur_check.execute(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name='plans'"
-                )
-                cols = {row["column_name"] for row in cur_check.fetchall()}
-            else:
-                cur_check.execute("PRAGMA table_info(plans)")
-                cols = {row[1] for row in cur_check.fetchall()}
-        except Exception:
-            cols = set()
-        finally:
-            conn_check.close()
-    else:
-        cols = set()
+    # זהה איזו סכמה קיימת (נטען פעם אחת בלבד לכל חיים)
+    global _plans_cols_cache
+    if _plans_cols_cache is None:
+        conn_check = get_connection()
+        if conn_check:
+            try:
+                cur_check = conn_check.cursor()
+                if _is_real_postgres:
+                    # Postgres: use information_schema instead of PRAGMA
+                    cur_check.execute(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name='plans'"
+                    )
+                    _plans_cols_cache = {row["column_name"] for row in cur_check.fetchall()}
+                else:
+                    cur_check.execute("PRAGMA table_info(plans)")
+                    _plans_cols_cache = {row[1] for row in cur_check.fetchall()}
+            except Exception:
+                _plans_cols_cache = set()
+            finally:
+                conn_check.close()
+        else:
+            _plans_cols_cache = set()
+    cols = _plans_cols_cache
 
     # אם Postgres ו-cols ריק (שגיאה בשאילתה) — נניח סכמה ישנה כברירת מחדל
     if _is_real_postgres and not cols:

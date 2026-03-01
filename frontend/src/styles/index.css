@@ -11,8 +11,14 @@
   --border: #E2E8F0;
 
   /* Design system — navy */
-  --navy: #0D1F3C;
+  --navy: #1e3a5f;
+  --navy-dark: #152d4a;
+  --navy-light: #2a4d7a;
   --navy-2: #1B3A6B;
+
+  /* Design system — orange */
+  --orange: #e67e22;
+  --orange-dark: #c96a10;
 
   /* Design system — blue */
   --blue: #2563EB;
@@ -21,16 +27,27 @@
   --blue-100: #DBEAFE;
 
   /* Design system — green */
-  --green: #059669;
+  --green: #15803d;
+  --green-light: #dcfce7;
   --green-50: #ECFDF5;
 
   /* Design system — amber */
-  --amber: #D97706;
+  --amber: #b45309;
+  --amber-light: #fef3c7;
   --amber-50: #FFFBEB;
 
   /* Design system — red */
   --red: #DC2626;
+  --red-light: #fee2e2;
   --red-50: #FEF2F2;
+
+  /* Text scale */
+  --text-1: #1e293b;
+  --text-2: #475569;
+  --text-3: #94a3b8;
+
+  /* Border */
+  --border-dark: #cbd5e1;
 
   /* Design system — slate scale */
   --s50: #F8FAFC;
@@ -76,3 +93,44 @@ body {
   }
 }
 
+/* ── Badge utilities ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: .78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-green { background: var(--green-light); color: var(--green); }
+.badge-amber { background: var(--amber-light); color: var(--amber); }
+.badge-red   { background: var(--red-light);   color: var(--red);   }
+.badge-navy  { background: #e0eaf5;             color: var(--navy);  }
+.badge-blue  { background: #dbeafe;             color: #1d4ed8;      }
+.badge-gray  { background: var(--s100);         color: var(--s500);  }
+
+/* ── Button base ── */
+.btn-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  font-size: .95rem;
+  transition: opacity .15s;
+}
+.btn-base:hover { opacity: .88; }
+
+/* ── Accent top borders ── */
+.accent-top-orange { border-top: 3px solid var(--orange) !important; }
+.accent-top-green  { border-top: 3px solid var(--green)  !important; }
+.accent-top-blue   { border-top: 3px solid #1d4ed8       !important; }
+.accent-top-amber  { border-top: 3px solid var(--amber)  !important; }
+.accent-top-red    { border-top: 3px solid var(--red)    !important; }
+.accent-top-navy   { border-top: 3px solid var(--navy)   !important; }

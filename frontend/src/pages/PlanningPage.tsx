@@ -148,7 +148,7 @@ const CategoryPickerModal: React.FC<CategoryPickerProps> = ({
         boxShadow: "0 8px 40px rgba(0,0,0,0.22)",
         direction: "rtl",
       }}>
-        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4, color: "#1B3A6B" }}>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4, color: "var(--navy)" }}>
           📂 שיוך {pendingCount} {pendingCount === 1 ? "פריט" : "פריטים"} לקטגוריה
         </div>
         <p style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>
@@ -163,7 +163,7 @@ const CategoryPickerModal: React.FC<CategoryPickerProps> = ({
             disabled={Object.keys(categories).length === 0}
             style={{
               flex: 1, padding: "6px 0", borderRadius: 8, border: "none", cursor: "pointer",
-              background: tab === "existing" ? "#1B3A6B" : "#F1F5F9",
+              background: tab === "existing" ? "var(--navy)" : "#F1F5F9",
               color: tab === "existing" ? "#fff" : "#334155",
               fontWeight: 600, fontSize: 13,
               opacity: Object.keys(categories).length === 0 ? 0.4 : 1,
@@ -176,7 +176,7 @@ const CategoryPickerModal: React.FC<CategoryPickerProps> = ({
             onClick={() => setTab("new")}
             style={{
               flex: 1, padding: "6px 0", borderRadius: 8, border: "none", cursor: "pointer",
-              background: tab === "new" ? "#1B3A6B" : "#F1F5F9",
+              background: tab === "new" ? "var(--navy)" : "#F1F5F9",
               color: tab === "new" ? "#fff" : "#334155",
               fontWeight: 600, fontSize: 13,
             }}
@@ -256,7 +256,7 @@ const CategoryPickerModal: React.FC<CategoryPickerProps> = ({
             <button
               type="button"
               onClick={() => onCreateAndPick(newType, newSubtype, newParamValue, newParamNote)}
-              style={{ padding: "10px 0", borderRadius: 10, background: "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}
+              style={{ padding: "10px 0", borderRadius: 10, background: "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}
             >
               צור קטגוריה ושייך
             </button>
@@ -495,7 +495,7 @@ const ZoomModal: React.FC<ZoomModalProps> = ({
       onMouseLeave={() => { isPanning.current = false; setDrawing(false); }}
     >
       {/* Top toolbar */}
-      <div style={{ background: "#1B3A6B", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+      <div style={{ background: "var(--navy)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
         <span style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>🔍 תצוגה מוגדלת — שלב 3</span>
         <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>Scroll לזום • Alt+גרור לזזה • לחץ לסימון</span>
 
@@ -584,7 +584,7 @@ const ZoomModal: React.FC<ZoomModalProps> = ({
       </div>
 
       {/* Bottom bar */}
-      <div style={{ background: "#1B3A6B", padding: "6px 16px", maxHeight: 120, overflowY: "auto", flexShrink: 0 }}>
+      <div style={{ background: "var(--navy)", padding: "6px 16px", maxHeight: 120, overflowY: "auto", flexShrink: 0 }}>
         {/* Pending row */}
         {pendingShapes.length > 0 && (
           <div style={{ marginBottom: 6 }}>
@@ -1242,7 +1242,7 @@ export const PlanningPage: React.FC = () => {
             פתח באורך משוער <strong>{openingPrompt.gapLengthM?.toFixed(2)} מ׳</strong> — האם מדובר בדלת, חלון, או לא פתח?
           </div>
           <div className="flex gap-2 flex-wrap">
-            <button type="button" onClick={() => void handleResolveOpening("door")} style={{ padding: "8px 18px", borderRadius: 9, background: "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 6px rgba(255,75,75,0.3)" }}>🚪 דלת</button>
+            <button type="button" onClick={() => void handleResolveOpening("door")} style={{ padding: "8px 18px", borderRadius: 9, background: "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 6px rgba(255,75,75,0.3)" }}>🚪 דלת</button>
             <button type="button" onClick={() => void handleResolveOpening("window")} style={{ padding: "8px 18px", borderRadius: 9, background: "#F97316", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 6px rgba(249,115,22,0.3)" }}>🪟 חלון</button>
             <button type="button" onClick={() => void handleResolveOpening("none")} style={{ padding: "8px 16px", borderRadius: 9, background: "#fff", color: "#64748b", border: "1px solid #CBD5E1", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>לא פתח</button>
           </div>
@@ -1260,7 +1260,7 @@ export const PlanningPage: React.FC = () => {
             המערכת לא בטוחה שזה קיר (חפיפה: <strong>{wallPrompt.overlapRatio != null ? `${Math.round(wallPrompt.overlapRatio * 100)}%` : "לא ידוע"}</strong>). האם לשמור כסימון קיר?
           </div>
           <div className="flex gap-2 flex-wrap">
-            <button type="button" onClick={() => void handleResolveWall(true)} style={{ padding: "8px 18px", borderRadius: 9, background: "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 6px rgba(27,58,107,0.3)" }}>✓ כן, זה קיר</button>
+            <button type="button" onClick={() => void handleResolveWall(true)} style={{ padding: "8px 18px", borderRadius: 9, background: "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 6px rgba(27,58,107,0.3)" }}>✓ כן, זה קיר</button>
             <button type="button" onClick={() => void handleResolveWall(false)} style={{ padding: "8px 16px", borderRadius: 9, background: "#fff", color: "#64748b", border: "1px solid #CBD5E1", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>✕ להתעלם</button>
           </div>
         </div>
@@ -1305,22 +1305,22 @@ export const PlanningPage: React.FC = () => {
                 >
                   <div style={{
                     width: 28, height: 28, borderRadius: "50%", margin: "0 auto 5px",
-                    background: isActive ? "var(--blue)" : isDone ? "var(--green)" : "var(--s200)",
+                    background: isActive ? "var(--navy)" : isDone ? "var(--green)" : "var(--s200)",
                     color: isActive || isDone ? "#fff" : "var(--s500)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 11, fontWeight: 700,
-                    outline: isActive ? "3px solid var(--blue-100)" : "none",
+                    outline: isActive ? "3px solid #dbeafe" : "none",
                     outlineOffset: 2,
                     transition: "all 0.2s",
                   }}>
                     {isDone ? "✓" : s}
                   </div>
-                  <div style={{ fontSize: 10.5, color: isActive ? "var(--blue)" : isDone ? "var(--green)" : "var(--s400)", fontWeight: isActive ? 700 : 600, whiteSpace: "nowrap", lineHeight: 1.2 }}>
+                  <div style={{ fontSize: 10.5, color: isActive ? "var(--navy)" : isDone ? "var(--green)" : "var(--s400)", fontWeight: isActive ? 700 : 600, whiteSpace: "nowrap", lineHeight: 1.2 }}>
                     {label}
                   </div>
                 </button>
                 {idx < 4 && (
-                  <div style={{ flex: 1, height: 2, minWidth: 16, background: step > idx + 1 ? "#10B981" : "#e2e8f0", marginBottom: 20, transition: "background 0.3s" }} />
+                  <div style={{ flex: 1, height: 2, minWidth: 16, background: step > idx + 1 ? "var(--green)" : "var(--s200)", marginBottom: 20, transition: "background 0.3s" }} />
                 )}
               </React.Fragment>
             );
@@ -1339,7 +1339,7 @@ export const PlanningPage: React.FC = () => {
       {step === 1 && (
         <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-5 space-y-4">
           <div>
-            <p className="text-base font-bold text-[#1B3A6B] mb-1">📁 בחר תוכנית לעבודה</p>
+            <p className="text-base font-bold text-[var(--navy)] mb-1">📁 בחר תוכנית לעבודה</p>
             <p className="text-xs text-slate-400">בחר מהרשימה תוכנית שהועלתה בסדנת עבודה.</p>
           </div>
           {plans.length === 0 ? (
@@ -1349,7 +1349,7 @@ export const PlanningPage: React.FC = () => {
           ) : (
             <select
               className="w-full bg-white border-2 border-slate-300 rounded-lg px-3 py-2.5 text-sm font-medium"
-              style={{ borderColor: selectedPlanId ? "#1B3A6B" : "#CBD5E1", outline: "none" }}
+              style={{ borderColor: selectedPlanId ? "var(--navy)" : "#CBD5E1", outline: "none" }}
               value={selectedPlanId}
               onChange={(e) => setSelectedPlanId(e.target.value)}
             >
@@ -1370,7 +1370,7 @@ export const PlanningPage: React.FC = () => {
           )}
           <div className="flex justify-end">
             <button type="button" onClick={() => setStep(2)} disabled={!selectedPlanId}
-              style={{ padding: "10px 28px", borderRadius: 10, background: selectedPlanId ? "var(--blue)" : "var(--s300)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: selectedPlanId ? "pointer" : "not-allowed", transition: "all 0.15s" }}>
+              style={{ height: 48, padding: "0 28px", borderRadius: 10, background: selectedPlanId ? "var(--navy)" : "var(--s300)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: selectedPlanId ? "pointer" : "not-allowed", transition: "all 0.15s" }}>
               המשך לשלב 2 ←
             </button>
           </div>
@@ -1410,10 +1410,10 @@ export const PlanningPage: React.FC = () => {
                 onTouchEnd={makeTouchHandler(handleCalMouseUp)}
               >
                 {calStart && (calEnd || calTemp) && (
-                  <line x1={calStart.x} y1={calStart.y} x2={(calEnd ?? calTemp)?.x ?? calStart.x} y2={(calEnd ?? calTemp)?.y ?? calStart.y} stroke="#FF4B4B" strokeWidth={3} />
+                  <line x1={calStart.x} y1={calStart.y} x2={(calEnd ?? calTemp)?.x ?? calStart.x} y2={(calEnd ?? calTemp)?.y ?? calStart.y} stroke="var(--orange)" strokeWidth={3} />
                 )}
-                {calStart && <circle cx={calStart.x} cy={calStart.y} r={5} fill="#FF4B4B" />}
-                {calEnd && <circle cx={calEnd.x} cy={calEnd.y} r={5} fill="#FF4B4B" />}
+                {calStart && <circle cx={calStart.x} cy={calStart.y} r={5} fill="var(--orange)" />}
+                {calEnd && <circle cx={calEnd.x} cy={calEnd.y} r={5} fill="var(--orange)" />}
               </svg>
             </div>
             </div>
@@ -1424,7 +1424,7 @@ export const PlanningPage: React.FC = () => {
             <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4 space-y-3">
               <p className="text-sm font-semibold text-[#31333F]">בקרת כיול</p>
               <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-700 space-y-1">
-                <p>סקייל נוכחי: <span className="font-semibold text-[#1B3A6B]">{planningState.scale_px_per_meter.toFixed(1)} px/m</span></p>
+                <p>סקייל נוכחי: <span className="font-semibold text-[var(--navy)]">{planningState.scale_px_per_meter.toFixed(1)} px/m</span></p>
                 {calStart && calEnd && (
                   <p className="text-slate-500">
                     קו שנגרר: {Math.round(Math.hypot(calEnd.x - calStart.x, calEnd.y - calStart.y))} px
@@ -1458,7 +1458,7 @@ export const PlanningPage: React.FC = () => {
               ← חזור לשלב 1
             </button>
             <button type="button" onClick={() => setStep(3)}
-              style={{ padding: "10px 24px", borderRadius: 10, background: "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 3px 10px rgba(255,75,75,0.3)" }}>
+              style={{ height: 48, padding: "0 24px", borderRadius: 10, background: "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
               המשך לשלב 3 ←
             </button>
           </div>
@@ -1538,7 +1538,7 @@ export const PlanningPage: React.FC = () => {
               {step3Tab === "auto" && autoSegments === null && (
                 <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,.25)", borderRadius: 8 }}>
                   <div style={{ background: "rgba(255,255,255,.92)", borderRadius: 12, padding: "16px 24px", textAlign: "center" }}>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: "#1B3A6B", marginBottom: 4 }}>לחץ "נתח" בפאנל</p>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: "var(--navy)", marginBottom: 4 }}>לחץ "נתח" בפאנל</p>
                     <p style={{ fontSize: 12, color: "#64748B" }}>המערכת תסרוק ותסמן אזורים</p>
                   </div>
                 </div>
@@ -1565,7 +1565,7 @@ export const PlanningPage: React.FC = () => {
                     const end = zoneEnd ?? zoneTemp!;
                     return <rect x={Math.min(zoneStart.x, end.x)} y={Math.min(zoneStart.y, end.y)}
                       width={Math.abs(end.x - zoneStart.x)} height={Math.abs(end.y - zoneStart.y)}
-                      fill={hexToRgba("#1B3A6B", 0.15)} stroke="#1B3A6B" strokeWidth={2} strokeDasharray="8 4" />;
+                      fill={hexToRgba("var(--navy)", 0.15)} stroke="var(--navy)" strokeWidth={2} strokeDasharray="8 4" />;
                   })()}
                 </svg>
               )}
@@ -1646,7 +1646,7 @@ export const PlanningPage: React.FC = () => {
                       <p className="text-xs text-slate-500 mt-0.5">לחץ לניתוח — המערכת מסמנת קירות ומציעה קטגוריות.</p>
                     </div>
                     <button type="button" onClick={() => void handleAutoAnalyze()} disabled={autoLoading}
-                      style={{ padding: "9px 16px", borderRadius: 10, background: autoLoading ? "#475569" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: autoLoading ? "not-allowed" : "pointer", boxShadow: autoLoading ? "none" : "0 2px 10px rgba(27,58,107,0.28)", transition: "all 0.15s", display: "flex", alignItems: "center", gap: 6 }}>
+                      style={{ padding: "9px 16px", borderRadius: 10, background: autoLoading ? "#475569" : "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: autoLoading ? "not-allowed" : "pointer", boxShadow: autoLoading ? "none" : "0 2px 10px rgba(27,58,107,0.28)", transition: "all 0.15s", display: "flex", alignItems: "center", gap: 6 }}>
                       {autoLoading ? <><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", animation: "spin 0.7s linear infinite" }} />מנתח...</> : "🤖 נתח"}
                     </button>
                   </div>
@@ -1825,7 +1825,7 @@ export const PlanningPage: React.FC = () => {
 
                         <div className="flex gap-2 flex-wrap">
                           <button type="button" disabled={loading} onClick={() => void handleConfirmAutoSegments(false)}
-                            style={{ padding: "9px 16px", borderRadius: 10, background: loading ? "#94a3b8" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: loading ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
+                            style={{ padding: "9px 16px", borderRadius: 10, background: loading ? "#94a3b8" : "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: loading ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
                             {loading ? "שומר..." : "✓ אשר הכל"}
                           </button>
                           <button type="button" disabled={loading || autoSelected.size === 0} onClick={() => void handleConfirmAutoSegments(true)}
@@ -1881,7 +1881,7 @@ export const PlanningPage: React.FC = () => {
 
                     return (
                       <div style={{ marginTop: 16, borderTop: "2px solid #E2E8F0", paddingTop: 14 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: "#1B3A6B", marginBottom: 10 }}>🔍 נתוני Vision</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: "var(--navy)", marginBottom: 10 }}>🔍 נתוני Vision</div>
                         {(vd.plan_title || vd.project_name || vd.scale) && (
                           <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 12px", marginBottom: 10, fontSize: 12 }}>
                             {vd.plan_title && <div><span style={{ color: "#94A3B8" }}>כותרת: </span>{vd.plan_title}</div>}
@@ -2000,7 +2000,7 @@ export const PlanningPage: React.FC = () => {
                     </label>
                     {zoneStart && zoneEnd && (
                       <button type="button" onClick={() => void handleAddZone()} disabled={loading || !zoneCatKey}
-                        style={{ width: "100%", padding: "9px 0", borderRadius: 9, background: (loading || !zoneCatKey) ? "#94a3b8" : "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: (loading || !zoneCatKey) ? "not-allowed" : "pointer" }}>
+                        style={{ width: "100%", padding: "9px 0", borderRadius: 9, background: (loading || !zoneCatKey) ? "#94a3b8" : "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: (loading || !zoneCatKey) ? "not-allowed" : "pointer" }}>
                         {loading ? "מחשב..." : "הוסף אזור"}
                       </button>
                     )}
@@ -2054,7 +2054,7 @@ export const PlanningPage: React.FC = () => {
                           setError(`שגיאה בייבוא: ${detail}`);
                         } finally { setLoading(false); }
                       }}
-                      style={{ padding: "7px 12px", borderRadius: 9, background: "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: loading ? 0.5 : 1 }}>
+                      style={{ padding: "7px 12px", borderRadius: 9, background: "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: loading ? 0.5 : 1 }}>
                       📥 ייבא מתוכנית
                     </button>
                   </div>
@@ -2093,7 +2093,7 @@ export const PlanningPage: React.FC = () => {
                   </div>
                   <div className="flex gap-2">
                     <button type="button" onClick={handleAddTextRow} className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs hover:bg-slate-50">+ שורה</button>
-                    <button type="button" onClick={() => void handleSaveTextRows()} disabled={loading} className="px-4 py-1.5 rounded-lg bg-[#1B3A6B] text-white text-xs font-semibold disabled:opacity-40">{loading ? "שומר..." : "💾 שמור"}</button>
+                    <button type="button" onClick={() => void handleSaveTextRows()} disabled={loading} className="px-4 py-1.5 rounded-lg bg-[var(--navy)] text-white text-xs font-semibold disabled:opacity-40">{loading ? "שומר..." : "💾 שמור"}</button>
                   </div>
                   {planningState.items.filter(it => it.type === "text").length > 0 && (
                     <div className="mt-2 border-t border-slate-100 pt-2">
@@ -2124,7 +2124,7 @@ export const PlanningPage: React.FC = () => {
                     <label>תת-סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newSubtype} onChange={e => setNewSubtype(e.target.value)}>{subtypeOptions.map(s => <option key={s}>{s}</option>)}</select></label>
                     <label>פרמטר<input type="number" className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamValue} onChange={e => setNewParamValue(Number(e.target.value))} /></label>
                     <label>הערה<input className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamNote} onChange={e => setNewParamNote(e.target.value)} /></label>
-                    <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} className="w-full px-2 py-1.5 rounded bg-[#1B3A6B] text-white text-xs font-semibold">הוסף ושמור</button>
+                    <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} className="w-full px-2 py-1.5 rounded bg-[var(--navy)] text-white text-xs font-semibold">הוסף ושמור</button>
                   </div>
                 </details>
 
@@ -2178,7 +2178,7 @@ export const PlanningPage: React.FC = () => {
                 ← שלב 2
               </button>
               <button type="button" onClick={() => setStep(4)} disabled={planningState.items.length === 0}
-                style={{ flex: 1, padding: "9px 0", borderRadius: 10, background: planningState.items.length === 0 ? "#CBD5E1" : "var(--blue)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: planningState.items.length === 0 ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
+                style={{ flex: 1, height: 48, borderRadius: 10, background: planningState.items.length === 0 ? "#CBD5E1" : "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: planningState.items.length === 0 ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
                 שלב 4 ←
               </button>
             </div>
@@ -2250,11 +2250,11 @@ export const PlanningPage: React.FC = () => {
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <button type="button" onClick={() => void handleFinalize()} disabled={loading}
-                style={{ padding: "11px 24px", borderRadius: 10, background: loading ? "#94a3b8" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 3px 12px rgba(255,75,75,0.3)", transition: "all 0.15s" }}>
+                style={{ height: 48, padding: "0 24px", borderRadius: 10, background: loading ? "#94a3b8" : "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", transition: "all 0.15s" }}>
                 {loading ? "שומר..." : "💾 שמירה סופית"}
               </button>
               <button type="button" onClick={() => setStep(5)}
-                style={{ padding: "11px 20px", borderRadius: 10, background: "#1B3A6B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 8px rgba(27,58,107,0.22)" }}>
+                style={{ height: 48, padding: "0 20px", borderRadius: 10, background: "var(--navy)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                 גזרות עבודה ▶
               </button>
               <button type="button" onClick={() => setStep(3)}
@@ -2403,7 +2403,7 @@ export const PlanningPage: React.FC = () => {
                 type="button"
                 onClick={() => void handleAddSection()}
                 disabled={loading || (!secContractor.trim() && !secWorker.trim())}
-                className="w-full px-3 py-2 rounded-lg bg-[#1B3A6B] text-white text-xs font-semibold disabled:opacity-40 hover:bg-[#162d56]"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--navy)] text-white text-xs font-semibold disabled:opacity-40 hover:bg-[#162d56]"
               >
                 {loading ? "שומר..." : "+ הוסף גזרה"}
               </button>
@@ -2442,7 +2442,7 @@ export const PlanningPage: React.FC = () => {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <button type="button" onClick={() => void handleFinalize()} disabled={loading}
-                style={{ padding: "11px 20px", borderRadius: 10, background: loading ? "#94a3b8" : "#FF4B4B", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 3px 12px rgba(255,75,75,0.3)", transition: "all 0.15s" }}>
+                style={{ padding: "11px 20px", borderRadius: 10, background: loading ? "#94a3b8" : "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 3px 12px rgba(255,75,75,0.3)", transition: "all 0.15s" }}>
                 {loading ? "שומר..." : "💾 שמירה סופית"}
               </button>
               <button type="button" onClick={() => setStep(4)}

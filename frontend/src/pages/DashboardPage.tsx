@@ -1,5 +1,6 @@
 import React from "react";
 import { ErrorAlert, SkeletonGrid } from "../components/UiHelpers";
+import ProgressBar from "../components/ProgressBar";
 import { listDatabasePlans, listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
 import {
   getDashboard,
@@ -47,7 +48,7 @@ function printBoqReport(
       <td>${row.remaining_qty.toFixed(2)} ${escapeHtml(row.unit)}</td>
       <td>
         <div style="background:#eee;border-radius:4px;overflow:hidden;height:10px;width:100px;display:inline-block">
-          <div style="background:#FF4B4B;height:100%;width:${Math.min(100, row.progress_percent).toFixed(0)}%"></div>
+          <div style="background:var(--orange);height:100%;width:${Math.min(100, row.progress_percent).toFixed(0)}%"></div>
         </div>
         ${row.progress_percent.toFixed(1)}%
       </td>
@@ -66,20 +67,20 @@ function printBoqReport(
   <meta charset="UTF-8"><title>דוח פרויקט - ${safePlanName}</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 24px 32px; direction: rtl; color: #222; }
-    h1 { color: #FF4B4B; margin-bottom: 4px; }
-    h2 { color: #444; border-bottom: 2px solid #FF4B4B; padding-bottom: 4px; margin-top: 24px; }
+    h1 { color: var(--orange); margin-bottom: 4px; }
+    h2 { color: #444; border-bottom: 2px solid var(--orange); padding-bottom: 4px; margin-top: 24px; }
     .meta { color: #666; font-size: 12px; margin-bottom: 16px; }
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
     .kpi { border: 1px solid #ddd; border-radius: 8px; padding: 12px; text-align: center; }
     .kpi-label { font-size: 11px; color: #888; }
-    .kpi-value { font-size: 20px; font-weight: bold; color: #FF4B4B; }
+    .kpi-value { font-size: 20px; font-weight: bold; color: var(--orange); }
     .plan-image { max-width: 100%; border: 1px solid #ddd; border-radius: 4px; margin: 12px 0; }
     table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
     th, td { border: 1px solid #ddd; padding: 7px 12px; text-align: right; }
     th { background: #f5f5f5; font-weight: 600; }
     tr:nth-child(even) td { background: #fafafa; }
     .progress-bar { height: 12px; background: #f0f0f0; border-radius: 6px; overflow: hidden; display: inline-block; width: 80px; vertical-align: middle; }
-    .progress-fill { height: 100%; background: #FF4B4B; }
+    .progress-fill { height: 100%; background: var(--orange); }
     @media print { body { padding: 12px; } }
   </style></head><body>
   <h1>📊 דוח פרויקט: ${safePlanName}</h1>
@@ -177,7 +178,7 @@ const ReportCard: React.FC<{
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-bold text-[#FF4B4B]">
+          <span className="font-bold text-[var(--orange)]">
             {report.report_type === "walls"
               ? `${report.total_length_m.toFixed(2)} מ'`
               : `${report.total_area_m2.toFixed(2)} מ"ר`}
@@ -208,7 +209,7 @@ const ReportCard: React.FC<{
           <a
             href={snapUrl}
             download={`report_${planId}_${report.date}.png`}
-            className="inline-flex items-center gap-1 text-xs text-[#FF4B4B] hover:underline"
+            className="inline-flex items-center gap-1 text-xs text-[var(--orange)] hover:underline"
           >
             ⬇️ הורד תמונה
           </a>
@@ -322,7 +323,19 @@ export const DashboardPage: React.FC = () => {
             key={t.id}
             type="button"
             onClick={() => setActiveView(t.id)}
-            className={`px-5 py-3 text-sm border-b-[3px] -mb-px ${activeView === t.id ? "border-blue-600 text-blue-600 font-semibold" : "border-transparent text-slate-600"}`}
+            style={{
+            padding: "0 20px",
+            height: 44,
+            fontSize: 13,
+            fontWeight: activeView === t.id ? 700 : 500,
+            border: "none",
+            borderBottom: activeView === t.id ? "3px solid var(--orange)" : "3px solid transparent",
+            marginBottom: -1,
+            cursor: "pointer",
+            background: "none",
+            color: activeView === t.id ? "var(--navy)" : "var(--s500)",
+            transition: "color .15s",
+          }}
           >
             {t.label}
           </button>
@@ -340,18 +353,18 @@ export const DashboardPage: React.FC = () => {
           {/* KPI grid */}
           <section style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
             {([
-              { label: "⚡ התקדמות כללית", value: `${pct.toFixed(1)}%`, sub: `${dashboard.average_daily_m.toFixed(2)} מ'/יום`, topColor: "var(--blue)", extraContent: (
-                <div style={{ height: 5, background: "var(--s200)", borderRadius: 3, overflow: "hidden", marginBottom: 8 }}>
-                  <div style={{ width: `${Math.min(100, pct)}%`, height: "100%", background: "var(--blue)", borderRadius: 3 }} />
+              { label: "התקדמות כללית", value: `${pct.toFixed(1)}%`, sub: `${dashboard.average_daily_m.toFixed(2)} מ'/יום`, topColor: "var(--orange)", extraContent: (
+                <div style={{ height: 6, background: "var(--s200)", borderRadius: 3, overflow: "hidden", marginBottom: 8 }}>
+                  <div style={{ width: `${Math.min(100, pct)}%`, height: "100%", background: "var(--orange)", borderRadius: 3 }} />
                 </div>
               ) },
-              { label: "✓ בוצע בפועל", value: `${dashboard.built_m.toFixed(1)} מ'`, sub: `מתוך ${dashboard.total_planned_m.toFixed(1)} מ' מתוכנן`, topColor: "var(--green)", extraContent: null },
-              { label: "⏳ נותר לביצוע", value: `${dashboard.remaining_m.toFixed(1)} מ'`, sub: dashboard.days_to_finish != null ? `~${dashboard.days_to_finish.toFixed(0)} ימים` : "", topColor: "var(--amber)", extraContent: null },
-              { label: "💰 עלות מצטברת", value: `${dashboard.current_cost_ils.toLocaleString()} ₪`, sub: `שטח: ${dashboard.planned_floor_m2.toFixed(0)} מ"ר`, topColor: "#6366F1", extraContent: null },
+              { label: "בוצע בפועל", value: `${dashboard.built_m.toFixed(1)} מ'`, sub: `מתוך ${dashboard.total_planned_m.toFixed(1)} מ' מתוכנן`, topColor: "var(--green)", extraContent: null },
+              { label: "נותר לביצוע", value: `${dashboard.remaining_m.toFixed(1)} מ'`, sub: dashboard.days_to_finish != null ? `~${dashboard.days_to_finish.toFixed(0)} ימים` : "", topColor: "var(--amber)", extraContent: null },
+              { label: "עלות מצטברת", value: `${dashboard.current_cost_ils.toLocaleString()} ₪`, sub: `שטח: ${dashboard.planned_floor_m2.toFixed(0)} מ"ר`, topColor: "var(--navy)", extraContent: null },
             ] as { label: string; value: string; sub: string; topColor: string; extraContent: React.ReactNode }[]).map((c) => (
-              <div key={c.label} style={{ background: "#fff", borderTop: `3px solid ${c.topColor}`, borderRadius: "var(--r)", padding: "18px 20px", boxShadow: "var(--sh1)" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--s400)", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>{c.label}</div>
-                <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: -1.5, lineHeight: 1, marginBottom: 8, color: "var(--s900)" }}>{c.value}</div>
+              <div key={c.label} style={{ background: "#fff", borderTop: `3px solid ${c.topColor}`, borderRadius: "var(--r)", padding: "14px 18px", boxShadow: "var(--sh1)" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--s400)", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 8 }}>{c.label}</div>
+                <div style={{ fontSize: "1.6rem", fontWeight: 800, letterSpacing: "-1px", lineHeight: 1, marginBottom: 8, color: "var(--s900)" }}>{c.value}</div>
                 {c.extraContent}
                 {c.sub && <div style={{ fontSize: 12, color: "var(--s400)" }}>{c.sub}</div>}
               </div>
@@ -387,11 +400,10 @@ export const DashboardPage: React.FC = () => {
                   <tbody>
                     {dashboard.boq_progress.map((row) => {
                       const pctRow = Math.min(100, row.progress_percent);
-                      const barColor = pctRow >= 100 ? "var(--green)" : pctRow >= 50 ? "var(--blue)" : pctRow > 0 ? "var(--amber)" : "var(--s300)";
                       const badge = pctRow >= 100
-                        ? { label: "✓ הושלם", bg: "var(--green-50)", color: "var(--green)" }
+                        ? { label: "הושלם", bg: "var(--green-light)", color: "var(--green)" }
                         : pctRow > 0
-                        ? { label: "בעבודה", bg: "var(--blue-100)", color: "var(--blue)" }
+                        ? { label: "בעבודה", bg: "var(--amber-light)", color: "var(--amber)" }
                         : { label: "ממתין", bg: "var(--s100)", color: "var(--s500)" };
                       return (
                         <tr
@@ -402,11 +414,8 @@ export const DashboardPage: React.FC = () => {
                         >
                           <td style={{ padding: "10px 16px", fontWeight: 600, color: "var(--s900)" }}>{row.label}</td>
                           <td style={{ padding: "10px 16px", color: "var(--s500)" }}>{row.planned_qty.toFixed(1)} {row.unit}</td>
-                          <td style={{ padding: "10px 16px" }}>
-                            <span style={{ fontWeight: 700, color: barColor, marginLeft: 6 }}>{pctRow.toFixed(0)}%</span>
-                            <span style={{ width: 80, height: 5, background: "var(--s200)", borderRadius: 3, overflow: "hidden", display: "inline-block", verticalAlign: "middle" }}>
-                              <span style={{ display: "block", height: "100%", width: `${pctRow}%`, background: barColor, borderRadius: 3 }} />
-                            </span>
+                          <td style={{ padding: "10px 16px", minWidth: 120 }}>
+                            <ProgressBar percent={pctRow} height={8} showLabel />
                           </td>
                           <td style={{ padding: "10px 16px" }}>
                             <span style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: badge.bg, color: badge.color }}>
@@ -514,7 +523,7 @@ export const DashboardPage: React.FC = () => {
                 <thead>
                   <tr>
                     {["קטגוריה", "יחידה", "מתוכנן", "בוצע", "נותר", "התקדמות"].map((h) => (
-                      <th key={h} style={{ textAlign: "right", padding: "9px 16px", fontSize: 11, fontWeight: 700, color: "var(--s500)", background: "var(--s50)", borderBottom: "2px solid var(--s200)" }}>{h}</th>
+                      <th key={h} style={{ textAlign: "right", padding: "9px 16px", fontSize: 10, fontWeight: 700, color: "var(--s400)", background: "#f8fafc", borderBottom: "1px solid var(--s200)", textTransform: "uppercase", letterSpacing: ".5px" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -527,18 +536,13 @@ export const DashboardPage: React.FC = () => {
                         onMouseEnter={(e) => (e.currentTarget.style.background = "var(--s50)")}
                         onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                       >
-                        <td style={{ padding: "10px 16px", fontWeight: 600, color: "var(--s900)" }}>{row.label}</td>
-                        <td style={{ padding: "10px 16px", color: "var(--s500)" }}>{row.unit}</td>
-                        <td style={{ padding: "10px 16px", color: "var(--s700)" }}>{row.planned_qty.toFixed(2)}</td>
-                        <td style={{ padding: "10px 16px", color: "var(--green)", fontWeight: 600 }}>{row.built_qty.toFixed(2)}</td>
-                        <td style={{ padding: "10px 16px", color: "var(--s500)" }}>{row.remaining_qty.toFixed(2)}</td>
-                        <td style={{ padding: "10px 16px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{ width: 80, height: 5, background: "var(--s200)", borderRadius: 3, overflow: "hidden", flexShrink: 0, display: "inline-block" }}>
-                              <div style={{ height: "100%", width: `${pctRow}%`, background: barColor, borderRadius: 3, transition: "width 0.3s" }} />
-                            </div>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: barColor }}>{row.progress_percent.toFixed(0)}%</span>
-                          </div>
+                        <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--s900)" }}>{row.label}</td>
+                        <td style={{ padding: "12px 16px", color: "var(--s500)" }}>{row.unit}</td>
+                        <td style={{ padding: "12px 16px", color: "var(--s700)" }}>{row.planned_qty.toFixed(2)}</td>
+                        <td style={{ padding: "12px 16px", color: "var(--green)", fontWeight: 600 }}>{row.built_qty.toFixed(2)}</td>
+                        <td style={{ padding: "12px 16px", color: "var(--s500)" }}>{row.remaining_qty.toFixed(2)}</td>
+                        <td style={{ padding: "12px 16px", minWidth: 120 }}>
+                          <ProgressBar percent={pctRow} height={8} showLabel />
                         </td>
                       </tr>
                     );
@@ -558,7 +562,7 @@ export const DashboardPage: React.FC = () => {
             <section className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold">🗺️ תוכנית כוללת + כל הסימונים</h3>
-                <a href={snapshotUrl} download={`project_${selectedPlanId}.png`} className="text-xs text-[#FF4B4B] hover:underline">
+                <a href={snapshotUrl} download={`project_${selectedPlanId}.png`} className="text-xs text-[var(--orange)] hover:underline">
                   ⬇️ הורד תמונה
                 </a>
               </div>

@@ -24,7 +24,7 @@ type TabId =
 
 interface NavItem {
   id: TabId;
-  icon: string;
+  icon: React.ReactNode;
   label: string;
   description: string;
 }
@@ -34,29 +34,40 @@ interface NavGroup {
   items: NavItem[];
 }
 
+// ─── SVG Icons ───────────────────────────────────────────────────────────────
+const IcoWorkshop = (s=18) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>;
+const IcoPlanning = (s=18) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>;
+const IcoLayers = (s=18) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>;
+const IcoCorrections = (s=18) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>;
+const IcoAreaAnalysis = (s=18) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 20h20"/><path d="M4 20V10l8-8 8 8v10"/><path d="M9 20v-5h6v5"/></svg>;
+const IcoDashboard = (s=18) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>;
+const IcoDrawingData = (s=18) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>;
+const IcoInvoices = (s=18) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>;
+const IcoWorker = (s=18) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "מנהל פרויקט",
     items: [
-      { id: "workshop",     icon: "📂", label: "סדנת עבודה",      description: "העלאה וניתוח תוכניות" },
-      { id: "planning",     icon: "🧱", label: "הגדרת תכולה",     description: "סימון קירות ופתחים" },
-      { id: "layers",       icon: "🎨", label: "שכבות מנהל",      description: "כמויות לפי חדרים" },
-      { id: "corrections",  icon: "✏️",  label: "תיקונים ידניים",  description: "הוספה/הסרת קירות" },
-      { id: "areaAnalysis", icon: "📐", label: "ניתוח שטחים",     description: "חדרים ומדידות" },
+      { id: "workshop",     icon: IcoWorkshop(),     label: "סדנת עבודה",      description: "העלאה וניתוח תוכניות" },
+      { id: "planning",     icon: IcoPlanning(),     label: "הגדרת תכולה",     description: "סימון קירות ופתחים" },
+      { id: "layers",       icon: IcoLayers(),       label: "שכבות מנהל",      description: "כמויות לפי חדרים" },
+      { id: "corrections",  icon: IcoCorrections(),  label: "תיקונים ידניים",  description: "הוספה/הסרת קירות" },
+      { id: "areaAnalysis", icon: IcoAreaAnalysis(), label: "ניתוח שטחים",     description: "חדרים ומדידות" },
     ],
   },
   {
     label: "נתונים ודוחות",
     items: [
-      { id: "dashboard",   icon: "📊", label: "דשבורד",       description: "סקירה ודוחות BOQ" },
-      { id: "drawingData", icon: "📄", label: "נתוני שרטוט",  description: "יצוא CSV/JSON" },
-      { id: "invoices",    icon: "💰", label: "חשבוניות",     description: "חישוב תשלומים" },
+      { id: "dashboard",   icon: IcoDashboard(),   label: "דשבורד",       description: "סקירה ודוחות BOQ" },
+      { id: "drawingData", icon: IcoDrawingData(), label: "נתוני שרטוט",  description: "יצוא CSV/JSON" },
+      { id: "invoices",    icon: IcoInvoices(),    label: "חשבוניות",     description: "חישוב תשלומים" },
     ],
   },
   {
     label: "צד שטח",
     items: [
-      { id: "worker", icon: "👷", label: "ממשק עובד", description: "סימון ודיווח בשטח" },
+      { id: "worker", icon: IcoWorker(), label: "ממשק עובד", description: "סימון ודיווח בשטח" },
     ],
   },
 ];
@@ -64,11 +75,11 @@ const NAV_GROUPS: NavGroup[] = [
 const ALL_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 // Bottom nav shown on mobile — most important 4 tabs + "more"
-const BOTTOM_NAV: Array<{ id: TabId; icon: string; label: string }> = [
-  { id: "workshop",  icon: "📂", label: "סדנה" },
-  { id: "planning",  icon: "🧱", label: "תכולה" },
-  { id: "worker",    icon: "👷", label: "עובד" },
-  { id: "dashboard", icon: "📊", label: "דשבורד" },
+const BOTTOM_NAV: Array<{ id: TabId; icon: React.ReactNode; label: string }> = [
+  { id: "workshop",  icon: IcoWorkshop(22),  label: "סדנה" },
+  { id: "planning",  icon: IcoPlanning(22),  label: "תכולה" },
+  { id: "worker",    icon: IcoWorker(22),    label: "עובד" },
+  { id: "dashboard", icon: IcoDashboard(22), label: "דשבורד" },
 ];
 
 // ─── Sidebar content (shared between desktop + mobile overlay) ───────────────
@@ -131,12 +142,12 @@ const SidebarNav: React.FC<{
                     transform: "translateY(-50%)",
                     width: 3,
                     height: 22,
-                    background: "#10B981",
+                    background: "var(--orange)",
                     borderRadius: "2px 0 0 2px",
                   }}
                 />
               )}
-              <span style={{ fontSize: 17, flexShrink: 0 }}>{item.icon}</span>
+              <span style={{ flexShrink: 0, display: "flex", alignItems: "center", color: active ? "#fff" : "rgba(255,255,255,0.7)" }}>{item.icon}</span>
               <div style={{ textAlign: "right", overflow: "hidden" }}>
                 <div
                   style={{
@@ -196,7 +207,7 @@ export const App: React.FC = () => {
         style={{
           width: 220,
           minWidth: 220,
-          background: "#1B3A6B",
+          background: "var(--navy)",
           display: "flex",
           flexDirection: "column",
           position: "sticky",
@@ -270,8 +281,8 @@ export const App: React.FC = () => {
           >
             ☰
           </button>
-          <span style={{ fontSize: 20, lineHeight: 1 }}>{activeItem.icon}</span>
-          <span style={{ fontWeight: 700, fontSize: 14, color: "#1B3A6B", flex: 1 }}>
+          <span style={{ lineHeight: 1, display: "flex", alignItems: "center", color: "var(--navy)" }}>{activeItem.icon}</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: "var(--navy)", flex: 1 }}>
             {activeItem.label}
           </span>
         </header>
@@ -294,9 +305,9 @@ export const App: React.FC = () => {
             flexShrink: 0,
           }}
         >
-          <span style={{ fontSize: 22 }}>{activeItem.icon}</span>
+          <span style={{ display: "flex", alignItems: "center", color: "var(--navy)" }}>{activeItem.icon}</span>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: "#1B3A6B", lineHeight: 1.2 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: "var(--navy)", lineHeight: 1.2 }}>
               {activeItem.label}
             </div>
             <div style={{ fontSize: 11, color: "#9CA3AF", lineHeight: 1.2 }}>
@@ -359,7 +370,7 @@ export const App: React.FC = () => {
                   border: "none",
                   background: "none",
                   cursor: "pointer",
-                  color: active ? "#FF4B4B" : "#6B7280",
+                  color: active ? "var(--orange)" : "#6B7280",
                   padding: "6px 4px",
                 }}
               >
@@ -374,7 +385,7 @@ export const App: React.FC = () => {
                       top: 0,
                       width: 32,
                       height: 3,
-                      background: "#FF4B4B",
+                      background: "var(--orange)",
                       borderRadius: "0 0 3px 3px",
                     }}
                   />
@@ -416,7 +427,7 @@ export const App: React.FC = () => {
           <div
             style={{
               width: 260,
-              background: "#1B3A6B",
+              background: "var(--navy)",
               height: "100%",
               display: "flex",
               flexDirection: "column",

@@ -556,17 +556,31 @@ export const WorkerPage: React.FC = () => {
         )}
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginRight: "auto" }}>
-          <label style={{ fontSize: 12, color: "var(--s500)", display: "flex", alignItems: "center", gap: 4 }}>
-            סוג:
-            <select
-              style={{ padding: "6px 8px", border: "1px solid var(--s300)", borderRadius: "var(--r-sm)", fontSize: 12, background: "#fff" }}
-              value={reportType}
-              onChange={(e) => setReportType(e.target.value as "walls" | "floor")}
-            >
-              <option value="walls">קירות</option>
-              <option value="floor">ריצוף/חיפוי</option>
-            </select>
-          </label>
+          {/* Work type selector buttons */}
+          <div style={{ display: "flex", gap: 6 }}>
+            {([
+              { val: "walls" as const, label: "קירות", icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="9" y2="21"/><line x1="15" y1="9" x2="15" y2="21"/></svg> },
+              { val: "floor" as const, label: "ריצוף", icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="2" y="2" width="9" height="9" rx="1"/><rect x="13" y="2" width="9" height="9" rx="1"/><rect x="2" y="13" width="9" height="9" rx="1"/><rect x="13" y="13" width="9" height="9" rx="1"/></svg> },
+            ]).map((t) => (
+              <button
+                key={t.val}
+                type="button"
+                onClick={() => setReportType(t.val)}
+                style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: 4, minHeight: 72, padding: "8px 18px",
+                  border: `2px solid ${reportType === t.val ? "var(--orange)" : "var(--border-dark, #cbd5e1)"}`,
+                  borderRadius: 10,
+                  background: reportType === t.val ? "#fff7ed" : "#fff",
+                  color: reportType === t.val ? "var(--orange)" : "var(--s500)",
+                  cursor: "pointer", fontSize: 11, fontWeight: 600, transition: "all .15s",
+                }}
+              >
+                {t.icon}
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
           {reports.length > 0 && (
             <button
               type="button"
@@ -615,21 +629,22 @@ export const WorkerPage: React.FC = () => {
         {/* Canvas area */}
         <div style={{ background: "#1A2744", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {/* Draw toolbar */}
-          <div style={{ display: "flex", gap: 6, padding: "8px 14px", background: "rgba(0,0,0,0.3)", flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 6, padding: "8px 14px", background: "rgba(0,0,0,0.3)", flexShrink: 0, alignItems: "center", overflowX: "auto", height: 48 }}>
             {([
-              { val: "line", icon: "📏", label: "קו" },
-              { val: "rect", icon: "⬛", label: "מלבן" },
-              { val: "path", icon: "✏️", label: "חופשי" },
-            ] as { val: DrawMode; icon: string; label: string }[]).map((m) => (
+              { val: "line" as DrawMode, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>, label: "קו" },
+              { val: "rect" as DrawMode, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>, label: "מלבן" },
+              { val: "path" as DrawMode, icon: <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 17c3-3 6-3 9 0s6 3 9 0"/></svg>, label: "חופשי" },
+            ]).map((m) => (
               <button
                 key={m.val}
                 type="button"
                 onClick={() => setDrawMode(m.val)}
                 style={{
-                  padding: "5px 12px", border: "none", borderRadius: 20,
-                  background: drawMode === m.val ? "rgba(255,255,255,0.2)" : "transparent",
-                  color: drawMode === m.val ? "#fff" : "rgba(255,255,255,0.55)",
-                  fontSize: 12, fontWeight: drawMode === m.val ? 700 : 400, cursor: "pointer",
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  height: 34, padding: "0 12px", border: "none", borderRadius: 8,
+                  background: drawMode === m.val ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.12)",
+                  color: drawMode === m.val ? "var(--navy)" : "rgba(255,255,255,0.75)",
+                  fontSize: 12, fontWeight: drawMode === m.val ? 700 : 400, cursor: "pointer", transition: "all .15s",
                 }}
               >
                 {m.icon} {m.label}
@@ -660,9 +675,9 @@ export const WorkerPage: React.FC = () => {
                 onClick={() => setActiveTab(t.id)}
                 style={{
                   flex: 1, padding: "12px 6px", border: "none",
-                  borderBottom: activeTab === t.id ? `2px solid var(--blue)` : "2px solid transparent",
+                  borderBottom: activeTab === t.id ? `2px solid var(--orange)` : "2px solid transparent",
                   background: "none",
-                  color: activeTab === t.id ? "var(--blue)" : "var(--s500)",
+                  color: activeTab === t.id ? "var(--navy)" : "var(--s500)",
                   fontWeight: activeTab === t.id ? 700 : 400,
                   fontSize: 12, cursor: "pointer", textAlign: "center",
                   display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
@@ -706,10 +721,10 @@ export const WorkerPage: React.FC = () => {
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <div style={{ fontSize: 11, color: "var(--s500)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.7px" }}>פריטים ({items.length})</div>
                     {items.map((item, idx) => (
-                      <div key={item.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--s50)", border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "7px 10px" }}>
-                        <span style={{ fontSize: 12, color: "var(--s700)" }}>#{idx + 1} {item.type}</span>
+                      <div key={item.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--s100)" }}>
+                        <span style={{ fontSize: 12, color: "var(--s500)" }}>#{idx + 1} {item.type}</span>
                         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                          <span style={{ fontWeight: 700, fontSize: 12, color: "var(--blue)" }}>{item.measurement.toFixed(2)} {item.unit}</span>
+                          <span style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--navy)" }}>{item.measurement.toFixed(2)} <span style={{ fontSize: 11, fontWeight: 500 }}>{item.unit}</span></span>
                           <button
                             type="button"
                             title="הסר"
@@ -753,9 +768,9 @@ export const WorkerPage: React.FC = () => {
                     type="button"
                     onClick={() => void saveReport()}
                     disabled={items.length === 0 || saving}
-                    style={{ flex: 2, padding: "9px", background: items.length === 0 ? "var(--s400)" : "var(--blue)", color: "#fff", borderRadius: "var(--r-sm)", fontSize: 12, fontWeight: 700, border: "none", cursor: items.length === 0 ? "not-allowed" : "pointer" }}
+                    style={{ flex: 2, height: 56, background: items.length === 0 ? "var(--s300)" : "var(--orange)", color: "#fff", borderRadius: 10, fontSize: "1.05rem", fontWeight: 700, border: "none", cursor: items.length === 0 ? "not-allowed" : "pointer", width: "100%" }}
                   >
-                    {saving ? "שומר..." : "💾 שמור דיווח"}
+                    {saving ? "שומר..." : "שלח דיווח"}
                   </button>
                 </div>
               </div>
@@ -780,14 +795,24 @@ export const WorkerPage: React.FC = () => {
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {reports.slice().reverse().map((r) => (
-                      <div key={r.id} style={{ background: "var(--s50)", border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "9px 12px", fontSize: 12 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                      <div key={r.id} style={{ border: "1px solid var(--s200)", borderRadius: "var(--r-sm)", padding: "12px", fontSize: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                           <span style={{ fontWeight: 700, color: "var(--s900)" }}>{r.date}</span>
-                          <span style={{ fontWeight: 800, color: r.report_type === "walls" ? "var(--blue)" : "var(--amber)" }}>
+                          <span style={{
+                            display: "inline-flex", alignItems: "center", gap: 4,
+                            padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+                            background: r.report_type === "walls" ? "var(--blue-100, #dbeafe)" : "var(--amber-light, #fef3c7)",
+                            color: r.report_type === "walls" ? "#1d4ed8" : "var(--amber)",
+                          }}>
+                            {r.report_type === "walls" ? "קירות" : "ריצוף"}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ color: "var(--s500)" }}>{r.shift}{r.note ? ` · ${r.note}` : ""}</span>
+                          <span style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--navy)" }}>
                             {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
                           </span>
                         </div>
-                        <div style={{ color: "var(--s500)" }}>{r.shift} · {r.report_type === "walls" ? "קירות" : "ריצוף"}{r.note ? ` · ${r.note}` : ""}</div>
                       </div>
                     ))}
                   </div>

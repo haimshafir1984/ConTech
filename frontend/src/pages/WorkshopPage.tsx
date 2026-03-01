@@ -209,12 +209,12 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading, compact }) =
   return (
     <div
       style={{
-        border: `2px dashed ${drag ? "var(--blue)" : "var(--s300)"}`,
-        borderRadius: "var(--r)",
-        padding: "44px 32px",
+        border: `2px dashed ${drag ? "var(--navy)" : "var(--border-dark, #cbd5e1)"}`,
+        borderRadius: 14,
+        padding: "36px 32px",
         textAlign: "center",
         cursor: "pointer",
-        background: drag ? "var(--blue-50)" : "#fff",
+        background: drag ? "#e0eaf5" : "#fff",
         transition: "border-color 0.15s, background 0.15s",
         marginBottom: 24,
       }}
@@ -223,8 +223,14 @@ const UploadZone: React.FC<UploadZoneProps> = ({ onFile, isLoading, compact }) =
       onDragLeave={() => setDrag(false)}
       onDrop={handleDrop}
     >
-      <div style={{ fontSize: 38, marginBottom: 10 }}>📄</div>
-      <p style={{ fontWeight: 700, fontSize: 15, color: drag ? "var(--blue)" : "var(--s900)", margin: 0 }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, color: drag ? "var(--navy)" : "var(--s400)" }}>
+        <svg width={40} height={40} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <p style={{ fontWeight: 700, fontSize: 15, color: drag ? "var(--navy)" : "var(--s900)", margin: 0 }}>
         {isLoading ? "מעלה ומנתח..." : "גרור קובץ PDF לכאן להעלאה"}
       </p>
       <p style={{ fontSize: 13, color: "var(--s400)", marginTop: 6 }}>או לחץ לבחירת קובץ מהמחשב</p>
@@ -591,7 +597,7 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
       {uploadProgress !== null && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <div style={{ height: 6, background: "#E2E8F0", borderRadius: 99, overflow: "hidden" }}>
-            <div style={{ height: "100%", background: "#1B3A6B", borderRadius: 99, width: `${uploadProgress}%`, transition: "width 0.5s" }} />
+            <div style={{ height: "100%", background: "var(--navy)", borderRadius: 99, width: `${uploadProgress}%`, transition: "width 0.5s" }} />
           </div>
           <div style={{ fontSize: 12, color: "#64748b" }}>{analysisStatus}</div>
         </div>
@@ -616,9 +622,10 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
                 : analyzed
                   ? "linear-gradient(140deg, #ECFDF5, #D1FAE5)"
                   : "linear-gradient(140deg, #FFFBEB, #FEF3C7)";
-              const badgeColor = active ? "var(--blue)" : analyzed ? "var(--green)" : "var(--amber)";
-              const badgeLabel = active ? "✓ פעיל" : analyzed ? "✓ נותח" : "⏳ ממתין";
-              const ctaLabel = analyzed ? "פתח לעריכה ←" : "🔍 התחל ניתוח";
+              const badgeColor = active ? "var(--navy)" : analyzed ? "var(--green)" : "var(--amber)";
+              const badgeBg = active ? "#e0eaf5" : analyzed ? "var(--green-light, #dcfce7)" : "var(--amber-light, #fef3c7)";
+              const badgeLabel = active ? "פעיל" : analyzed ? "נותח" : "ממתין";
+              const ctaLabel = analyzed ? "פתח לעריכה ←" : "התחל ניתוח";
               const ctaPrimary = analyzed;
               return (
                 <div
@@ -630,7 +637,7 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
                   style={{
                     textAlign: "right",
                     background: "#fff",
-                    border: active ? "2px solid var(--blue)" : "1px solid var(--s200)",
+                    border: active ? "2px solid var(--navy)" : "1px solid var(--s200)",
                     borderRadius: "var(--r)",
                     overflow: "hidden",
                     cursor: "pointer",
@@ -649,7 +656,7 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
                       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                     />
                     <span style={{ fontSize: 44, opacity: 0.18 }}>🏛️</span>
-                    <span style={{ position: "absolute", top: 10, right: 10, background: badgeColor, color: "#fff", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 12 }}>{badgeLabel}</span>
+                    <span style={{ position: "absolute", top: 10, right: 10, background: badgeBg, color: badgeColor, fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>{badgeLabel}</span>
                   </div>
                   {/* Info */}
                   <div style={{ padding: "12px 14px" }}>
@@ -669,7 +676,7 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
                         width: "100%", padding: "7px 12px",
                         borderRadius: "var(--r-sm)", fontSize: 12, fontWeight: 700,
                         cursor: "pointer",
-                        background: ctaPrimary ? "var(--blue)" : "transparent",
+                        background: ctaPrimary ? "var(--orange)" : "transparent",
                         color: ctaPrimary ? "#fff" : "var(--s700)",
                         border: ctaPrimary ? "none" : "1px solid var(--s300)",
                       }}
@@ -692,7 +699,7 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
           background: "#FAFBFC", textAlign: "center",
         }}>
           <div style={{ fontSize: 48 }}>🏗️</div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: "#1B3A6B" }}>אין תוכניות בניה</div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: "var(--navy)" }}>אין תוכניות בניה</div>
           <div style={{ fontSize: 13, color: "#94A3B8", maxWidth: 300 }}>
             העלה קובץ PDF של תוכנית בניה כדי להתחיל — המערכת תנתח קירות, ריצוף וחדרים אוטומטית.
           </div>
@@ -701,7 +708,7 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
             onClick={() => document.getElementById("workshop-upload-input")?.click()}
             style={{
               marginTop: 4, padding: "10px 28px",
-              background: "#1B3A6B", color: "#fff",
+              background: "var(--navy)", color: "#fff",
               border: "none", borderRadius: 10,
               fontSize: 14, fontWeight: 700, cursor: "pointer",
             }}
@@ -740,7 +747,7 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
               type="button"
               onClick={() => void savePlanSettings()}
               disabled={isLoading}
-              style={{ padding: "7px 16px", border: "1.5px solid #1B3A6B", color: "#1B3A6B", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#fff", cursor: "pointer", opacity: isLoading ? 0.5 : 1 }}
+              style={{ padding: "7px 16px", border: "1.5px solid var(--navy)", color: "var(--navy)", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#fff", cursor: "pointer", opacity: isLoading ? 0.5 : 1 }}
             >
               שמור
             </button>
@@ -748,7 +755,7 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
               type="button"
               onClick={() => void runAnalysisNow()}
               disabled={isLoading}
-              style={{ padding: "7px 16px", background: "#1B3A6B", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer", opacity: isLoading ? 0.5 : 1 }}
+              style={{ padding: "7px 16px", background: "var(--navy)", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer", opacity: isLoading ? 0.5 : 1 }}
             >
               🔍 ניתוח
             </button>
@@ -768,15 +775,15 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
 
           {/* KPI row */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
-            {[
-              { label: "קנ\"מ", value: `${selectedScale.toFixed(0)} px/מ'` },
-              { label: "קירות", value: `${selectedSummary?.total_wall_length_m?.toFixed(2) ?? "—"} מ'` },
-              { label: "ריצוף", value: `${selectedSummary?.flooring_area_m2?.toFixed(2) ?? "—"} מ"ר` },
-              { label: "עלות משוערת", value: `${totalQuote.toLocaleString()} ₪` },
-            ].map((c) => (
-              <div key={c.label} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 12, padding: "12px 14px" }}>
-                <div style={{ fontSize: 11, color: "#94A3B8" }}>{c.label}</div>
-                <div style={{ fontWeight: 700, fontSize: 15, color: "#1B3A6B", marginTop: 2 }}>{c.value}</div>
+            {([
+              { label: "קנ\"מ", value: `${selectedScale.toFixed(0)} px/מ'`, accent: "var(--navy)" },
+              { label: "קירות", value: `${selectedSummary?.total_wall_length_m?.toFixed(2) ?? "—"} מ'`, accent: "var(--orange)" },
+              { label: "ריצוף", value: `${selectedSummary?.flooring_area_m2?.toFixed(2) ?? "—"} מ"ר`, accent: "var(--green)" },
+              { label: "עלות משוערת", value: `${totalQuote.toLocaleString()} ₪`, accent: "var(--amber)" },
+            ] as { label: string; value: string; accent: string }[]).map((c) => (
+              <div key={c.label} style={{ background: "#fff", border: "1px solid #E2E8F0", borderTop: `3px solid ${c.accent}`, borderRadius: 12, padding: "14px 14px", boxShadow: "var(--sh1)" }}>
+                <div style={{ fontSize: 10, color: "var(--s400)", textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 6 }}>{c.label}</div>
+                <div style={{ fontWeight: 800, fontSize: "1.4rem", color: "var(--s900)", lineHeight: 1 }}>{c.value}</div>
               </div>
             ))}
           </div>
@@ -805,9 +812,10 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
                   style={{
                     padding: "12px 20px",
                     border: "none",
-                    borderBottom: activeTab === t.id ? "3px solid #1B3A6B" : "3px solid transparent",
+                    height: 44,
+                    borderBottom: activeTab === t.id ? "3px solid var(--orange)" : "3px solid transparent",
                     background: activeTab === t.id ? "#fff" : "transparent",
-                    color: activeTab === t.id ? "#1B3A6B" : "#64748b",
+                    color: activeTab === t.id ? "var(--navy)" : "#64748b",
                     fontWeight: activeTab === t.id ? 700 : 400,
                     fontSize: 13,
                     cursor: "pointer",
@@ -822,13 +830,13 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
               {activeTab === "overview" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 13 }}>
                   <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 14 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 8, color: "#1B3A6B" }}>פרטי תוכנית</div>
+                    <div style={{ fontWeight: 700, marginBottom: 8, color: "var(--navy)" }}>פרטי תוכנית</div>
                     <div>שם: {planDisplayName || "ללא שם"}</div>
                     <div>קנ"מ: {scaleText}</div>
                     <div>מחושב: {selectedScale.toFixed(2)} px/מ'</div>
                   </div>
                   <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 14 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 8, color: "#1B3A6B" }}>תוצרים</div>
+                    <div style={{ fontWeight: 700, marginBottom: 8, color: "var(--navy)" }}>תוצרים</div>
                     <div>קירות: {selectedSummary?.total_wall_length_m?.toFixed(2) ?? "—"} מ'</div>
                     <div>בטון: {selectedSummary?.concrete_length_m?.toFixed(2) ?? "—"} מ'</div>
                     <div>בלוקים: {selectedSummary?.blocks_length_m?.toFixed(2) ?? "—"} מ'</div>
@@ -864,7 +872,7 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
                         {roomRows.map((row) => (
                           <tr key={row.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
                             <td style={{ padding: "6px 8px", color: "#94A3B8" }}>{row.id}</td>
-                            <td style={{ padding: "6px 8px", fontWeight: 600, color: "#1B3A6B" }}>{row.name}</td>
+                            <td style={{ padding: "6px 8px", fontWeight: 600, color: "var(--navy)" }}>{row.name}</td>
                             <td style={{ padding: "6px 8px" }}>{row.area != null ? row.area.toFixed(1) : "—"}</td>
                             {row.isLlm && <>
                               <td style={{ padding: "6px 8px", color: "#64748b" }}>{row.ceiling != null ? row.ceiling.toFixed(2) : "—"}</td>
@@ -894,11 +902,11 @@ export const WorkshopPage: React.FC<{ onNavigatePlanning?: () => void }> = ({ on
                           <input type="number" value={price} onChange={(e) => set(Number(e.target.value))}
                             style={{ width: 72, padding: "3px 6px", border: "1px solid #CBD5E1", borderRadius: 6, fontSize: 12 }} />
                         </label>
-                        <div style={{ fontWeight: 700, color: "#1B3A6B", marginTop: 6 }}>{(length * price).toLocaleString()} ₪</div>
+                        <div style={{ fontWeight: 700, color: "var(--navy)", marginTop: 6 }}>{(length * price).toLocaleString()} ₪</div>
                       </div>
                     ))}
                   </div>
-                  <div style={{ borderTop: "1px solid #E2E8F0", paddingTop: 12, fontWeight: 700, fontSize: 15, color: "#1B3A6B" }}>
+                  <div style={{ borderTop: "1px solid #E2E8F0", paddingTop: 12, fontWeight: 700, fontSize: 15, color: "var(--navy)" }}>
                     סה"כ משוער: {totalQuote.toLocaleString()} ₪
                   </div>
                 </div>

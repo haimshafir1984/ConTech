@@ -39,7 +39,7 @@ function printProgressReport(reports: WorkerReport[], planName: string) {
       th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: right; }
       th { background: #f5f5f5; } .totals { margin-top: 16px; font-weight: bold; }
     </style></head><body>
-    <h1>📊 דוח התקדמות עובד</h1>
+    <h1>דוח התקדמות עובד</h1>
     <p>פרויקט: <b>${planName}</b> | הופק: ${new Date().toLocaleDateString("he-IL")}</p>
     <table><thead><tr><th>תאריך</th><th>משמרת</th><th>סוג</th><th>כמות</th><th>הערה</th></tr></thead>
     <tbody>${rows}</tbody></table>
@@ -512,10 +512,10 @@ export const WorkerPage: React.FC = () => {
   const totalReportWalls = reports.filter(r => r.report_type === "walls").reduce((s, r) => s + r.total_length_m, 0);
   const totalReportFloor = reports.filter(r => r.report_type === "floor").reduce((s, r) => s + r.total_area_m2, 0);
 
-  const TAB_ITEMS: { id: WorkerTab; icon: string; label: string }[] = [
-    { id: "map", icon: "🗺️", label: "מפה" },
-    { id: "notes", icon: "📝", label: "הערות" },
-    { id: "history", icon: "📋", label: "היסטוריה" },
+  const TAB_ITEMS: { id: WorkerTab; icon: React.ReactNode; label: string }[] = [
+    { id: "map",     icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>, label: "מפה" },
+    { id: "notes",   icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, label: "הערות" },
+    { id: "history", icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>, label: "היסטוריה" },
   ];
 
   const panelTabItems = TAB_ITEMS.filter((t) => t.id !== "map");
@@ -580,7 +580,8 @@ export const WorkerPage: React.FC = () => {
               onClick={() => printProgressReport(reports, selectedPlan?.plan_name ?? "פרויקט")}
               style={{ padding: "7px 14px", border: "1px solid var(--s300)", color: "var(--s700)", borderRadius: "var(--r-sm)", fontSize: 12, fontWeight: 600, background: "#fff", cursor: "pointer" }}
             >
-              🖨️ הדפס
+              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              הדפס
             </button>
           )}
         </div>
@@ -604,7 +605,7 @@ export const WorkerPage: React.FC = () => {
           <>
             <div style={{ width: 1, height: 32, background: "var(--s200)" }} />
             <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--amber-50)", border: "1px solid #FCD34D", borderRadius: 8, padding: "5px 12px" }}>
-              <span style={{ fontSize: 12 }}>⚡</span>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--amber)", display: "inline-block", flexShrink: 0 }} />
               <span style={{ fontWeight: 700, fontSize: 12, color: "#92400E" }}>סשן פעיל · {items.length} פריטים</span>
               {totalLength > 0 && <span style={{ fontSize: 12, color: "#78350F" }}>{totalLength.toFixed(2)} מ'</span>}
               {totalArea > 0 && <span style={{ fontSize: 12, color: "#78350F" }}>{totalArea.toFixed(2)} מ"ר</span>}
@@ -749,7 +750,7 @@ export const WorkerPage: React.FC = () => {
                     }}
                     style={{ flex: 1, padding: "9px", border: "1px solid var(--s300)", borderRadius: "var(--r-sm)", fontSize: 12, background: "#fff", cursor: "pointer", fontWeight: 600, color: "var(--s700)" }}
                   >
-                    🗑️ נקה
+                    נקה
                   </button>
                   <button
                     type="button"

@@ -83,7 +83,7 @@ function printBoqReport(
     .progress-fill { height: 100%; background: var(--orange); }
     @media print { body { padding: 12px; } }
   </style></head><body>
-  <h1>📊 דוח פרויקט: ${safePlanName}</h1>
+  <h1>דוח פרויקט: ${safePlanName}</h1>
   <div class="meta">הופק: ${new Date().toLocaleDateString("he-IL")} | סה"כ דיווחים: ${summary?.total_reports ?? 0}</div>
 
   <div class="kpi-grid">
@@ -93,16 +93,16 @@ function printBoqReport(
     <div class="kpi"><div class="kpi-label">עלות מצטברת</div><div class="kpi-value">${dashboard.current_cost_ils.toLocaleString()} ₪</div></div>
   </div>
 
-  <h2>🗺️ תוכנית + סימוני עובד</h2>
+  <h2>תוכנית + סימוני עובד</h2>
   <img src="${snapshotUrl}" class="plan-image" alt="תוכנית עם סימוני עובד" />
 
-  <h2>📋 כתב כמויות</h2>
+  <h2>כתב כמויות</h2>
   <table>
     <thead><tr><th>קטגוריה</th><th>מתוכנן</th><th>בוצע</th><th>נותר</th><th>אחוז ביצוע</th></tr></thead>
     <tbody>${boqRows || '<tr><td colspan="5">אין נתונים</td></tr>'}</tbody>
   </table>
 
-  <h2>👷 פירוט דיווחי עובד</h2>
+  <h2>פירוט דיווחי עובד</h2>
   <table>
     <thead><tr><th>תאריך</th><th>משמרת</th><th>סוג עבודה</th><th>כמות</th><th>הערה</th></tr></thead>
     <tbody>${reportRows || '<tr><td colspan="5">אין דיווחים</td></tr>'}</tbody>
@@ -211,7 +211,7 @@ const ReportCard: React.FC<{
             download={`report_${planId}_${report.date}.png`}
             className="inline-flex items-center gap-1 text-xs text-[var(--orange)] hover:underline"
           >
-            ⬇️ הורד תמונה
+            הורד תמונה
           </a>
         </div>
       )}
@@ -277,7 +277,7 @@ export const DashboardPage: React.FC = () => {
       {/* Header */}
       <div className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-[#31333F]">📊 דשבורד פרויקט</h2>
+          <h2 className="text-lg font-semibold text-[#31333F]">דשבורד פרויקט</h2>
           <p className="text-xs text-slate-500 mt-1">מעקב ביצוע, כתב כמויות ודוחות.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -296,14 +296,15 @@ export const DashboardPage: React.FC = () => {
                 onClick={() => exportBoqCsv(dashboard, selectedPlan?.plan_name ?? "פרויקט")}
                 style={{ background: "var(--s50)", border: "1px solid var(--s300)", color: "var(--s700)", padding: "7px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
               >
-                📥 ייצוא CSV
+                ייצוא CSV
               </button>
               <button
                 type="button"
                 onClick={() => printBoqReport(dashboard, summary, selectedPlan?.plan_name ?? "פרויקט", snapshotUrl)}
                 style={{ background: "var(--blue)", border: "none", color: "#fff", padding: "7px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
               >
-                🖨️ הדפס / PDF
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:"inline",verticalAlign:"middle",marginLeft:4}}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                הדפס / PDF
               </button>
             </>
           )}
@@ -419,12 +420,12 @@ export const DashboardPage: React.FC = () => {
               {/* Category progress */}
               <div style={{ background: "#fff", borderRadius: "var(--r)", boxShadow: "var(--sh1)", overflow: "hidden" }}>
                 <div style={{ padding: "13px 20px", borderBottom: "1px solid var(--s100)" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>📊 לפי קטגוריה</span>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>לפי קטגוריה</span>
                 </div>
                 <div style={{ padding: "14px 20px" }}>
                   {[
-                    { name: "🧱 קירות", pct: dashboard.planned_walls_m > 0 ? Math.min(100, (dashboard.built_walls_m / dashboard.planned_walls_m) * 100) : 0, color: "var(--blue)" },
-                    { name: "🪵 ריצוף", pct: dashboard.planned_floor_m2 > 0 ? Math.min(100, (dashboard.built_floor_m2 / dashboard.planned_floor_m2) * 100) : 0, color: "var(--green)" },
+                    { name: "קירות", pct: dashboard.planned_walls_m > 0 ? Math.min(100, (dashboard.built_walls_m / dashboard.planned_walls_m) * 100) : 0, color: "var(--blue)" },
+                    { name: "ריצוף", pct: dashboard.planned_floor_m2 > 0 ? Math.min(100, (dashboard.built_floor_m2 / dashboard.planned_floor_m2) * 100) : 0, color: "var(--green)" },
                   ].map((cat) => (
                     <div key={cat.name} style={{ marginBottom: 15 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 12 }}>
@@ -447,7 +448,7 @@ export const DashboardPage: React.FC = () => {
               {/* Activity feed */}
               <div style={{ background: "#fff", borderRadius: "var(--r)", boxShadow: "var(--sh1)", overflow: "hidden", flex: 1 }}>
                 <div style={{ padding: "13px 20px", borderBottom: "1px solid var(--s100)" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>🕐 עדכונים אחרונים</span>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>עדכונים אחרונים</span>
                 </div>
                 <div style={{ padding: "12px 20px", fontSize: 12 }}>
                   {dashboard.recent_reports.length === 0 ? (
@@ -481,7 +482,7 @@ export const DashboardPage: React.FC = () => {
       {/* ── BOQ VIEW ── */}
       {dashboard && activeView === "boq" && (
         <section className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm">
-          <h3 className="text-sm font-semibold mb-3">📋 כתב כמויות – מתוכנן מול ביצוע</h3>
+          <h3 className="text-sm font-semibold mb-3">כתב כמויות – מתוכנן מול ביצוע</h3>
 
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -544,9 +545,9 @@ export const DashboardPage: React.FC = () => {
           {selectedPlanId && (
             <section className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold">🗺️ תוכנית כוללת + כל הסימונים</h3>
+                <h3 className="text-sm font-semibold">תוכנית כוללת + כל הסימונים</h3>
                 <a href={snapshotUrl} download={`project_${selectedPlanId}.png`} className="text-xs text-[var(--orange)] hover:underline">
-                  ⬇️ הורד תמונה
+                  הורד תמונה
                 </a>
               </div>
               <img
@@ -561,7 +562,7 @@ export const DashboardPage: React.FC = () => {
           {/* Summary */}
           {summary && (
             <section className="bg-white border border-[#E6E6EA] rounded-lg p-4 shadow-sm">
-              <h3 className="text-sm font-semibold mb-3">📊 סיכום ביצוע</h3>
+              <h3 className="text-sm font-semibold mb-3">סיכום ביצוע</h3>
               <div className="grid grid-cols-3 gap-3 text-sm">
                 <div className="bg-slate-50 rounded p-3 text-center">
                   <div className="text-xs text-slate-500">דיווחים</div>

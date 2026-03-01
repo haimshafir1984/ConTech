@@ -115,6 +115,19 @@ class WorkSectionCreateRequest(BaseModel):
     height: float = 0.0
 
 
+# ── Auto-analyze response ──────────────────────────────────────────────────
+class AutoAnalyzeSegment(BaseModel):
+    segment_id: str
+    label: str            # "קיר צפוני", "כיור", …
+    suggested_type: str   # "קירות" / "אביזר" / "לא ידוע"
+    suggested_subtype: str
+    confidence: float     # 0.0 – 1.0
+    length_m: float
+    area_m2: float
+    bbox: list[float]     # [x, y, w, h] natural coords
+    element_class: str = "wall"  # "wall" | "fixture"
+
+
 class PlanningState(BaseModel):
     plan_id: str
     plan_name: str
@@ -166,19 +179,6 @@ class PlanningZoneRequest(BaseModel):
     y: float
     width: float
     height: float
-
-
-# ── Auto-analyze response ──────────────────────────────────────────────────
-class AutoAnalyzeSegment(BaseModel):
-    segment_id: str
-    label: str            # "קיר צפוני", "כיור", …
-    suggested_type: str   # "קירות" / "אביזר" / "לא ידוע"
-    suggested_subtype: str
-    confidence: float     # 0.0 – 1.0
-    length_m: float
-    area_m2: float
-    bbox: list[float]     # [x, y, w, h] natural coords
-    element_class: str = "wall"  # "wall" | "fixture"
 
 
 class AutoAnalyzeVisionData(BaseModel):

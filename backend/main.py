@@ -1583,6 +1583,12 @@ def _build_planning_state(plan_id: str, proj: Dict) -> PlanningState:
     raw_sections = planning.get("sections", [])
     sections = [WorkSection(**s) if isinstance(s, dict) else s for s in raw_sections]
 
+    raw_auto_segments = planning.get("auto_segments", [])
+    auto_segments_out = [
+        AutoAnalyzeSegment(**s) if isinstance(s, dict) else s
+        for s in raw_auto_segments
+    ]
+
     return PlanningState(
         plan_id=plan_id,
         plan_name=meta.get("plan_name") or plan_id,
@@ -1594,6 +1600,7 @@ def _build_planning_state(plan_id: str, proj: Dict) -> PlanningState:
         boq=planning.get("boq", {}),
         totals=planning.get("totals", {"total_length_m": 0.0, "total_area_m2": 0.0}),
         sections=sections,
+        auto_segments=auto_segments_out,
     )
 
 
@@ -2959,8 +2966,14 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         print(f"[auto-analyze] plan={plan_id} skel_labels={total_skel_labels} "
               f"walls={len(walls_out)} fixtures={len(fixtures_out)} img_area={img_area}")
 
+        # ── שמור תוצאות ניתוח לדאטהבייס (persist ל-planning.auto_segments) ──
+        all_segments = walls_out + fixtures_out
+        _init_planning_if_missing(proj)
+        proj["planning"]["auto_segments"] = [s.model_dump() for s in all_segments]
+        _persist_plan_to_database(plan_id, proj)
+
         return AutoAnalyzeResponse(
-            segments=walls_out + fixtures_out,
+            segments=all_segments,
             vision_data=vision_data,
         )
 

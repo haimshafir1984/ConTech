@@ -746,6 +746,15 @@ export const PlanningPage: React.FC = () => {
     const state = await getPlanningState(planId);
     setPlanningState(state);
     setCategoriesDraft(state.categories);
+    // שחזר תוצאות ניתוח אוטומטי שנשמרו בדאטהבייס
+    if (state.auto_segments && state.auto_segments.length > 0) {
+      setAutoSegments(state.auto_segments);
+      setAutoSelected(new Set(
+        state.auto_segments
+          .filter(s => s.suggested_subtype !== "פרט קטן")
+          .map(s => s.segment_id)
+      ));
+    }
   }, []);
 
   React.useEffect(() => {

@@ -126,6 +126,7 @@ class PlanningState(BaseModel):
     boq: Dict[str, Any]
     totals: Dict[str, float]
     sections: list[WorkSection] = []
+    auto_segments: list[AutoAnalyzeSegment] = []
 
 
 class PlanningCalibrateRequest(BaseModel):

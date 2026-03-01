@@ -94,6 +94,7 @@ export interface PlanningState {
     total_area_m2: number;
   };
   sections: WorkSection[];
+  auto_segments?: AutoSegment[];
 }
 
 export async function getPlanningState(planId: string): Promise<PlanningState> {

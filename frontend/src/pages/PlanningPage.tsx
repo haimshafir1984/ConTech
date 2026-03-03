@@ -41,9 +41,14 @@ interface PendingShape {
 }
 
 const CATEGORY_SUBTYPES: Record<string, string[]> = {
-  "קירות": ["בטון", "בלוקים", "גבס", "מחיצה קלה"],
-  "ריצוף": ["קרמיקה", "גרניט פורצלן", "פרקט", "בטון מוחלק"],
-  "תקרה": ["גבס", "אקוסטית", "חשופה", "צבועה"]
+  "קירות":          ["בטון", "בלוקים", "גבס", "מחיצה קלה"],
+  "ריצוף":          ["קרמיקה", "גרניט פורצלן", "פרקט", "בטון מוחלק"],
+  "תקרה":           ["גבס", "אקוסטית", "חשופה", "צבועה"],
+  "דלתות וחלונות": ["דלת פנים", "דלת כניסה", "חלון אלומיניום", "חלון עץ", "ויטרינה"],
+  "אינסטלציה":      ["מים קרים", "מים חמים", "ביוב", "גז"],
+  "חשמל":           ["תאורה", "שקעים", "לוח חשמל", "גנרטור"],
+  "טיח וצבע":       ["טיח פנים", "טיח חוץ", "צבע פנים", "צבע חוץ"],
+  "עמודים":         ["עמוד בטון", "עמוד מתכת", "קורה"],
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -58,7 +63,27 @@ const CATEGORY_COLORS: Record<string, string> = {
   "תקרה:גבס": "#14b8a6",
   "תקרה:אקוסטית": "#0d9488",
   "תקרה:חשופה": "#059669",
-  "תקרה:צבועה": "#10b981"
+  "תקרה:צבועה": "#10b981",
+  "דלתות וחלונות:דלת פנים": "#84cc16",
+  "דלתות וחלונות:דלת כניסה": "#65a30d",
+  "דלתות וחלונות:חלון אלומיניום": "#4ade80",
+  "דלתות וחלונות:חלון עץ": "#22c55e",
+  "דלתות וחלונות:ויטרינה": "#16a34a",
+  "אינסטלציה:מים קרים": "#38bdf8",
+  "אינסטלציה:מים חמים": "#fb923c",
+  "אינסטלציה:ביוב": "#a78bfa",
+  "אינסטלציה:גז": "#fde047",
+  "חשמל:תאורה": "#facc15",
+  "חשמל:שקעים": "#eab308",
+  "חשמל:לוח חשמל": "#ca8a04",
+  "חשמל:גנרטור": "#a16207",
+  "טיח וצבע:טיח פנים": "#f9a8d4",
+  "טיח וצבע:טיח חוץ": "#f472b6",
+  "טיח וצבע:צבע פנים": "#e879f9",
+  "טיח וצבע:צבע חוץ": "#d946ef",
+  "עמודים:עמוד בטון": "#94a3b8",
+  "עמודים:עמוד מתכת": "#64748b",
+  "עמודים:קורה": "#475569",
 };
 
 const DEFAULT_CATEGORY_COLOR = "#334155";
@@ -220,9 +245,7 @@ const CategoryPickerModal: React.FC<CategoryPickerProps> = ({
                 value={newType}
                 onChange={(e) => setNewType(e.target.value)}
               >
-                <option>קירות</option>
-                <option>ריצוף</option>
-                <option>תקרה</option>
+                {Object.keys(CATEGORY_SUBTYPES).map(t => <option key={t}>{t}</option>)}
               </select>
             </label>
             <label style={{ fontSize: 13 }}>
@@ -657,6 +680,8 @@ export const PlanningPage: React.FC = () => {
   const [autoSelected, setAutoSelected] = React.useState<Set<string>>(new Set());
   const [autoConfirmedKeys, setAutoConfirmedKeys] = React.useState<Record<string, string>>({}); // segId→catKey
   const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set(["walls"]));
+  const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [bulkCatKeys, setBulkCatKeys] = React.useState<Record<string, string>>({}); // "type/subtype"→catKey
 
   // ── Zone state ──
   const [zoneDrawing, setZoneDrawing] = React.useState(false);
@@ -1657,6 +1682,84 @@ export const PlanningPage: React.FC = () => {
                           <button type="button" onClick={() => setAutoSelected(new Set())} className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בטל הכל</button>
                           <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.filter(s => s.element_class !== "fixture" && s.confidence >= 0.8).map(s => s.segment_id)))} className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">ביטחון {">"}80%</button>
                         </div>
+
+                        {/* ── Bulk-assign panel ── */}
+                        {(() => {
+                          const groups = autoSegments.reduce<Record<string, { type: string; subtype: string; count: number }>>((acc, seg) => {
+                            const k = `${seg.suggested_type}/${seg.suggested_subtype}`;
+                            if (!acc[k]) acc[k] = { type: seg.suggested_type, subtype: seg.suggested_subtype, count: 0 };
+                            acc[k].count++;
+                            return acc;
+                          }, {});
+                          const groupList = Object.values(groups);
+                          return (
+                            <div style={{ marginTop: 2, marginBottom: 2 }}>
+                              <div
+                                onClick={() => setBulkOpen(p => !p)}
+                                style={{
+                                  display: "flex", alignItems: "center", gap: 7, cursor: "pointer",
+                                  padding: "6px 10px", borderRadius: "var(--r-sm)",
+                                  background: bulkOpen ? "var(--blue-50)" : "var(--s100)",
+                                  border: `1px solid ${bulkOpen ? "#93C5FD" : "var(--s200)"}`,
+                                  userSelect: "none",
+                                }}
+                              >
+                                <span style={{ fontSize: 13 }}>⚡</span>
+                                <span style={{ fontSize: 11, fontWeight: 700, flex: 1, color: "var(--navy)" }}>שיוך מהיר לפי סוג</span>
+                                <span style={{ fontSize: 10, background: "var(--s200)", color: "var(--s700)", borderRadius: 10, padding: "1px 7px", fontWeight: 600 }}>{groupList.length}</span>
+                                <span style={{ fontSize: 11, color: "var(--s400)", marginRight: 2 }}>{bulkOpen ? "▲" : "▼"}</span>
+                              </div>
+                              {bulkOpen && (
+                                <div style={{ marginTop: 5, display: "flex", flexDirection: "column", gap: 4 }}>
+                                  {groupList.map(({ type, subtype, count }) => {
+                                    const gKey = `${type}/${subtype}`;
+                                    const existingCatKey = (() => {
+                                      const tally: Record<string, number> = {};
+                                      autoSegments
+                                        .filter(s => s.suggested_type === type && s.suggested_subtype === subtype)
+                                        .forEach(s => { const ck = autoConfirmedKeys[s.segment_id]; if (ck) tally[ck] = (tally[ck] || 0) + 1; });
+                                      return Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+                                    })();
+                                    const selectedKey = bulkCatKeys[gKey] ?? existingCatKey;
+                                    return (
+                                      <div key={gKey} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: "var(--r-sm)", background: "var(--s50)", border: "1px solid var(--s200)" }}>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--s700)" }}>{type}/{subtype}</span>
+                                          <span style={{ fontSize: 10, color: "var(--s400)", marginRight: 4 }}>— {count} פריטים</span>
+                                        </div>
+                                        <select
+                                          value={selectedKey}
+                                          onChange={e => setBulkCatKeys(p => ({ ...p, [gKey]: e.target.value }))}
+                                          style={{ fontSize: 11, border: "1px solid var(--s300)", borderRadius: 5, padding: "3px 6px", background: "#fff", color: "var(--s700)", flexShrink: 0, maxWidth: 110 }}
+                                        >
+                                          <option value="">-- --</option>
+                                          {Object.values(planningState.categories).map(c => (
+                                            <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
+                                          ))}
+                                        </select>
+                                        <button
+                                          type="button"
+                                          disabled={!selectedKey}
+                                          onClick={() => {
+                                            if (!selectedKey) return;
+                                            const ids = autoSegments
+                                              .filter(s => s.suggested_type === type && s.suggested_subtype === subtype)
+                                              .map(s => s.segment_id);
+                                            setAutoConfirmedKeys(prev => { const next = { ...prev }; ids.forEach(id => { next[id] = selectedKey; }); return next; });
+                                            setAutoSelected(prev => { const next = new Set(prev); ids.forEach(id => next.add(id)); return next; });
+                                          }}
+                                          style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: "var(--r-sm)", border: "none", cursor: selectedKey ? "pointer" : "not-allowed", background: selectedKey ? "var(--navy)" : "var(--s300)", color: selectedKey ? "#fff" : "var(--s500)", flexShrink: 0, opacity: selectedKey ? 1 : 0.6 }}
+                                        >
+                                          שייך
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {wallSegs.length > 0 && (
                           <div>

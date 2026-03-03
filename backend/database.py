@@ -19,3 +19,7 @@ update_plan_metadata = _mod.update_plan_metadata
 save_plan_images = _mod.save_plan_images
 load_plan_images = _mod.load_plan_images
 reset_all_data = _mod.reset_all_data
+db_save_vision_analysis = _mod.db_save_vision_analysis
+db_get_vision_analysis = _mod.db_get_vision_analysis
+db_save_auto_segments = _mod.db_save_auto_segments
+db_get_auto_segments = _mod.db_get_auto_segments

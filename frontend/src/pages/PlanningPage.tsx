@@ -682,6 +682,9 @@ export const PlanningPage: React.FC = () => {
   const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set(["walls"]));
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [bulkCatKeys, setBulkCatKeys] = React.useState<Record<string, string>>({}); // "type/subtype"→catKey
+  const [lastAddedUid, setLastAddedUid] = React.useState<string | null>(null);
+  const [focusedUid, setFocusedUid] = React.useState<string | null>(null);
+  const canvasContainerRef = React.useRef<HTMLDivElement | null>(null);
 
   // ── Zone state ──
   const [zoneDrawing, setZoneDrawing] = React.useState(false);
@@ -885,6 +888,7 @@ export const PlanningPage: React.FC = () => {
       }
       // Always save whatever succeeded
       setPlanningState(lastState);
+      setLastAddedUid(lastState.items.at(-1)?.uid ?? null);
       const saved = pendingShapes.length - failures.length;
       if (failures.length === 0) {
         setPendingShapes([]);
@@ -928,7 +932,7 @@ export const PlanningPage: React.FC = () => {
   const handleCanvasMouseMove: React.MouseEventHandler<SVGSVGElement> = (e) => {
     if (!drawing || step !== 3) return;
     const p = toLocalPoint(drawingSurfaceRef as unknown as React.RefObject<HTMLElement | null>, e.clientX, e.clientY);
-    setTempPoint(p);
+    setTempPoint(drawMode === "line" ? snapLinePoint(p, startPoint) : p);
     if (drawMode === "path") {
       // Throttle path point collection to ~15fps to avoid 60fps re-render thrashing
       const now = Date.now();
@@ -942,15 +946,16 @@ export const PlanningPage: React.FC = () => {
   const handleCanvasMouseUp: React.MouseEventHandler<SVGSVGElement> = () => {
     if (!drawing || !startPoint || !tempPoint) { setDrawing(false); return; }
     setDrawing(false);
+    const finalPoint = drawMode === "line" ? snapLinePoint(tempPoint, startPoint) : tempPoint;
     if (drawMode !== "path") {
-      const dx = tempPoint.x - startPoint.x, dy = tempPoint.y - startPoint.y;
+      const dx = finalPoint.x - startPoint.x, dy = finalPoint.y - startPoint.y;
       if (Math.sqrt(dx * dx + dy * dy) < 6) return;
     }
     let raw_object: Record<string, unknown>;
     if (drawMode === "line") {
-      raw_object = { x1: startPoint.x, y1: startPoint.y, x2: tempPoint.x, y2: tempPoint.y };
+      raw_object = { x1: startPoint.x, y1: startPoint.y, x2: finalPoint.x, y2: finalPoint.y };
     } else if (drawMode === "rect") {
-      raw_object = { x: Math.min(startPoint.x, tempPoint.x), y: Math.min(startPoint.y, tempPoint.y), width: Math.abs(tempPoint.x - startPoint.x), height: Math.abs(tempPoint.y - startPoint.y) };
+      raw_object = { x: Math.min(startPoint.x, finalPoint.x), y: Math.min(startPoint.y, finalPoint.y), width: Math.abs(finalPoint.x - startPoint.x), height: Math.abs(finalPoint.y - startPoint.y) };
     } else {
       raw_object = { points: pathPoints.map((p) => [p.x, p.y]) };
     }
@@ -1160,6 +1165,7 @@ export const PlanningPage: React.FC = () => {
         lastState = data;
       }
       setPlanningState(lastState);
+      setLastAddedUid(lastState.items.at(-1)?.uid ?? null);
       setAutoSegments(null);
       setAutoVisionData(null);
       setVisionActiveCard(null);
@@ -1259,7 +1265,84 @@ export const PlanningPage: React.FC = () => {
     return { doorCount, windowCount, deductedLengthM };
   }, [planningState]);
 
+  // ── Focus / zoom to an item on canvas ──
+  const focusOnItem = React.useCallback((uid: string) => {
+    setFocusedUid(uid);
+    if (!planningState || !canvasContainerRef.current) return;
+    const item = planningState.items.find(i => i.uid === uid);
+    if (!item) return;
+    const obj = item.raw_object;
+    let cx = 0, cy = 0;
+    if (item.type === "line") {
+      cx = ((Number(obj.x1) + Number(obj.x2)) / 2) * displayScale;
+      cy = ((Number(obj.y1) + Number(obj.y2)) / 2) * displayScale;
+    } else if (item.type === "rect" || item.type === "zone") {
+      cx = (Number(obj.x) + Number(obj.width) / 2) * displayScale;
+      cy = (Number(obj.y) + Number(obj.height) / 2) * displayScale;
+    }
+    const container = canvasContainerRef.current;
+    const scrollLeft = cx - container.clientWidth / 2;
+    const scrollTop = cy - container.clientHeight / 2;
+    container.scrollTo({ left: Math.max(0, scrollLeft), top: Math.max(0, scrollTop), behavior: "smooth" });
+    setZoomPercent(z => Math.max(z, 160));
+    // Clear focus highlight after 2s
+    setTimeout(() => setFocusedUid(f => f === uid ? null : f), 2000);
+  }, [planningState, displayScale]);
+
+  // ── Real-time BOQ preview (per category totals) ──
+  const liveBoq = React.useMemo(() => {
+    if (!planningState) return [];
+    const map = new Map<string, { cat: PlanningCategory; lengthM: number; areaM2: number; count: number }>();
+    for (const item of planningState.items) {
+      const cat = planningState.categories[item.category];
+      if (!cat) continue;
+      const key = item.category;
+      const entry = map.get(key) ?? { cat, lengthM: 0, areaM2: 0, count: 0 };
+      entry.lengthM += Number(item.length_m_effective ?? item.length_m ?? 0);
+      entry.areaM2 += Number(item.area_m2 ?? 0);
+      entry.count += 1;
+      map.set(key, entry);
+    }
+    return Array.from(map.values()).sort((a, b) => a.cat.type.localeCompare(b.cat.type));
+  }, [planningState]);
+
   const activeColor = "#10B981";
+
+  // ── Line Snap constants ──
+  const SNAP_ANGLE_DEG = 8;   // degrees — snap to nearest 45° if within this tolerance
+  const SNAP_ENDPOINT_PX = 14; // pixels — snap to existing endpoint if within this distance
+
+  // Snap a candidate end-point toward 45°/90° angles or existing endpoints
+  const snapLinePoint = React.useCallback((p: Point, anchor: Point | null): Point => {
+    if (!anchor) return p;
+    // Endpoint snap: attract to existing line endpoints (canvas coords)
+    if (planningState) {
+      for (const item of planningState.items) {
+        if (item.type === "line") {
+          const obj = item.raw_object;
+          const candidates: Point[] = [
+            { x: Number(obj.x1) * displayScale, y: Number(obj.y1) * displayScale },
+            { x: Number(obj.x2) * displayScale, y: Number(obj.y2) * displayScale },
+          ];
+          for (const ep of candidates) {
+            const dx = p.x - ep.x, dy = p.y - ep.y;
+            if (Math.sqrt(dx * dx + dy * dy) < SNAP_ENDPOINT_PX) return ep;
+          }
+        }
+      }
+    }
+    // Angle snap: constrain to multiples of 45° from anchor
+    const dx = p.x - anchor.x, dy = p.y - anchor.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 6) return p;
+    const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+    const snappedAngle = Math.round(angleDeg / 45) * 45;
+    if (Math.abs(((angleDeg - snappedAngle) + 180) % 360 - 180) <= SNAP_ANGLE_DEG) {
+      const snapRad = snappedAngle * Math.PI / 180;
+      return { x: anchor.x + dist * Math.cos(snapRad), y: anchor.y + dist * Math.sin(snapRad) };
+    }
+    return p;
+  }, [planningState, displayScale]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: "100%" }}>
@@ -1511,7 +1594,7 @@ export const PlanningPage: React.FC = () => {
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px]" style={{ border: "1px solid var(--s200)", borderRadius: "var(--r)", overflow: "hidden", boxShadow: "var(--sh1)", minHeight: 560 }}>
 
           {/* ── LEFT: Dark canvas area ── */}
-          <div style={{ background: "#1A2744", position: "relative", overflow: "auto", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: 16, minHeight: 400 }}>
+          <div ref={canvasContainerRef} style={{ background: "#1A2744", position: "relative", overflow: "auto", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: 16, minHeight: 400 }}>
             <PlanningCanvasErrorBoundary>
             <div className="relative select-none" style={{ flexShrink: 0 }}>
               <img
@@ -1601,8 +1684,25 @@ export const PlanningPage: React.FC = () => {
                     const pts = Array.isArray(obj.points) ? (obj.points as number[][]).map(([px, py]) => `${px * displayScale},${py * displayScale}`).join(" ") : "";
                     return <polyline key={item.uid} points={pts} fill="none" stroke={color} strokeWidth={2} />;
                   })}
+                  {/* Focus highlight ring */}
+                  {focusedUid && (() => {
+                    const fi = planningState.items.find(i => i.uid === focusedUid);
+                    if (!fi) return null;
+                    const fo = fi.raw_object;
+                    const ds = displayScale;
+                    if (fi.type === "line") {
+                      const mx = ((Number(fo.x1) + Number(fo.x2)) / 2) * ds;
+                      const my = ((Number(fo.y1) + Number(fo.y2)) / 2) * ds;
+                      return <circle cx={mx} cy={my} r={18} fill="none" stroke="#FBBF24" strokeWidth={3} strokeDasharray="5 3" style={{ pointerEvents: "none", animation: "pulse 1s infinite" }} />;
+                    }
+                    if (fi.type === "rect" || fi.type === "zone") {
+                      return <rect x={Number(fo.x) * ds - 4} y={Number(fo.y) * ds - 4} width={Number(fo.width) * ds + 8} height={Number(fo.height) * ds + 8} fill="none" stroke="#FBBF24" strokeWidth={3} strokeDasharray="5 3" rx={4} style={{ pointerEvents: "none", animation: "pulse 1s infinite" }} />;
+                    }
+                    return null;
+                  })()}
                   {pendingShapes.map(renderPendingOnCanvas)}
                   {drawing && startPoint && tempPoint && drawMode === "line" && <line x1={startPoint.x} y1={startPoint.y} x2={tempPoint.x} y2={tempPoint.y} stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
+                  {drawing && startPoint && tempPoint && drawMode === "line" && <circle cx={tempPoint.x} cy={tempPoint.y} r={4} fill="#FFF" stroke={PENDING_COLOR} strokeWidth={1.5} style={{ pointerEvents: "none" }} />}
                   {drawing && startPoint && tempPoint && drawMode === "rect" && <rect x={Math.min(startPoint.x, tempPoint.x)} y={Math.min(startPoint.y, tempPoint.y)} width={Math.abs(tempPoint.x - startPoint.x)} height={Math.abs(tempPoint.y - startPoint.y)} fill={hexToRgba(PENDING_COLOR, 0.15)} stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
                   {drawing && drawMode === "path" && pathPoints.length > 1 && <polyline points={pathPoints.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke={PENDING_COLOR} strokeWidth={2} strokeDasharray="6 3" />}
                 </svg>
@@ -1622,6 +1722,9 @@ export const PlanningPage: React.FC = () => {
               <button type="button" title="איפוס" onClick={() => setZoomPercent(100)} style={{ width: 34, height: 34, borderRadius: "50%", border: "none", background: "transparent", color: "rgba(255,255,255,.45)", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>⊙</button>
               <div style={{ width: 1, background: "rgba(255,255,255,.15)", margin: "4px 2px" }} />
               <button type="button" title="הגדלה" onClick={() => setZoomModalOpen(true)} style={{ width: 34, height: 34, borderRadius: "50%", border: "none", background: "transparent", color: "rgba(255,255,255,.7)", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>🔍</button>
+              {lastAddedUid && (
+                <button type="button" title="בטל אחרון" onClick={() => { void handleDeleteItem(lastAddedUid); setLastAddedUid(null); }} style={{ width: 34, height: 34, borderRadius: "50%", border: "none", background: "transparent", color: "#FCA5A5", fontSize: 17, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>↩</button>
+              )}
               {pendingShapes.length > 0 && (
                 <button type="button" onClick={() => setCategoryPickerOpen(true)} style={{ height: 34, borderRadius: 17, border: "none", background: PENDING_COLOR, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", padding: "0 12px", animation: "pulse 1.8s infinite", whiteSpace: "nowrap" }}>
                   📂 {pendingShapes.length}
@@ -2262,6 +2365,36 @@ export const PlanningPage: React.FC = () => {
                 }
               </div>
             </div>
+
+            {/* Real-time BOQ strip */}
+            {liveBoq.length > 0 && (
+              <div style={{ borderTop: "1px solid var(--s200)", background: "var(--s50)", padding: "6px 12px", flexShrink: 0, maxHeight: 120, overflowY: "auto" }}>
+                <p style={{ fontSize: 10, color: "var(--text-3)", marginBottom: 4, fontWeight: 600 }}>סיכום חי</p>
+                {liveBoq.map(({ cat, lengthM, areaM2, count }) => {
+                  const color = getCategoryColor(cat.type, cat.subtype);
+                  const firstItemUid = planningState?.items.find(i => i.category === cat.key)?.uid;
+                  return (
+                    <div key={cat.key} className="flex items-center justify-between text-xs" style={{ gap: 6, marginBottom: 2 }}>
+                      <span className="flex items-center gap-1 min-w-0">
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0, display: "inline-block" }} />
+                        <span className="truncate" style={{ color: "var(--text-1)", fontSize: 10 }}>{cat.subtype}</span>
+                      </span>
+                      <span className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+                        <span style={{ color: "var(--text-2)", fontSize: 10, whiteSpace: "nowrap" }}>
+                          {count} פריטים
+                          {lengthM > 0 && ` · ${lengthM.toFixed(1)}מ׳`}
+                          {areaM2 > 0 && ` · ${areaM2.toFixed(1)}מ"ר`}
+                        </span>
+                        {firstItemUid && (
+                          <button type="button" title="מרכז על הפריט" onClick={() => focusOnItem(firstItemUid)}
+                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, padding: "0 2px", color: "var(--text-3)", lineHeight: 1 }}>🎯</button>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Panel footer — navigation */}
             <div style={{ padding: "10px 14px", borderTop: "1px solid var(--s200)", background: "var(--s50)", display: "flex", gap: 8, flexShrink: 0 }}>

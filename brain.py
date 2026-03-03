@@ -295,6 +295,61 @@ def process_plan_metadata(raw_text, use_google_ocr=True, pdf_bytes=None):
     }
 
 
+def analyze_plan_with_vision(image_bytes: bytes, scale_text: str = "") -> dict:
+    """
+    שולח תמונת שרטוט ל-Claude Vision ומחלץ אלמנטים.
+    מוחזר dict עם: walls, doors, windows, plumbing_fixtures, rooms,
+                   materials_detected, execution_notes
+    """
+    client, error = get_anthropic_client()
+    if error or not image_bytes:
+        return {"status": "error", "error": error or "no image", "walls": [], "doors": [],
+                "windows": [], "plumbing_fixtures": [], "rooms": [], "materials_detected": [], "execution_notes": []}
+
+    img_b64 = base64.standard_b64encode(image_bytes).decode()
+
+    prompt = f"""אתה מומחה בקריאת תוכניות בנייה ישראליות.
+נתח תמונה זו של תוכנית קומה והחזר JSON בלבד.
+קנה מידה: {scale_text or 'לא ידוע'}
+
+מבנה נדרש (JSON בלבד, אין טקסט נוסף):
+{{
+  "walls": [{{"type": "concrete|block|gypsum|lightweight", "estimated_count": 0, "notes": ""}}],
+  "doors": [{{"width_m": 0.9, "type": "single|double", "location_hint": ""}}],
+  "windows": [{{"width_m": 1.2, "location_hint": ""}}],
+  "plumbing_fixtures": [{{"type": "toilet|sink|kitchen_sink|bathtub|shower|bidet", "room": "", "count": 1}}],
+  "rooms": [{{"name": "", "estimated_area_m2": 0, "floor_material": ""}}],
+  "materials_detected": [],
+  "execution_notes": [],
+  "confidence": 0.0
+}}"""
+
+    try:
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=2000,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
+                    {"type": "text", "text": prompt}
+                ]
+            }]
+        )
+        text = message.content[0].text.strip()
+        if "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+            if text.startswith("json"):
+                text = text[4:].strip()
+        result = json.loads(text)
+        result["status"] = "success"
+        return result
+    except Exception as e:
+        logger.warning("vision analysis failed: %s", e)
+        return {"status": "error", "error": str(e), "walls": [], "doors": [],
+                "windows": [], "plumbing_fixtures": [], "rooms": [], "materials_detected": [], "execution_notes": []}
+
+
 def analyze_legend_image(image_bytes):
     """
     [VISION API] ניתוח מקרא תוכנית בניה ומזהה סוג תוכנית וחומרים

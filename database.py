@@ -90,6 +90,8 @@ def init_database():
         ("img_skeleton", "BYTEA"),
         ("img_concrete_mask", "BYTEA"),
         ("img_blocks_mask", "BYTEA"),
+        ("vision_analysis_json", "TEXT"),
+        ("auto_segments_json", "TEXT"),
     ]
     _missing_cols_sqlite = [
         ("materials_json", "TEXT"),
@@ -99,6 +101,8 @@ def init_database():
         ("img_skeleton", "BLOB"),
         ("img_concrete_mask", "BLOB"),
         ("img_blocks_mask", "BLOB"),
+        ("vision_analysis_json", "TEXT"),
+        ("auto_segments_json", "TEXT"),
     ]
     try:
         conn2 = get_connection()
@@ -716,6 +720,69 @@ def load_plan_images(filename: str):
         return None, None, None, None, None, None
     finally:
         conn.close()
+
+
+def db_save_vision_analysis(plan_id: str, data: dict):
+    conn = get_connection()
+    if not conn:
+        return
+    cur = conn.cursor()
+    if DB_URL:
+        cur.execute("UPDATE plans SET vision_analysis_json=%s WHERE filename=%s",
+                    (json.dumps(data, ensure_ascii=False), plan_id))
+    else:
+        cur.execute("UPDATE plans SET vision_analysis_json=? WHERE filename=?",
+                    (json.dumps(data, ensure_ascii=False), plan_id))
+    conn.commit()
+    conn.close()
+
+
+def db_get_vision_analysis(plan_id: str) -> dict:
+    conn = get_connection()
+    if not conn:
+        return {}
+    cur = conn.cursor()
+    if DB_URL:
+        cur.execute("SELECT vision_analysis_json FROM plans WHERE filename=%s", (plan_id,))
+    else:
+        cur.execute("SELECT vision_analysis_json FROM plans WHERE filename=?", (plan_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return {}
+    val = row["vision_analysis_json"] if DB_URL else row[0]
+    return json.loads(val) if val else {}
+
+
+def db_save_auto_segments(plan_id: str, segments: list):
+    conn = get_connection()
+    if not conn:
+        return
+    blob = json.dumps(segments, ensure_ascii=False)
+    cur = conn.cursor()
+    if DB_URL:
+        cur.execute("UPDATE plans SET auto_segments_json=%s WHERE filename=%s", (blob, plan_id))
+    else:
+        cur.execute("UPDATE plans SET auto_segments_json=? WHERE filename=?", (blob, plan_id))
+    conn.commit()
+    conn.close()
+
+
+def db_get_auto_segments(plan_id: str) -> list:
+    conn = get_connection()
+    if not conn:
+        return []
+    cur = conn.cursor()
+    if DB_URL:
+        cur.execute("SELECT auto_segments_json FROM plans WHERE filename=%s", (plan_id,))
+    else:
+        cur.execute("SELECT auto_segments_json FROM plans WHERE filename=?", (plan_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return []
+    val = row["auto_segments_json"] if DB_URL else row[0]
+    return json.loads(val) if val else []
 
 
 def get_all_work_types_for_plan(plan_id):

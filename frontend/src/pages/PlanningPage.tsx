@@ -747,7 +747,7 @@ export const PlanningPage: React.FC = () => {
     setPlanningState(state);
     setCategoriesDraft(state.categories);
     // שחזר תוצאות ניתוח אוטומטי שנשמרו בדאטהבייס
-    if (state.auto_segments && state.auto_segments.length > 0) {
+    if (state.auto_segments && state.auto_segments.length > 0 && autoSegments === null) {
       setAutoSegments(state.auto_segments);
       setAutoSelected(new Set(
         state.auto_segments
@@ -755,7 +755,7 @@ export const PlanningPage: React.FC = () => {
           .map(s => s.segment_id)
       ));
     }
-  }, []);
+  }, [autoSegments]);
 
   React.useEffect(() => {
     void loadPlans().catch(() => setError("שגיאה בטעינת תוכניות."));

@@ -37,6 +37,10 @@ from .database import (
     save_plan_images,
     load_plan_images,
     reset_all_data,
+    db_save_vision_analysis,
+    db_get_vision_analysis,
+    db_save_auto_segments,
+    db_get_auto_segments,
 )
 from .models import (
     AnalysisResult,
@@ -1584,6 +1588,13 @@ def _build_planning_state(plan_id: str, proj: Dict) -> PlanningState:
     sections = [WorkSection(**s) if isinstance(s, dict) else s for s in raw_sections]
 
     raw_auto_segments = planning.get("auto_segments", [])
+    if not raw_auto_segments:
+        try:
+            raw_auto_segments = db_get_auto_segments(plan_id)
+            if raw_auto_segments:
+                planning["auto_segments"] = raw_auto_segments
+        except Exception as _dga_err:
+            print(f"[DB] db_get_auto_segments fallback failed: {_dga_err}")
     auto_segments_out = [
         AutoAnalyzeSegment(**s) if isinstance(s, dict) else s
         for s in raw_auto_segments
@@ -1938,6 +1949,13 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             },
         }
         _persist_plan_to_database(plan_id, PROJECTS[plan_id])
+
+        # ── שמירת vision analysis לעמודה ייעודית ב-DB ──
+        try:
+            if isinstance(_vision_result, dict):
+                db_save_vision_analysis(filename, _vision_result)
+        except Exception as _va_err:
+            print(f"[DB] db_save_vision_analysis failed: {_va_err}")
 
         # ── שמירת כל ה-masks כ-BLOB ב-DB (אחרי INSERT, שרידות בין restarts ו-workers) ──
         try:
@@ -2971,6 +2989,10 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         _init_planning_if_missing(proj)
         proj["planning"]["auto_segments"] = [s.model_dump() for s in all_segments]
         _persist_plan_to_database(plan_id, proj)
+        try:
+            db_save_auto_segments(plan_id, [s.model_dump() for s in all_segments])
+        except Exception as _dsa_err:
+            print(f"[DB] db_save_auto_segments failed: {_dsa_err}")
 
         return AutoAnalyzeResponse(
             segments=all_segments,

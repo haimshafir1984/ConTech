@@ -1185,26 +1185,45 @@ export const PlanningPage: React.FC = () => {
       setAutoSelected(new Set(
         result.segments.filter(s => s.suggested_subtype !== "פרט קטן").map(s => s.segment_id)
       ));
-      // Build category suggestions from Vision materials + elements
-      if (result.vision_data) {
-        const vd = result.vision_data;
+      // Build category suggestions — primary: from detected segments; secondary: Vision materials
+      {
         const seen = new Set<string>();
         const suggestions: { type: string; subtype: string; paramValue: number }[] = [];
-        const allSources = [
-          ...(vd.materials ?? []),
-          ...(vd.elements?.map((e: { type?: string }) => e.type ?? "") ?? []),
-        ];
-        for (const mat of allSources) {
-          const match = matchMaterialToCategory(mat);
-          if (match) {
-            const k = `${match.type}/${match.subtype}`;
-            if (!seen.has(k)) {
-              seen.add(k);
-              suggestions.push({ ...match, paramValue: match.type === "ריצוף" ? 0.012 : 2.6 });
+
+        // Primary: unique (type, subtype) pairs from wall segments — guaranteed valid
+        for (const seg of result.segments) {
+          if (seg.element_class === "fixture") continue;
+          const k = `${seg.suggested_type}/${seg.suggested_subtype}`;
+          if (!seen.has(k) && CATEGORY_SUBTYPES[seg.suggested_type]?.includes(seg.suggested_subtype)) {
+            seen.add(k);
+            suggestions.push({ type: seg.suggested_type, subtype: seg.suggested_subtype, paramValue: 2.6 });
+          }
+        }
+
+        // Secondary: Vision materials / legend OCR
+        if (result.vision_data) {
+          const vd = result.vision_data;
+          const allSources = [
+            ...(vd.materials ?? []),
+            ...(vd.elements?.map((e: { type?: string }) => e.type ?? "") ?? []),
+          ];
+          for (const mat of allSources) {
+            const match = matchMaterialToCategory(mat);
+            if (match) {
+              const k = `${match.type}/${match.subtype}`;
+              if (!seen.has(k)) {
+                seen.add(k);
+                suggestions.push({ ...match, paramValue: match.type === "ריצוף" ? 0.012 : 2.6 });
+              }
             }
           }
         }
-        setVisionCatSuggestions(suggestions);
+
+        // Filter out categories that already exist
+        const existingKeys = new Set(
+          Object.values(planningState?.categories ?? {}).map(c => `${c.type}/${c.subtype}`)
+        );
+        setVisionCatSuggestions(suggestions.filter(s => !existingKeys.has(`${s.type}/${s.subtype}`)));
       }
       // Pre-fill category keys: find best match for walls; leave blank for fixtures
       const keys: Record<string, string> = {};
@@ -1850,6 +1869,40 @@ export const PlanningPage: React.FC = () => {
               })}
             </div>
 
+            {/* ── Sticky: Add Category (always visible, between tab bar and body) ── */}
+            <details className="text-xs" style={{ flexShrink: 0, borderBottom: "1px solid var(--s200)", background: "#FAFBFC" }}>
+              <summary style={{
+                cursor: "pointer", userSelect: "none",
+                display: "flex", alignItems: "center", gap: 6, listStyle: "none",
+                padding: "8px 16px",
+                background: "var(--navy)", color: "#fff",
+                fontWeight: 700, fontSize: 12,
+              }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>＋</span> הוסף קטגוריה
+                <span style={{ marginRight: "auto", fontSize: 10, opacity: 0.7 }}>▼</span>
+              </summary>
+              <div style={{ padding: "10px 16px 12px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <label style={{ fontSize: 12 }}>סוג
+                  <select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newType} onChange={e => setNewType(e.target.value)}>
+                    {Object.keys(CATEGORY_SUBTYPES).map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </label>
+                <label style={{ fontSize: 12 }}>תת-סוג
+                  <select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newSubtype} onChange={e => setNewSubtype(e.target.value)}>{subtypeOptions.map(s => <option key={s}>{s}</option>)}</select>
+                </label>
+                <label style={{ fontSize: 12 }}>גובה / עובי (מ&apos;)
+                  <input type="number" className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamValue} onChange={e => setNewParamValue(Number(e.target.value))} step={0.1} min={0} />
+                </label>
+                <label style={{ fontSize: 12 }}>הערה
+                  <input className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamNote} onChange={e => setNewParamNote(e.target.value)} placeholder="אופציונלי" />
+                </label>
+                <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }}
+                  style={{ gridColumn: "1 / -1", padding: "7px 0", borderRadius: 8, background: "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                  ✅ הוסף ושמור
+                </button>
+              </div>
+            </details>
+
             {/* Panel body — scrollable */}
             <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
 
@@ -2442,37 +2495,6 @@ export const PlanningPage: React.FC = () => {
 
               {/* ── Shared: Categories + Items ── */}
               <div style={{ marginTop: 20, borderTop: "1px solid var(--s200)", paddingTop: 14 }}>
-                {/* Add category — always-visible prominent button */}
-                <details className="text-xs mb-3">
-                  <summary style={{
-                    cursor: "pointer", userSelect: "none",
-                    display: "flex", alignItems: "center", gap: 6, listStyle: "none",
-                    padding: "8px 12px", borderRadius: 10,
-                    background: "var(--navy)", color: "#fff",
-                    fontWeight: 700, fontSize: 12,
-                  }}>
-                    <span style={{ fontSize: 16, lineHeight: 1 }}>＋</span> הוסף קטגוריה
-                    <span style={{ marginRight: "auto", fontSize: 10, opacity: 0.7 }}>▼</span>
-                  </summary>
-                  <div className="mt-2 space-y-2 bg-slate-50 rounded-lg p-2 border border-slate-200">
-                    <label style={{ fontSize: 12 }}>סוג
-                      <select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newType} onChange={e => setNewType(e.target.value)}>
-                        {Object.keys(CATEGORY_SUBTYPES).map(t => <option key={t}>{t}</option>)}
-                      </select>
-                    </label>
-                    <label style={{ fontSize: 12 }}>תת-סוג
-                      <select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newSubtype} onChange={e => setNewSubtype(e.target.value)}>{subtypeOptions.map(s => <option key={s}>{s}</option>)}</select>
-                    </label>
-                    <label style={{ fontSize: 12 }}>גובה / עובי (מ&apos;)
-                      <input type="number" className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamValue} onChange={e => setNewParamValue(Number(e.target.value))} step={0.1} min={0} />
-                    </label>
-                    <label style={{ fontSize: 12 }}>הערה
-                      <input className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamNote} onChange={e => setNewParamNote(e.target.value)} placeholder="אופציונלי" />
-                    </label>
-                    <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} className="w-full px-2 py-1.5 rounded bg-[var(--orange)] text-white text-xs font-semibold">הוסף ושמור</button>
-                  </div>
-                </details>
-
                 {/* Categories */}
                 <p className="text-xs font-semibold text-slate-500 mb-2">קטגוריות</p>
                 <div className="space-y-1 max-h-[180px] overflow-y-auto mb-2">

@@ -675,6 +675,7 @@ export const PlanningPage: React.FC = () => {
   // ── Auto-analyze state ──
   const [autoSegments, setAutoSegments] = React.useState<AutoSegment[] | null>(null);
   const [autoVisionData, setAutoVisionData] = React.useState<AutoAnalyzeVisionData | null>(null);
+  const [visionCatSuggestions, setVisionCatSuggestions] = React.useState<{ type: string; subtype: string; paramValue: number }[]>([]);
   const [visionActiveCard, setVisionActiveCard] = React.useState<string | null>(null);
   const [autoLoading, setAutoLoading] = React.useState(false);
   const [autoSelected, setAutoSelected] = React.useState<Set<string>>(new Set());
@@ -1108,6 +1109,69 @@ export const PlanningPage: React.FC = () => {
     setSecEnd(p); setSecTemp(p); setSecDrawing(false);
   };
 
+  // ── Vision material → category matcher ──
+  const matchMaterialToCategory = (material: string): { type: string; subtype: string } | null => {
+    const m = material.toLowerCase();
+    if (m.includes("בטון מוחלק")) return { type: "ריצוף", subtype: "בטון מוחלק" };
+    if (m.includes("בטון")) return { type: "קירות", subtype: "בטון" };
+    if (m.includes("בלוק")) return { type: "קירות", subtype: "בלוקים" };
+    if (m.includes("מחיצה קלה")) return { type: "קירות", subtype: "מחיצה קלה" };
+    if (m.includes("גרניט") || m.includes("פורצלן")) return { type: "ריצוף", subtype: "גרניט פורצלן" };
+    if (m.includes("קרמיקה")) return { type: "ריצוף", subtype: "קרמיקה" };
+    if (m.includes("פרקט")) return { type: "ריצוף", subtype: "פרקט" };
+    if (m.includes("תקרה") && m.includes("גבס")) return { type: "תקרה", subtype: "גבס" };
+    if (m.includes("גבס") && (m.includes("מחיצה") || m.includes("קיר"))) return { type: "קירות", subtype: "גבס" };
+    if (m.includes("גבס")) return { type: "קירות", subtype: "גבס" };
+    if (m.includes("טיח") && m.includes("חוץ")) return { type: "טיח וצבע", subtype: "טיח חוץ" };
+    if (m.includes("טיח") && m.includes("פנים")) return { type: "טיח וצבע", subtype: "טיח פנים" };
+    if (m.includes("צבע") && m.includes("חוץ")) return { type: "טיח וצבע", subtype: "צבע חוץ" };
+    if (m.includes("צבע") && m.includes("פנים")) return { type: "טיח וצבע", subtype: "צבע פנים" };
+    if (m.includes("דלת") && m.includes("כניסה")) return { type: "דלתות וחלונות", subtype: "דלת כניסה" };
+    if (m.includes("דלת")) return { type: "דלתות וחלונות", subtype: "דלת פנים" };
+    if (m.includes("חלון") && m.includes("עץ")) return { type: "דלתות וחלונות", subtype: "חלון עץ" };
+    if (m.includes("חלון")) return { type: "דלתות וחלונות", subtype: "חלון אלומיניום" };
+    if (m.includes("ויטרינה")) return { type: "דלתות וחלונות", subtype: "ויטרינה" };
+    if (m.includes("עמוד") && m.includes("מתכת")) return { type: "עמודים", subtype: "עמוד מתכת" };
+    if (m.includes("עמוד")) return { type: "עמודים", subtype: "עמוד בטון" };
+    if (m.includes("קורה")) return { type: "עמודים", subtype: "קורה" };
+    if (m.includes("אקוסטי")) return { type: "תקרה", subtype: "אקוסטית" };
+    return null;
+  };
+
+  // ── Auto-create categories from Vision materials ──
+  const handleAutoCreateCategoriesFromVision = async () => {
+    if (!selectedPlanId || visionCatSuggestions.length === 0) return;
+    setLoading(true);
+    try {
+      const newCats: Record<string, PlanningCategory> = { ...categoriesDraft };
+      for (const sug of visionCatSuggestions) {
+        if (!Object.values(newCats).find(c => c.type === sug.type && c.subtype === sug.subtype)) {
+          const key = `${sug.type}_${sug.subtype}_${Object.keys(newCats).length + 1}`;
+          newCats[key] = { key, type: sug.type, subtype: sug.subtype, params: { height_or_thickness: sug.paramValue, note: "" } };
+        }
+      }
+      const state = await upsertPlanningCategories(selectedPlanId, newCats);
+      setPlanningState(state);
+      setCategoriesDraft(newCats);
+      // Auto-assign segments to newly created categories
+      if (autoSegments) {
+        const newConfirmedKeys: Record<string, string> = { ...autoConfirmedKeys };
+        for (const seg of autoSegments) {
+          if (!newConfirmedKeys[seg.segment_id]) {
+            const match = Object.values(newCats).find(
+              c => c.type === seg.suggested_type && c.subtype === seg.suggested_subtype
+            );
+            if (match) newConfirmedKeys[seg.segment_id] = match.key;
+          }
+        }
+        setAutoConfirmedKeys(newConfirmedKeys);
+      }
+      setVisionCatSuggestions([]);
+      setError("");
+    } catch { setError("שגיאה ביצירת קטגוריות אוטומטית."); }
+    finally { setLoading(false); }
+  };
+
   // ── Auto-analyze handlers ──
   const handleAutoAnalyze = async () => {
     if (!selectedPlanId) return;
@@ -1121,6 +1185,27 @@ export const PlanningPage: React.FC = () => {
       setAutoSelected(new Set(
         result.segments.filter(s => s.suggested_subtype !== "פרט קטן").map(s => s.segment_id)
       ));
+      // Build category suggestions from Vision materials + elements
+      if (result.vision_data) {
+        const vd = result.vision_data;
+        const seen = new Set<string>();
+        const suggestions: { type: string; subtype: string; paramValue: number }[] = [];
+        const allSources = [
+          ...(vd.materials ?? []),
+          ...(vd.elements?.map((e: { type?: string }) => e.type ?? "") ?? []),
+        ];
+        for (const mat of allSources) {
+          const match = matchMaterialToCategory(mat);
+          if (match) {
+            const k = `${match.type}/${match.subtype}`;
+            if (!seen.has(k)) {
+              seen.add(k);
+              suggestions.push({ ...match, paramValue: match.type === "ריצוף" ? 0.012 : 2.6 });
+            }
+          }
+        }
+        setVisionCatSuggestions(suggestions);
+      }
       // Pre-fill category keys: find best match for walls; leave blank for fixtures
       const keys: Record<string, string> = {};
       if (planningState) {
@@ -1484,6 +1569,19 @@ export const PlanningPage: React.FC = () => {
           {/* Calibration canvas */}
           <div className="bg-white rounded-lg border border-[#E6E6EA] shadow-sm p-4">
             <p className="text-sm font-semibold text-[#31333F] mb-1">שלב 2: כיול סקייל</p>
+            {planningState.scale_px_per_meter > 0 && planningState.scale_px_per_meter !== 200 && (
+              <div style={{ background: "#F0FDF4", border: "1px solid #86EFAC", borderRight: "4px solid #22C55E", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 18 }}>✅</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#15803D" }}>כיול קיים</div>
+                  <div style={{ fontSize: 11, color: "#166534" }}>סקייל: {planningState.scale_px_per_meter.toFixed(1)} px/m — ניתן לדלג לשלב 3</div>
+                </div>
+                <button type="button" onClick={() => setStep(3)}
+                  style={{ padding: "7px 16px", borderRadius: 9, background: "#15803D", color: "#fff", border: "none", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                  דלג לשלב 3 →
+                </button>
+              </div>
+            )}
             <p className="text-xs text-slate-500 mb-3">גרור קו על אורך ידוע בתוכנית, הזן את האורך האמיתי ולחץ &quot;עדכן סקייל&quot;.</p>
             <div style={{ background: "#1A2744", borderRadius: 12, padding: 8, display: "inline-block" }}>
             <div className="relative border border-slate-300 rounded-lg overflow-hidden w-fit cursor-crosshair bg-slate-50">
@@ -1610,7 +1708,9 @@ export const PlanningPage: React.FC = () => {
               {/* AUTO: segment overlays (clickable) */}
               {step3Tab === "auto" && autoSegments !== null && autoSegments.length > 0 && (
                 <svg width={displaySize.width} height={displaySize.height} className="absolute inset-0">
-                  {autoSegments.map((seg, idx) => {
+                  {autoSegments
+                    .filter(seg => seg.suggested_subtype !== "פרט קטן")
+                    .map((seg, idx) => {
                     const [bx, by, bw, bh] = seg.bbox.map(v => v * displayScale);
                     const checked = autoSelected.has(seg.segment_id);
                     const isFixture = seg.element_class === "fixture";
@@ -1766,6 +1866,39 @@ export const PlanningPage: React.FC = () => {
                       {autoLoading ? <><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", animation: "spin 0.7s linear infinite" }} />מנתח...</> : "🤖 נתח"}
                     </button>
                   </div>
+
+                  {/* ── Banner: Auto-create categories from Vision ── */}
+                  {visionCatSuggestions.length > 0 && (
+                    <div style={{
+                      background: "linear-gradient(135deg, #F0FDF4, #EFF6FF)",
+                      border: "1.5px solid #86EFAC",
+                      borderRight: "4px solid #22C55E",
+                      borderRadius: 12,
+                      padding: "12px 14px",
+                    }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "#15803D", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                        ✨ זוהו {visionCatSuggestions.length} קטגוריות מהמקרא
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
+                        {visionCatSuggestions.map(s => {
+                          const color = getCategoryColor(s.type, s.subtype);
+                          return (
+                            <span key={`${s.type}/${s.subtype}`} style={{ background: hexToRgba(color, 0.12), border: `1px solid ${hexToRgba(color, 0.4)}`, borderRadius: 6, padding: "2px 8px", fontSize: 11, color: "var(--text-1)", fontWeight: 600 }}>
+                              {s.subtype}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleAutoCreateCategoriesFromVision()}
+                        disabled={loading}
+                        style={{ width: "100%", padding: "9px 0", borderRadius: 10, background: loading ? "#94a3b8" : "#15803D", color: "#fff", border: "none", fontWeight: 700, fontSize: 13, cursor: loading ? "not-allowed" : "pointer", boxShadow: "0 2px 8px rgba(21,128,61,0.25)" }}
+                      >
+                        {loading ? "יוצר קטגוריות..." : "✅ צור קטגוריות ושייך אוטומטית"}
+                      </button>
+                    </div>
+                  )}
 
                   {autoSegments !== null && autoSegments.length === 0 && (
                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
@@ -2309,23 +2442,40 @@ export const PlanningPage: React.FC = () => {
 
               {/* ── Shared: Categories + Items ── */}
               <div style={{ marginTop: 20, borderTop: "1px solid var(--s200)", paddingTop: 14 }}>
-                {/* Add category — pinned at TOP so it's always reachable */}
+                {/* Add category — always-visible prominent button */}
                 <details className="text-xs mb-3">
-                  <summary className="cursor-pointer select-none py-1.5 px-2 rounded-lg hover:bg-slate-50" style={{ fontWeight: 600, color: "var(--blue)", border: "1px dashed var(--s300)", display: "flex", alignItems: "center", gap: 5, listStyle: "none" }}>
-                    <span style={{ fontSize: 15, lineHeight: 1 }}>＋</span> הוסף קטגוריה
+                  <summary style={{
+                    cursor: "pointer", userSelect: "none",
+                    display: "flex", alignItems: "center", gap: 6, listStyle: "none",
+                    padding: "8px 12px", borderRadius: 10,
+                    background: "var(--navy)", color: "#fff",
+                    fontWeight: 700, fontSize: 12,
+                  }}>
+                    <span style={{ fontSize: 16, lineHeight: 1 }}>＋</span> הוסף קטגוריה
+                    <span style={{ marginRight: "auto", fontSize: 10, opacity: 0.7 }}>▼</span>
                   </summary>
-                  <div className="mt-2 space-y-2 bg-slate-50 rounded-lg p-2">
-                    <label>סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newType} onChange={e => setNewType(e.target.value)}><option>קירות</option><option>ריצוף</option><option>תקרה</option></select></label>
-                    <label>תת-סוג<select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newSubtype} onChange={e => setNewSubtype(e.target.value)}>{subtypeOptions.map(s => <option key={s}>{s}</option>)}</select></label>
-                    <label>פרמטר<input type="number" className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamValue} onChange={e => setNewParamValue(Number(e.target.value))} /></label>
-                    <label>הערה<input className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamNote} onChange={e => setNewParamNote(e.target.value)} /></label>
-                    <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} className="w-full px-2 py-1.5 rounded bg-[var(--navy)] text-white text-xs font-semibold">הוסף ושמור</button>
+                  <div className="mt-2 space-y-2 bg-slate-50 rounded-lg p-2 border border-slate-200">
+                    <label style={{ fontSize: 12 }}>סוג
+                      <select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newType} onChange={e => setNewType(e.target.value)}>
+                        {Object.keys(CATEGORY_SUBTYPES).map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </label>
+                    <label style={{ fontSize: 12 }}>תת-סוג
+                      <select className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newSubtype} onChange={e => setNewSubtype(e.target.value)}>{subtypeOptions.map(s => <option key={s}>{s}</option>)}</select>
+                    </label>
+                    <label style={{ fontSize: 12 }}>גובה / עובי (מ&apos;)
+                      <input type="number" className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamValue} onChange={e => setNewParamValue(Number(e.target.value))} step={0.1} min={0} />
+                    </label>
+                    <label style={{ fontSize: 12 }}>הערה
+                      <input className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={newParamNote} onChange={e => setNewParamNote(e.target.value)} placeholder="אופציונלי" />
+                    </label>
+                    <button type="button" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} className="w-full px-2 py-1.5 rounded bg-[var(--orange)] text-white text-xs font-semibold">הוסף ושמור</button>
                   </div>
                 </details>
 
                 {/* Categories */}
                 <p className="text-xs font-semibold text-slate-500 mb-2">קטגוריות</p>
-                <div className="space-y-1 max-h-[120px] overflow-y-auto mb-2">
+                <div className="space-y-1 max-h-[180px] overflow-y-auto mb-2">
                   {Object.values(planningState.categories).map((cat) => {
                     const color = getCategoryColor(cat.type, cat.subtype);
                     return (
@@ -2456,21 +2606,44 @@ export const PlanningPage: React.FC = () => {
             </div>
 
             {/* BOQ table */}
-            <div className="space-y-1 mb-4">
-              {Object.keys(planningState.boq).length === 0 && <p className="text-xs text-slate-500">אין נתוני BOQ להצגה.</p>}
-              {Object.entries(planningState.boq).map(([key, value]) => {
-                const row = value as { type?: string; subtype?: string; count?: number; total_length_m?: number; total_area_m2?: number };
-                const color = getCategoryColor(row.type, row.subtype);
-                return (
-                  <div key={key} className="rounded-lg px-2 py-2 text-xs grid grid-cols-5 gap-2" style={{ background: hexToRgba(color, 0.07), border: `1px solid ${hexToRgba(color, 0.25)}` }}>
-                    <span className="font-semibold" style={{ color }}>{row.type ?? "-"}</span>
-                    <span>{row.subtype ?? "-"}</span>
-                    <span>{row.count ?? 0} פריטים</span>
-                    <span>{(row.total_length_m ?? 0).toFixed(2)} מ&apos;</span>
-                    <span>{(row.total_area_m2 ?? 0).toFixed(2)} מ&quot;ר</span>
-                  </div>
-                );
-              })}
+            <div className="mb-4" style={{ border: "1px solid var(--s200)", borderRadius: 10, overflow: "hidden" }}>
+              {Object.keys(planningState.boq).length === 0
+                ? <p className="text-xs text-slate-500 p-3">אין נתוני BOQ להצגה.</p>
+                : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: "var(--navy)", color: "#fff" }}>
+                        <th style={{ textAlign: "right", padding: "8px 10px", fontWeight: 600, fontSize: 11 }}>סוג</th>
+                        <th style={{ textAlign: "right", padding: "8px 10px", fontWeight: 600, fontSize: 11 }}>תת-סוג</th>
+                        <th style={{ textAlign: "center", padding: "8px 6px", fontWeight: 600, fontSize: 11 }}>פריטים</th>
+                        <th style={{ textAlign: "center", padding: "8px 6px", fontWeight: 600, fontSize: 11 }}>אורך</th>
+                        <th style={{ textAlign: "center", padding: "8px 6px", fontWeight: 600, fontSize: 11 }}>שטח</th>
+                        <th style={{ textAlign: "center", padding: "8px 6px", fontWeight: 600, fontSize: 11 }}>גובה/עובי</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(planningState.boq).map(([key, value], rowIdx) => {
+                        const row = value as { type?: string; subtype?: string; count?: number; total_length_m?: number; total_area_m2?: number };
+                        const color = getCategoryColor(row.type, row.subtype);
+                        const catEntry = Object.values(planningState.categories).find(c => c.type === row.type && c.subtype === row.subtype);
+                        const heightVal = catEntry?.params?.height_or_thickness;
+                        return (
+                          <tr key={key} style={{ background: rowIdx % 2 === 0 ? hexToRgba(color, 0.05) : "#fff", borderBottom: "1px solid var(--s100)" }}>
+                            <td style={{ padding: "7px 10px", fontWeight: 700, color }}>{row.type ?? "—"}</td>
+                            <td style={{ padding: "7px 10px", color: "var(--text-1)" }}>{row.subtype ?? "—"}</td>
+                            <td style={{ padding: "7px 6px", textAlign: "center", color: "var(--text-2)" }}>{row.count ?? 0}</td>
+                            <td style={{ padding: "7px 6px", textAlign: "center", color: "var(--text-2)", fontFamily: "monospace" }}>{(row.total_length_m ?? 0).toFixed(2)} מ&apos;</td>
+                            <td style={{ padding: "7px 6px", textAlign: "center", color: "var(--text-2)", fontFamily: "monospace" }}>{(row.total_area_m2 ?? 0).toFixed(2)} מ&quot;ר</td>
+                            <td style={{ padding: "7px 6px", textAlign: "center", color: heightVal ? "var(--navy)" : "var(--s400)", fontFamily: "monospace", fontWeight: heightVal ? 600 : 400 }}>
+                              {heightVal != null ? `${heightVal} מ'` : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )
+              }
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>

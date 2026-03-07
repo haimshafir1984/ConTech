@@ -2984,6 +2984,64 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         print(f"[auto-analyze] plan={plan_id} skel_labels={total_skel_labels} "
               f"walls={len(walls_out)} fixtures={len(fixtures_out)} img_area={img_area}")
 
+        # ── Step 5b: Fallback fixture detection from original image ──────────────
+        # thick_walls contains only wall pixels; when no fixtures found via skeleton,
+        # scan the original image for compact non-wall shapes (toilets, sinks, etc.)
+        if not fixtures_out:
+            orig_img = proj.get("original")
+            if isinstance(orig_img, np.ndarray) and orig_img.size > 0:
+                try:
+                    orig_gray = cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY) if orig_img.ndim == 3 else orig_img.copy()
+                    if orig_gray.shape != (img_h, img_w):
+                        orig_gray = cv2.resize(orig_gray, (img_w, img_h), interpolation=cv2.INTER_AREA)
+                    # Dark-on-light floor plan: threshold to get all drawn elements
+                    _, orig_bin = cv2.threshold(orig_gray, 200, 255, cv2.THRESH_BINARY_INV)
+                    # Remove wall regions (dilate to avoid edge bleed)
+                    wall_dil = cv2.dilate(binary, cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9)))
+                    non_wall = cv2.bitwise_and(orig_bin, cv2.bitwise_not(wall_dil))
+                    # Close small gaps inside fixture outlines
+                    close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+                    non_wall = cv2.morphologyEx(non_wall, cv2.MORPH_CLOSE, close_k)
+                    num_fig, fig_labels, fig_stats, _ = cv2.connectedComponentsWithStats(non_wall, connectivity=8)
+                    fig_min_px = img_area * 0.0003   # ~0.03 % → minimum for a real fixture symbol
+                    fig_max_px = img_area * 0.025    # ~2.5 % → above this it's a room/zone
+                    fig_counter2 = 0
+                    for lbl in range(1, num_fig):
+                        ap = int(fig_stats[lbl, cv2.CC_STAT_AREA])
+                        if ap < fig_min_px or ap > fig_max_px:
+                            continue
+                        bx2 = int(fig_stats[lbl, cv2.CC_STAT_LEFT])
+                        by2 = int(fig_stats[lbl, cv2.CC_STAT_TOP])
+                        bw2 = int(fig_stats[lbl, cv2.CC_STAT_WIDTH])
+                        bh2 = int(fig_stats[lbl, cv2.CC_STAT_HEIGHT])
+                        asp2 = bw2 / max(1, bh2)
+                        if asp2 > 4.0 or asp2 < 0.25:   # very elongated → probably a line
+                            continue
+                        am2_2 = round(ap / (scale_px_per_meter ** 2), 2)
+                        if am2_2 < 0.08 or am2_2 > 2.5:
+                            continue
+                        fig_counter2 += 1
+                        if 0.5 <= asp2 <= 2.0 and am2_2 < 0.45:
+                            sub2 = "כיור / אסלה"
+                        elif am2_2 < 1.2 and (asp2 > 1.6 or asp2 < 0.62):
+                            sub2 = "אמבטיה / מקלחת"
+                        else:
+                            sub2 = "ריהוט / מכשיר"
+                        fixtures_out.append(AutoAnalyzeSegment(
+                            segment_id=f"fig2_{lbl}",
+                            label=f"{sub2} {fig_counter2}",
+                            suggested_type="אביזר",
+                            suggested_subtype=sub2,
+                            confidence=0.45,
+                            length_m=0.0,
+                            area_m2=float(am2_2),
+                            bbox=[float(bx2), float(by2), float(bw2), float(bh2)],
+                            element_class="fixture",
+                        ))
+                    print(f"[auto-analyze] img-fixture fallback: {fig_counter2} fixtures detected from original image")
+                except Exception as _fig_err:
+                    print(f"[auto-analyze] img-fixture fallback error: {_fig_err}")
+
         # ── שמור תוצאות ניתוח לדאטהבייס (persist ל-planning.auto_segments) ──
         all_segments = walls_out + fixtures_out
         _init_planning_if_missing(proj)

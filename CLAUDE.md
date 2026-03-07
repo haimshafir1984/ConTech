@@ -146,9 +146,33 @@ Icons replaced with inline SVG only.
 
 ### Auto-analysis data persistence
 `autoSegments` is **React state only** — it resets on every page reload/navigation.
-The analysis is NOT stored in the database; it's computed on-demand from numpy arrays.
-After a server restart (Render cold-start) the user must re-run the analysis.
-The backend DOES try to reload project arrays from DB BLOBs after restart (see `_get_project_or_404`).
+The analysis IS stored in the database (`db_save_auto_segments`) and reloaded via `db_get_auto_segments`.
+After a server restart (Render cold-start) the stored segments are read from DB; user can re-run analysis to refresh.
+The backend DOES try to reload project arrays from DB BLOBs after restart (see `_ensure_arrays_loaded`).
+
+### thick_walls mask — important limitation
+`thick_walls` contains **ONLY wall pixels** — plumbing fixtures, furniture symbols etc. are NOT in this mask.
+When the skeleton of `thick_walls` yields 0 fixtures (common after server restart with reloaded mask),
+`manager_auto_analyze` runs a **Step 5b fallback**: detects compact shapes from the original image.
+- Thresholds dark-on-light pixels → removes dilated wall region → connected-components
+- Keeps shapes: aspect 0.25–4.0, area 0.08–2.5 m² (skips "פרט קטן" entirely)
+- Classifies as: `כיור / אסלה` / `אמבטיה / מקלחת` / `ריהוט / מכשיר`
+
+### Canvas display filter
+`autoSegments` with `suggested_subtype === "פרט קטן"` are filtered OUT from the canvas SVG overlay
+to prevent 1000+ tiny shapes creating a "purple fog". They remain in the segment list/panel.
+
+### visionCatSuggestions — auto-create banner
+State: `visionCatSuggestions: { type, subtype, paramValue }[]`
+Populated in `handleAutoAnalyze` after analysis:
+- **Primary source**: unique `(type, subtype)` pairs from `autoSegments` walls (reliable, always present)
+- **Secondary source**: Vision AI materials / legend OCR via `matchMaterialToCategory()`
+Triggers green banner "✨ זוהו N קטגוריות מהמקרא" → button "צור קטגוריות ושייך אוטומטית"
+→ calls `handleAutoCreateCategoriesFromVision()` which creates categories + auto-assigns matching segments.
+
+### "הוסף קטגוריה" — sticky placement
+The add-category form is a `<details>` element placed as `flexShrink: 0` **between the tab bar and the
+scrollable panel body** — visible on every tab without scrolling. (Removed from the old position inside the scrollable area.)
 
 ---
 
@@ -202,3 +226,8 @@ Use `STABILITY_PROMPT.md` as ready-to-paste Claude Code prompt.
 | `12af027` | UI redesign: CSS design-system classes applied across all 4 pages |
 | `8542ae4` | fix(ui): remove all emoji from WorkerPage, DashboardPage, WorkshopPage |
 | `d8ae90f` | stability: memory fix, list limits, logging, AbortController, useCallback, schema cache |
+| `e5f5708` | feat(ui): expand category types + bulk-assign panel in auto tab |
+| `ac1cdb4` | feat(planning): undo last item, line snap, live BOQ strip, focus on item |
+| `79f655a` | feat(planning): smart auto-category creation + UX improvements steps 2-3-4 |
+| `7378a7b` | fix(planning): sticky add-category bar + reliable banner from autoSegments |
+| `13c0072` | fix(auto-analyze): fallback fixture detection from original image |

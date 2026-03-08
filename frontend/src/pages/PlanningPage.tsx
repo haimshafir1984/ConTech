@@ -687,6 +687,16 @@ export const PlanningPage: React.FC = () => {
   const [focusedUid, setFocusedUid] = React.useState<string | null>(null);
   const canvasContainerRef = React.useRef<HTMLDivElement | null>(null);
 
+  // ── Auto-approve UX state ──
+  const [autoApproveThreshold, setAutoApproveThreshold] = React.useState(90); // percentage 70-100
+  const [autoApproveToast, setAutoApproveToast] = React.useState<string | null>(null);
+  const [selectedSegmentId, setSelectedSegmentId] = React.useState<string | null>(null);
+  const [showPendingOnly, setShowPendingOnly] = React.useState(true);
+  const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number; segId: string } | null>(null);
+  const segmentListRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
+  const segmentPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const [bulkSmallCat, setBulkSmallCat] = React.useState<string>(""); // for small items bulk categorize
+
   // ── Zone state ──
   const [zoneDrawing, setZoneDrawing] = React.useState(false);
   const [zoneStart, setZoneStart] = React.useState<Point | null>(null);
@@ -1281,6 +1291,106 @@ export const PlanningPage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
+  // ── Auto-approve by confidence threshold ──
+  const handleAutoApproveByThreshold = async () => {
+    if (!selectedPlanId || !autoSegments || !planningState) return;
+    const thresh = autoApproveThreshold / 100;
+    const toApprove = autoSegments.filter(s =>
+      s.confidence >= thresh &&
+      !autoConfirmedKeys[s.segment_id] && // not already confirmed
+      s.element_class !== "fixture"
+    );
+    if (toApprove.length === 0) {
+      setAutoApproveToast("אין פריטים מעל הסף שעדיין לא אושרו");
+      setTimeout(() => setAutoApproveToast(null), 3000);
+      return;
+    }
+    // Find or create matching category keys
+    const newConfirmedKeys: Record<string, string> = { ...autoConfirmedKeys };
+    for (const seg of toApprove) {
+      const match = Object.values(planningState.categories).find(
+        c => c.type === seg.suggested_type && c.subtype === seg.suggested_subtype
+      );
+      if (match) {
+        newConfirmedKeys[seg.segment_id] = match.key;
+      }
+    }
+    // Only confirm those with a category key found
+    const confirmable = toApprove.filter(s => newConfirmedKeys[s.segment_id]);
+    if (confirmable.length === 0) {
+      setAutoApproveToast("לא נמצאו קטגוריות תואמות — צור קטגוריות קודם");
+      setTimeout(() => setAutoApproveToast(null), 3000);
+      return;
+    }
+    setLoading(true);
+    try {
+      let lastState = planningState;
+      for (const seg of confirmable) {
+        const catKey = newConfirmedKeys[seg.segment_id];
+        const { data } = await apiClient.post<PlanningState>(
+          `/manager/planning/${encodeURIComponent(selectedPlanId)}/confirm-auto-segment`,
+          { segment_id: seg.segment_id, category_key: catKey, bbox: seg.bbox }
+        );
+        lastState = data;
+      }
+      setPlanningState(lastState);
+      // Remove confirmed segments from autoSegments
+      setAutoSegments(prev => prev ? prev.filter(s => !newConfirmedKeys[s.segment_id] || !confirmable.find(c => c.segment_id === s.segment_id)) : null);
+      setAutoConfirmedKeys(newConfirmedKeys);
+      setAutoApproveToast(`✅ אושרו ${confirmable.length} פריטים אוטומטית`);
+      setTimeout(() => setAutoApproveToast(null), 4000);
+      setError("");
+    } catch (e) {
+      const detail = axios.isAxiosError(e) ? (e.response?.data?.detail as string | undefined) || e.message : String(e);
+      setError(`שגיאה באישור אוטומטי: ${detail}`);
+    } finally { setLoading(false); }
+  };
+
+  // ── Confirm single segment from context menu ──
+  const handleConfirmSingleSegment = async (segId: string, categoryKey: string) => {
+    if (!selectedPlanId || !autoSegments || !planningState) return;
+    const seg = autoSegments.find(s => s.segment_id === segId);
+    if (!seg || !categoryKey) return;
+    setContextMenu(null);
+    setLoading(true);
+    try {
+      const { data } = await apiClient.post<PlanningState>(
+        `/manager/planning/${encodeURIComponent(selectedPlanId)}/confirm-auto-segment`,
+        { segment_id: seg.segment_id, category_key: categoryKey, bbox: seg.bbox }
+      );
+      setPlanningState(data);
+      setAutoSegments(prev => prev ? prev.filter(s => s.segment_id !== segId) : null);
+      setError("");
+    } catch (e) {
+      const detail = axios.isAxiosError(e) ? (e.response?.data?.detail as string | undefined) || e.message : String(e);
+      setError(`שגיאה באישור: ${detail}`);
+    } finally { setLoading(false); }
+  };
+
+  // ── Bulk confirm a group of segments (for small items) ──
+  const handleBulkConfirmGroup = async (segIds: string[], categoryKey: string) => {
+    if (!selectedPlanId || !planningState || !autoSegments) return;
+    const segs = autoSegments.filter(s => segIds.includes(s.segment_id));
+    if (segs.length === 0 || !categoryKey) return;
+    setLoading(true);
+    try {
+      let lastState = planningState;
+      for (const seg of segs) {
+        const { data } = await apiClient.post<PlanningState>(
+          `/manager/planning/${encodeURIComponent(selectedPlanId)}/confirm-auto-segment`,
+          { segment_id: seg.segment_id, category_key: categoryKey, bbox: seg.bbox }
+        );
+        lastState = data;
+      }
+      setPlanningState(lastState);
+      setAutoSegments(prev => prev ? prev.filter(s => !segIds.includes(s.segment_id)) : null);
+      setError("");
+    } catch (e) {
+      const detail = axios.isAxiosError(e) ? (e.response?.data?.detail as string | undefined) || e.message : String(e);
+      setError(`שגיאה בשיוך קבוצה: ${detail}`);
+    } finally { setLoading(false); }
+  };
+
   // ── Zone handlers ──
   const handleZoneMouseDown: React.MouseEventHandler<SVGSVGElement> = (e) => {
     const rect = zoneCanvasRef.current?.getBoundingClientRect();
@@ -1726,26 +1836,78 @@ export const PlanningPage: React.FC = () => {
 
               {/* AUTO: segment overlays (clickable) */}
               {step3Tab === "auto" && autoSegments !== null && autoSegments.length > 0 && (
-                <svg width={displaySize.width} height={displaySize.height} className="absolute inset-0">
+                <svg width={displaySize.width} height={displaySize.height} className="absolute inset-0"
+                  onClick={() => setContextMenu(null)}>
                   {autoSegments
                     .filter(seg => seg.suggested_subtype !== "פרט קטן")
                     .map((seg, idx) => {
                     const [bx, by, bw, bh] = seg.bbox.map(v => v * displayScale);
                     const checked = autoSelected.has(seg.segment_id);
+                    const isSelected = selectedSegmentId === seg.segment_id;
                     const isFixture = seg.element_class === "fixture";
-                    const color = isFixture ? (checked ? "#7C3AED" : "#A78BFA") : seg.confidence >= 0.8 ? "#10B981" : seg.confidence >= 0.6 ? "#F59E0B" : "#EF4444";
+                    const color = isSelected ? "#F59E0B" : isFixture ? (checked ? "#7C3AED" : "#A78BFA") : seg.confidence >= 0.8 ? "#10B981" : seg.confidence >= 0.6 ? "#F59E0B" : "#EF4444";
                     const opacity = checked ? 0.35 : 0.1;
                     return (
                       <g key={seg.segment_id} style={{ cursor: "pointer" }}
-                        onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}>
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; });
+                          setSelectedSegmentId(seg.segment_id);
+                          // Scroll list item into view
+                          const el = segmentListRefs.current[seg.segment_id];
+                          if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const svgEl = e.currentTarget.closest("svg");
+                          const rect = svgEl?.getBoundingClientRect();
+                          if (rect) {
+                            setContextMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, segId: seg.segment_id });
+                          }
+                        }}
+                      >
                         <rect x={bx} y={by} width={bw} height={bh} fill={color} fillOpacity={opacity}
-                          stroke={color} strokeWidth={checked ? 2.5 : 1} strokeDasharray={isFixture ? "5 3" : (checked ? "none" : "6 3")} />
+                          stroke={color} strokeWidth={isSelected ? 3 : checked ? 2.5 : 1}
+                          strokeDasharray={isSelected ? "none" : isFixture ? "5 3" : (checked ? "none" : "6 3")} />
+                        {isSelected && <rect x={bx - 2} y={by - 2} width={bw + 4} height={bh + 4} fill="none" stroke="#F59E0B" strokeWidth={2} strokeDasharray="4 2" rx={2} style={{ pointerEvents: "none" }} />}
                         <text x={bx + 4} y={by + 14} fill={color} fontSize={Math.max(9, Math.min(13, bw / 8))} fontWeight="700" style={{ pointerEvents: "none" }}>
                           {isFixture ? "🔧" : idx + 1}
                         </text>
                       </g>
                     );
                   })}
+                  {/* Context menu overlay */}
+                  {contextMenu && (() => {
+                    const seg = autoSegments.find(s => s.segment_id === contextMenu.segId);
+                    const quickCats = [
+                      ...Object.values(planningState!.categories).slice(0, 5),
+                    ];
+                    return (
+                      <foreignObject x={contextMenu.x} y={contextMenu.y} width={160} height={quickCats.length * 34 + 40}>
+                        <div style={{ background: "#fff", border: "1px solid var(--s200)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", padding: "4px 0", minWidth: 155, direction: "rtl" }}>
+                          <div style={{ fontSize: 10, color: "var(--s400)", padding: "4px 12px 2px", fontWeight: 600 }}>
+                            {seg?.suggested_subtype ?? "segment"}
+                          </div>
+                          {quickCats.map(cat => (
+                            <button key={cat.key} type="button"
+                              onClick={(e) => { e.stopPropagation(); void handleConfirmSingleSegment(contextMenu.segId, cat.key); }}
+                              style={{ display: "block", width: "100%", padding: "6px 12px", border: "none", background: "none", textAlign: "right", cursor: "pointer", fontSize: 12, color: "var(--s900)" }}
+                              onMouseOver={e => (e.currentTarget.style.background = "var(--s50)")}
+                              onMouseOut={e => (e.currentTarget.style.background = "none")}
+                            >
+                              {cat.type}/{cat.subtype}
+                            </button>
+                          ))}
+                          <button type="button"
+                            onClick={(e) => { e.stopPropagation(); setContextMenu(null); }}
+                            style={{ display: "block", width: "100%", padding: "6px 12px", border: "none", background: "none", textAlign: "right", cursor: "pointer", fontSize: 12, color: "var(--s400)", borderTop: "1px solid var(--s100)", marginTop: 2 }}>
+                            ביטול
+                          </button>
+                        </div>
+                      </foreignObject>
+                    );
+                  })()}
                 </svg>
               )}
 
@@ -1963,13 +2125,48 @@ export const PlanningPage: React.FC = () => {
                   {autoSegments !== null && autoSegments.length > 0 && (() => {
                     const wallSegs = autoSegments.filter(s => s.element_class !== "fixture");
                     const fixSegs  = autoSegments.filter(s => s.element_class === "fixture");
+                    const pendingWallSegs = wallSegs.filter(s => !autoConfirmedKeys[s.segment_id]);
+                    const displayedWallSegs = showPendingOnly ? pendingWallSegs : wallSegs;
                     return (
                       <>
+                        {/* ── Auto-approve by confidence strip ── */}
+                        <div style={{ background: "linear-gradient(135deg, #F0FDF4, #ECFDF5)", border: "1.5px solid #86EFAC", borderRadius: 10, padding: "10px 12px", marginBottom: 4 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "#15803D", flex: 1 }}>אשר הכל מעל {autoApproveThreshold}% ביטחון</span>
+                            <button type="button" disabled={loading} onClick={() => void handleAutoApproveByThreshold()}
+                              style={{ padding: "6px 12px", borderRadius: 8, background: loading ? "#94a3b8" : "#15803D", color: "#fff", border: "none", fontWeight: 700, fontSize: 12, cursor: loading ? "not-allowed" : "pointer" }}>
+                              ✅ אשר
+                            </button>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 10, color: "#16A34A", width: 28, textAlign: "center" }}>70%</span>
+                            <input type="range" min={70} max={100} step={5} value={autoApproveThreshold}
+                              onChange={e => setAutoApproveThreshold(Number(e.target.value))}
+                              style={{ flex: 1, accentColor: "#15803D" }} />
+                            <span style={{ fontSize: 10, color: "#16A34A", width: 28, textAlign: "center" }}>100%</span>
+                          </div>
+                          {autoApproveToast && (
+                            <div style={{ marginTop: 6, fontSize: 11, color: "#15803D", fontWeight: 600, padding: "4px 8px", background: "#DCFCE7", borderRadius: 6 }}>
+                              {autoApproveToast}
+                            </div>
+                          )}
+                        </div>
+
                         <div className="flex gap-2 flex-wrap items-center">
-                          <span className="text-xs text-slate-500">{wallSegs.length} קירות · {fixSegs.length} אביזרים</span>
+                          <span className="text-xs text-slate-500">{pendingWallSegs.length} ממתינים · {wallSegs.length} קירות · {fixSegs.length} אביזרים</span>
                           <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.map(s => s.segment_id)))} className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בחר הכל</button>
                           <button type="button" onClick={() => setAutoSelected(new Set())} className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">בטל הכל</button>
-                          <button type="button" onClick={() => setAutoSelected(new Set(autoSegments.filter(s => s.element_class !== "fixture" && s.confidence >= 0.8).map(s => s.segment_id)))} className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">ביטחון {">"}80%</button>
+                        </div>
+
+                        {/* ── Pending-only toggle ── */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: "var(--s50)", borderRadius: 7, border: "1px solid var(--s200)" }}>
+                          <span style={{ fontSize: 11, color: "var(--s700)", flex: 1 }}>
+                            נותרו <strong>{pendingWallSegs.length}</strong> מתוך <strong>{wallSegs.length}</strong> לאישור
+                          </span>
+                          <button type="button" onClick={() => setShowPendingOnly(p => !p)}
+                            style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: "1px solid var(--s300)", background: showPendingOnly ? "var(--navy)" : "#fff", color: showPendingOnly ? "#fff" : "var(--s700)", fontWeight: 600, cursor: "pointer" }}>
+                            {showPendingOnly ? "ממתינים בלבד" : "הכל"}
+                          </button>
                         </div>
 
                         {/* ── Bulk-assign panel ── */}
@@ -2010,37 +2207,47 @@ export const PlanningPage: React.FC = () => {
                                       return Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
                                     })();
                                     const selectedKey = bulkCatKeys[gKey] ?? existingCatKey;
+                                    const allAssigned = autoSegments
+                                      .filter(s => s.suggested_type === type && s.suggested_subtype === subtype)
+                                      .every(s => !!autoConfirmedKeys[s.segment_id]);
                                     return (
-                                      <div key={gKey} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: "var(--r-sm)", background: "var(--s50)", border: "1px solid var(--s200)" }}>
+                                      <div key={gKey} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: "var(--r-sm)", background: allAssigned ? "#F0FDF4" : "var(--s50)", border: `1px solid ${allAssigned ? "#86EFAC" : "var(--s200)"}` }}>
+                                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: getCategoryColor(type, subtype), flexShrink: 0 }} />
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--s700)" }}>{type}/{subtype}</span>
+                                          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--s800)" }}>{type}/{subtype}</span>
                                           <span style={{ fontSize: 10, color: "var(--s400)", marginRight: 4 }}>— {count} פריטים</span>
                                         </div>
-                                        <select
-                                          value={selectedKey}
-                                          onChange={e => setBulkCatKeys(p => ({ ...p, [gKey]: e.target.value }))}
-                                          style={{ fontSize: 11, border: "1px solid var(--s300)", borderRadius: 5, padding: "3px 6px", background: "#fff", color: "var(--s700)", flexShrink: 0, maxWidth: 110 }}
-                                        >
-                                          <option value="">-- --</option>
-                                          {Object.values(planningState.categories).map(c => (
-                                            <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
-                                          ))}
-                                        </select>
-                                        <button
-                                          type="button"
-                                          disabled={!selectedKey}
-                                          onClick={() => {
-                                            if (!selectedKey) return;
-                                            const ids = autoSegments
-                                              .filter(s => s.suggested_type === type && s.suggested_subtype === subtype)
-                                              .map(s => s.segment_id);
-                                            setAutoConfirmedKeys(prev => { const next = { ...prev }; ids.forEach(id => { next[id] = selectedKey; }); return next; });
-                                            setAutoSelected(prev => { const next = new Set(prev); ids.forEach(id => next.add(id)); return next; });
-                                          }}
-                                          style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: "var(--r-sm)", border: "none", cursor: selectedKey ? "pointer" : "not-allowed", background: selectedKey ? "var(--navy)" : "var(--s300)", color: selectedKey ? "#fff" : "var(--s500)", flexShrink: 0, opacity: selectedKey ? 1 : 0.6 }}
-                                        >
-                                          שייך
-                                        </button>
+                                        {allAssigned ? (
+                                          <span style={{ color: "#22C55E", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>✅ שויך</span>
+                                        ) : (
+                                          <>
+                                            <select
+                                              value={selectedKey}
+                                              onChange={e => setBulkCatKeys(p => ({ ...p, [gKey]: e.target.value }))}
+                                              style={{ fontSize: 11, border: "1px solid var(--s300)", borderRadius: 5, padding: "3px 6px", background: "#fff", color: "var(--s700)", flexShrink: 0, maxWidth: 110 }}
+                                            >
+                                              <option value="">-- בחר --</option>
+                                              {Object.values(planningState.categories).map(c => (
+                                                <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
+                                              ))}
+                                            </select>
+                                            <button
+                                              type="button"
+                                              disabled={!selectedKey}
+                                              onClick={() => {
+                                                if (!selectedKey) return;
+                                                const ids = autoSegments
+                                                  .filter(s => s.suggested_type === type && s.suggested_subtype === subtype)
+                                                  .map(s => s.segment_id);
+                                                setAutoConfirmedKeys(prev => { const next = { ...prev }; ids.forEach(id => { next[id] = selectedKey; }); return next; });
+                                                setAutoSelected(prev => { const next = new Set(prev); ids.forEach(id => next.add(id)); return next; });
+                                              }}
+                                              style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: "var(--r-sm)", border: "none", cursor: selectedKey ? "pointer" : "not-allowed", background: selectedKey ? "var(--navy)" : "var(--s300)", color: selectedKey ? "#fff" : "var(--s500)", flexShrink: 0, opacity: selectedKey ? 1 : 0.6 }}
+                                            >
+                                              ← שייך הכל
+                                            </button>
+                                          </>
+                                        )}
                                       </div>
                                     );
                                   })}
@@ -2059,21 +2266,29 @@ export const PlanningPage: React.FC = () => {
                             >
                               <span style={{ fontSize: 14 }}>🧱</span>
                               <span style={{ fontSize: 11, fontWeight: 700, flex: 1, color: "var(--s700)" }}>קירות וקטעים</span>
-                              <span style={{ fontSize: 10, background: "var(--s200)", color: "var(--s500)", borderRadius: 10, padding: "1px 7px", fontWeight: 600 }}>{wallSegs.length}</span>
+                              <span style={{ fontSize: 10, background: "var(--s200)", color: "var(--s500)", borderRadius: 10, padding: "1px 7px", fontWeight: 600 }}>{displayedWallSegs.length}/{wallSegs.length}</span>
                               <span style={{ fontSize: 11, color: "var(--s400)", marginRight: 2 }}>{expandedGroups.has("walls") ? "▲" : "▼"}</span>
                             </div>
-                            {expandedGroups.has("walls") && wallSegs.map((seg) => {
+                            {expandedGroups.has("walls") && displayedWallSegs.map((seg) => {
                               const checked = autoSelected.has(seg.segment_id);
                               const catKey = autoConfirmedKeys[seg.segment_id] ?? "";
                               const conf = seg.confidence;
+                              const isSelected = selectedSegmentId === seg.segment_id;
                               return (
                                 <div
                                   key={seg.segment_id}
-                                  onClick={() => setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; })}
+                                  ref={el => { segmentListRefs.current[seg.segment_id] = el; }}
+                                  onClick={() => {
+                                    setAutoSelected(prev => { const n = new Set(prev); checked ? n.delete(seg.segment_id) : n.add(seg.segment_id); return n; });
+                                    setSelectedSegmentId(seg.segment_id);
+                                    // Highlight bbox on canvas
+                                    const el2 = document.getElementById(`seg-bbox-${seg.segment_id}`);
+                                    if (el2) el2.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                                  }}
                                   style={{
-                                    background: checked ? "var(--blue-50)" : "var(--s50)",
+                                    background: isSelected ? "#FFF7ED" : checked ? "var(--blue-50)" : "var(--s50)",
                                     borderRadius: "var(--r-sm)",
-                                    border: `1px solid ${checked ? "#93C5FD" : "var(--s200)"}`,
+                                    border: `1.5px solid ${isSelected ? "#F59E0B" : checked ? "#93C5FD" : "var(--s200)"}`,
                                     padding: "9px 11px", marginBottom: 5,
                                     display: "flex", alignItems: "center", gap: 9,
                                     cursor: "pointer",
@@ -2097,6 +2312,7 @@ export const PlanningPage: React.FC = () => {
                                       <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
                                     ))}
                                   </select>
+                                  {catKey && <span style={{ color: "#22C55E", fontSize: 14, flexShrink: 0 }}>✅</span>}
                                 </div>
                               );
                             })}
@@ -2180,19 +2396,46 @@ export const PlanningPage: React.FC = () => {
                                     </div>
                                   )}
 
-                                  {/* ── Section B: פרטים לא מזוהים ── closed by default, grayed */}
+                                  {/* ── Section B: פרטים קטנים — bulk categorize ── */}
                                   {unknownSegs.length > 0 && (
-                                    <div>
+                                    <div style={{ marginTop: 4, border: "1px dashed var(--s300)", borderRadius: "var(--r-sm)", overflow: "hidden" }}>
                                       <div onClick={() => setExpandedGroups(prev => { const n = new Set(prev); n.has("fix_unknown") ? n.delete("fix_unknown") : n.add("fix_unknown"); return n; })}
-                                        style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "5px 10px", borderRadius: "var(--r-sm)", background: "var(--s100)", border: "1px dashed var(--s300)", marginBottom: 4, userSelect: "none", opacity: 0.8 }}>
-                                        <span style={{ fontSize: 13 }}>📌</span>
-                                        <span style={{ fontSize: 11, fontWeight: 600, flex: 1, color: "var(--s500)" }}>פרטים לא מזוהים</span>
-                                        <span style={{ fontSize: 10, background: "var(--s200)", color: "var(--s500)", borderRadius: 10, padding: "1px 6px", fontWeight: 600 }}>{unknownSegs.length}</span>
+                                        style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", padding: "7px 10px", background: "var(--s100)", userSelect: "none", opacity: 0.9 }}>
+                                        <span style={{ fontSize: 13 }}>🔧</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, flex: 1, color: "var(--s600)" }}>{unknownSegs.length} פרטים קטנים — סווג הכל בבת אחת</span>
                                         <span style={{ fontSize: 10, color: "var(--s400)" }}>{expandedGroups.has("fix_unknown") ? "▲" : "▼"}</span>
                                       </div>
                                       {expandedGroups.has("fix_unknown") && (
-                                        <div style={{ opacity: 0.75 }}>
-                                          {unknownSegs.map(seg => <FixRow key={seg.segment_id} seg={seg} />)}
+                                        <div style={{ padding: "10px 12px", background: "var(--s50)" }}>
+                                          <p style={{ fontSize: 11, color: "var(--s500)", marginBottom: 8 }}>בחר קטגוריה לשיוך כל {unknownSegs.length} הפרטים:</p>
+                                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                                            {["חשמל", "אינסטלציה", "טיח וצבע", "דלתות וחלונות"].map(catType => {
+                                              const matchCat = Object.values(planningState.categories).find(c => c.type === catType);
+                                              if (!matchCat) return null;
+                                              return (
+                                                <button key={catType} type="button"
+                                                  onClick={() => void handleBulkConfirmGroup(unknownSegs.map(s => s.segment_id), matchCat.key)}
+                                                  disabled={loading}
+                                                  style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid var(--s300)", background: "#fff", color: "var(--s700)", fontSize: 11, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer" }}>
+                                                  {catType}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+                                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                            <select value={bulkSmallCat} onChange={e => setBulkSmallCat(e.target.value)}
+                                              style={{ flex: 1, fontSize: 11, border: "1px solid var(--s300)", borderRadius: 6, padding: "5px 8px", color: "var(--s700)", background: "#fff" }}>
+                                              <option value="">אחר — בחר קטגוריה...</option>
+                                              {Object.values(planningState.categories).map(c => (
+                                                <option key={c.key} value={c.key}>{c.type}/{c.subtype}</option>
+                                              ))}
+                                            </select>
+                                            <button type="button" disabled={!bulkSmallCat || loading}
+                                              onClick={() => { if (bulkSmallCat) void handleBulkConfirmGroup(unknownSegs.map(s => s.segment_id), bulkSmallCat); }}
+                                              style={{ padding: "5px 12px", borderRadius: 7, border: "none", background: bulkSmallCat ? "var(--navy)" : "var(--s300)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: bulkSmallCat ? "pointer" : "not-allowed", flexShrink: 0 }}>
+                                              שייך הכל
+                                            </button>
+                                          </div>
                                         </div>
                                       )}
                                     </div>

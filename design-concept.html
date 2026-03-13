@@ -1,0 +1,1626 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ConTech — Design Concept</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:      #0D1F3C;
+      --navy-2:    #1B3A6B;
+      --blue:      #2563EB;
+      --blue-h:    #1D4ED8;
+      --blue-50:   #EFF6FF;
+      --blue-100:  #DBEAFE;
+      --green:     #059669;
+      --green-50:  #ECFDF5;
+      --amber:     #D97706;
+      --amber-50:  #FFFBEB;
+      --red:       #DC2626;
+      --red-50:    #FEF2F2;
+      --s50:  #F8FAFC;
+      --s100: #F1F5F9;
+      --s200: #E2E8F0;
+      --s300: #CBD5E1;
+      --s400: #94A3B8;
+      --s500: #64748B;
+      --s700: #334155;
+      --s900: #0F172A;
+      --white: #FFFFFF;
+      --sidebar: 232px;
+      --topbar:  58px;
+      --r:    12px;
+      --r-sm: 8px;
+      --sh1: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+      --sh2: 0 4px 16px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.03);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      font-size: 14px;
+      background: var(--s100);
+      color: var(--s900);
+      direction: rtl;
+    }
+
+    /* ── LAYOUT ── */
+    .app { display: flex; min-height: 100vh; }
+    .main { margin-right: var(--sidebar); flex: 1; }
+    .page { display: none; flex-direction: column; min-height: 100vh; }
+    .page.active { display: flex; }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      width: var(--sidebar);
+      background: var(--navy);
+      position: fixed; top: 0; right: 0; bottom: 0;
+      display: flex; flex-direction: column;
+      z-index: 200;
+    }
+
+    .sb-brand {
+      padding: 18px 18px 12px;
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+    }
+    .sb-logo {
+      width: 34px; height: 34px;
+      background: var(--blue); border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; flex-shrink: 0;
+    }
+    .sb-name { font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -.4px; }
+    .sb-tag  { font-size: 10px; color: rgba(255,255,255,.3); margin-top: 1px; }
+
+    .sb-project {
+      margin: 10px 12px;
+      padding: 9px 12px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: var(--r-sm);
+    }
+    .sb-proj-label { font-size: 10px; font-weight: 700; color: rgba(255,255,255,.3); letter-spacing: .8px; text-transform: uppercase; margin-bottom: 3px; }
+    .sb-proj-name  { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.8); line-height: 1.4; }
+
+    .sb-nav { flex: 1; padding: 6px 0; overflow-y: auto; }
+    .sb-section { font-size: 10px; font-weight: 700; color: rgba(255,255,255,.22); letter-spacing: 1px; text-transform: uppercase; padding: 12px 18px 4px; }
+
+    .nav-item {
+      display: flex; align-items: center; gap: 11px;
+      padding: 10px 18px;
+      color: rgba(255,255,255,.5);
+      font-size: 13px; font-weight: 500;
+      cursor: pointer;
+      border-right: 3px solid transparent;
+      transition: all .12s;
+      user-select: none;
+    }
+    .nav-item:hover { color: rgba(255,255,255,.85); background: rgba(255,255,255,.05); }
+    .nav-item.active { color: #fff; background: rgba(37,99,235,.18); border-right-color: var(--blue); }
+    .nav-item .ni { font-size: 17px; width: 20px; text-align: center; flex-shrink: 0; }
+    .nav-badge {
+      margin-right: auto;
+      background: var(--blue); color: #fff;
+      font-size: 10px; font-weight: 700;
+      padding: 2px 7px; border-radius: 10px;
+    }
+
+    .sb-user {
+      padding: 12px 16px;
+      border-top: 1px solid rgba(255,255,255,.07);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), #7C3AED);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .user-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,.85); }
+    .user-role { font-size: 11px; color: rgba(255,255,255,.32); }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      height: var(--topbar);
+      background: var(--white);
+      border-bottom: 1px solid var(--s200);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 28px;
+      position: sticky; top: 0; z-index: 100;
+      flex-shrink: 0;
+    }
+    .tb-title { font-size: 16px; font-weight: 700; }
+    .tb-sub   { font-size: 12px; color: var(--s400); margin-top: 1px; }
+    .tb-right { display: flex; align-items: center; gap: 8px; }
+
+    /* ── BUTTONS ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: var(--r-sm);
+      font-size: 13px; font-weight: 600;
+      cursor: pointer; border: none; transition: all .12s; line-height: 1;
+    }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover { background: var(--blue-h); }
+    .btn-outline { background: transparent; color: var(--s700); border: 1px solid var(--s300); }
+    .btn-outline:hover { background: var(--s100); }
+    .btn-ghost  { background: transparent; color: var(--s500); }
+    .btn-ghost:hover { color: var(--s900); }
+    .btn-sm { padding: 5px 12px; font-size: 12px; }
+    .btn-green { background: var(--green); color: #fff; }
+    .btn-green:hover { background: #047857; }
+
+    /* ── CONTENT ── */
+    .content { padding: 24px 28px; flex: 1; }
+
+    /* ── CARDS ── */
+    .card { background: var(--white); border-radius: var(--r); box-shadow: var(--sh1); overflow: hidden; }
+    .card-head {
+      padding: 14px 20px; border-bottom: 1px solid var(--s100);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .card-title { font-size: 13px; font-weight: 700; }
+
+    /* ── BADGES ── */
+    .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+    .badge-blue  { background: var(--blue-100); color: var(--blue); }
+    .badge-green { background: var(--green-50); color: var(--green); }
+    .badge-amber { background: var(--amber-50); color: var(--amber); }
+    .badge-gray  { background: var(--s100); color: var(--s500); }
+
+    /* ── DOT ── */
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot-blue  { background: var(--blue); }
+    .dot-green { background: var(--green); }
+    .dot-amber { background: var(--amber); }
+    .dot-gray  { background: var(--s300); }
+
+    /* ══════════════════════════════════════
+       PAGE 1 — WORKSHOP
+    ══════════════════════════════════════ */
+
+    .upload-zone {
+      border: 2px dashed var(--s300);
+      border-radius: var(--r);
+      padding: 44px 32px;
+      text-align: center;
+      background: var(--white);
+      cursor: pointer;
+      transition: all .2s;
+      margin-bottom: 24px;
+    }
+    .upload-zone:hover { border-color: var(--blue); background: var(--blue-50); }
+    .upload-icon  { font-size: 38px; margin-bottom: 10px; }
+    .upload-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+    .upload-desc  { font-size: 13px; color: var(--s400); }
+    .upload-hint  { font-size: 11px; color: var(--s300); margin-top: 5px; }
+
+    .section-label {
+      font-size: 11px; font-weight: 700; color: var(--s400);
+      text-transform: uppercase; letter-spacing: .8px;
+      margin-bottom: 14px;
+    }
+
+    .plans-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 18px;
+    }
+
+    .plan-card {
+      background: var(--white); border-radius: var(--r);
+      box-shadow: var(--sh1); overflow: hidden;
+      cursor: pointer; transition: all .15s;
+    }
+    .plan-card:hover { box-shadow: var(--sh2); transform: translateY(-2px); }
+
+    .plan-thumb {
+      height: 136px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 44px; position: relative;
+    }
+    .thumb-done    { background: linear-gradient(140deg, #ECFDF5, #D1FAE5); }
+    .thumb-active  { background: linear-gradient(140deg, #EFF6FF, #DBEAFE); }
+    .thumb-pending { background: linear-gradient(140deg, #FFFBEB, #FEF3C7); }
+
+    .thumb-badge {
+      position: absolute; top: 10px; left: 10px;
+      padding: 3px 8px; border-radius: 12px;
+      font-size: 10px; font-weight: 700;
+    }
+    .tb-done    { background: var(--green-50); color: var(--green); }
+    .tb-active  { background: var(--blue-100); color: var(--blue); }
+    .tb-pending { background: var(--amber-50); color: var(--amber); }
+
+    .plan-info { padding: 12px 14px; }
+    .plan-name { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+    .plan-meta { font-size: 11px; color: var(--s400); margin-bottom: 10px; }
+
+    /* ══════════════════════════════════════
+       PAGE 2 — PLANNING
+    ══════════════════════════════════════ */
+
+    .steps-bar {
+      background: var(--white);
+      border-bottom: 1px solid var(--s200);
+      padding: 14px 28px;
+      display: flex; align-items: center;
+      flex-shrink: 0;
+    }
+    .step-item { display: flex; align-items: center; flex: 1; }
+    .step-circle {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+    }
+    .sc-done   { background: var(--green); color: #fff; }
+    .sc-now    { background: var(--blue); color: #fff; outline: 3px solid var(--blue-100); }
+    .sc-later  { background: var(--s200); color: var(--s400); }
+    .step-label { font-size: 12px; font-weight: 600; margin-right: 8px; white-space: nowrap; }
+    .sl-done  { color: var(--green); }
+    .sl-now   { color: var(--blue); }
+    .sl-later { color: var(--s400); }
+    .step-line { flex: 1; height: 2px; margin: 0 10px; border-radius: 1px; }
+    .sline-done { background: var(--green); }
+    .sline-todo { background: var(--s200); }
+
+    .plan-layout {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      flex: 1;
+      height: calc(100vh - var(--topbar) - 57px);
+    }
+
+    /* Canvas */
+    .plan-canvas {
+      background: #1A2744;
+      position: relative; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .floor-svg { max-width: 88%; max-height: 88%; }
+    .canvas-zoom {
+      position: absolute; top: 12px; right: 12px;
+      background: rgba(0,0,0,.35); color: rgba(255,255,255,.55);
+      font-size: 11px; padding: 3px 10px; border-radius: 20px;
+    }
+    .canvas-tools {
+      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 4px;
+      background: rgba(10,20,40,.65);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 30px; padding: 5px 8px;
+    }
+    .ctool {
+      width: 34px; height: 34px; border-radius: 50%;
+      border: none; background: transparent;
+      color: rgba(255,255,255,.45); font-size: 15px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: all .12s;
+    }
+    .ctool:hover, .ctool.on { background: rgba(255,255,255,.12); color: #fff; }
+    .ctool-sep { width: 1px; background: rgba(255,255,255,.12); margin: 4px 2px; }
+
+    /* Panel */
+    .plan-panel {
+      background: var(--white);
+      border-right: 1px solid var(--s200);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .panel-tabs { display: flex; border-bottom: 1px solid var(--s200); flex-shrink: 0; }
+    .ptab {
+      flex: 1; padding: 12px 6px;
+      text-align: center; font-size: 12px; font-weight: 600;
+      color: var(--s400); cursor: pointer;
+      border-bottom: 2px solid transparent; transition: all .12s;
+    }
+    .ptab.on { color: var(--blue); border-bottom-color: var(--blue); }
+    .ptab:hover:not(.on) { color: var(--s700); }
+    .panel-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+    .panel-foot {
+      padding: 12px 14px; border-top: 1px solid var(--s200);
+      background: var(--s50); display: flex; gap: 8px;
+    }
+
+    /* Vision section */
+    .vsection-label {
+      font-size: 10px; font-weight: 700; color: var(--s400);
+      text-transform: uppercase; letter-spacing: .7px;
+      margin-bottom: 10px;
+    }
+    .vcards-row { display: flex; gap: 7px; margin-bottom: 12px; }
+    .vcard {
+      flex: 1; border-radius: 9px; padding: 9px 6px;
+      text-align: center; cursor: pointer;
+      border: 2px solid var(--s200);
+      background: var(--s50);
+      transition: all .12s;
+    }
+    .vcard:hover { transform: translateY(-1px); }
+    .vcard.vc-on { border-color: currentColor; }
+    .vcard.rooms     { color: #1E40AF; }
+    .vcard.rooms.vc-on    { background: #EFF6FF; border-color: #93C5FD; }
+    .vcard.elements  { color: #166534; }
+    .vcard.elements.vc-on { background: #F0FDF4; border-color: #86EFAC; }
+    .vcard.mats      { color: #9A3412; }
+    .vcard.mats.vc-on     { background: #FFF7ED; border-color: #FED7AA; }
+    .vcard.dims      { color: #6B21A8; }
+    .vcard.dims.vc-on     { background: #FAF5FF; border-color: #DDD6FE; }
+    .vcard-icon { font-size: 19px; margin-bottom: 2px; }
+    .vcard-num  { font-size: 16px; font-weight: 800; }
+    .vcard-lbl  { font-size: 10px; font-weight: 700; }
+
+    .vdetail { background: var(--s50); border-radius: var(--r-sm); padding: 11px; font-size: 12px; }
+    .vdetail-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .vdetail-table th { text-align: right; padding: 5px 7px; font-weight: 700; border-bottom: 1px solid var(--blue-100); background: var(--blue-50); }
+    .vdetail-table td { padding: 5px 7px; border-bottom: 1px solid var(--s100); }
+    .vdetail-table tr:last-child td { border-bottom: none; }
+    .vdetail-table tr:nth-child(even) td { background: #F8FAFC; }
+
+    .elem-group {
+      background: var(--white); border-radius: var(--r-sm);
+      border: 1px solid var(--s200); padding: 9px 11px; margin-bottom: 7px;
+    }
+    .eg-head { font-weight: 700; color: var(--s700); margin-bottom: 5px; display: flex; align-items: center; gap: 6px; }
+    .eg-count { font-size: 10px; font-weight: 700; color: var(--s400); background: var(--s100); padding: 1px 6px; border-radius: 10px; }
+    .eg-row { font-size: 11px; color: var(--s500); padding: 3px 0; border-top: 1px solid var(--s100); display: flex; gap: 6px; }
+    .eg-id  { color: var(--s400); font-weight: 600; min-width: 26px; }
+
+    /* Segment list */
+    .seg-item {
+      background: var(--s50); border-radius: var(--r-sm);
+      border: 1px solid var(--s200);
+      padding: 9px 11px; margin-bottom: 7px;
+      display: flex; align-items: center; gap: 9px;
+    }
+    .seg-cb {
+      width: 17px; height: 17px; border-radius: 4px;
+      background: var(--blue); display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 10px; flex-shrink: 0;
+    }
+    .seg-cb.off { background: var(--s300); }
+    .seg-name { font-size: 12px; font-weight: 600; }
+    .seg-dim  { font-size: 11px; color: var(--s400); }
+    .seg-select {
+      font-size: 11px; border: 1px solid var(--s300); border-radius: 5px;
+      padding: 3px 6px; color: var(--s700); background: var(--white); flex-shrink: 0;
+    }
+
+    /* ══════════════════════════════════════
+       PAGE 3 — WORKER v2 (canvas layout)
+    ══════════════════════════════════════ */
+
+    /* Compact stats strip */
+    .worker-strip {
+      background: var(--white); border-bottom: 1px solid var(--s200);
+      padding: 10px 28px; display: flex; align-items: center; gap: 20px; flex-shrink: 0;
+    }
+    .wstrip-stat { text-align: center; min-width: 52px; }
+    .wstrip-num  { font-size: 20px; font-weight: 800; line-height: 1; }
+    .wstrip-lbl  { font-size: 10px; color: var(--s400); font-weight: 600; margin-top: 2px; }
+    .wstrip-sep  { width: 1px; height: 32px; background: var(--s200); flex-shrink: 0; }
+    .wstrip-prog { flex: 1; }
+    .wstrip-prog-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
+    .wstrip-prog-val  { font-weight: 700; color: var(--blue); }
+
+    /* Two-col body */
+    .worker-body {
+      display: grid; grid-template-columns: 1fr 310px;
+      flex: 1; overflow: hidden;
+      height: calc(100vh - var(--topbar) - 54px);
+    }
+
+    /* Canvas side */
+    .worker-canvas-area {
+      background: #111C2E; position: relative;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .plan-legend {
+      position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 14px;
+      background: rgba(0,0,0,.55); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 20px;
+      padding: 7px 16px; font-size: 11px; color: rgba(255,255,255,.7); font-weight: 600;
+      white-space: nowrap;
+    }
+    .legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-left: 5px; vertical-align: middle; }
+    .room-area { cursor: pointer; transition: opacity .15s; }
+    .room-area:hover { opacity: 1 !important; }
+    @keyframes pulse-stroke { 0%,100%{stroke-opacity:.5} 50%{stroke-opacity:1} }
+    .room-pulse { animation: pulse-stroke 2s ease-in-out infinite; }
+
+    /* Panel side */
+    .worker-task-panel {
+      background: var(--white); border-right: 1px solid var(--s200);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .wtp-placeholder {
+      color: var(--s400); font-size: 13px; text-align: center;
+      padding: 22px 16px; border-bottom: 1px solid var(--s200); flex-shrink: 0;
+    }
+    .wtp-detail {
+      padding: 14px 16px; border-bottom: 1px solid var(--s200); flex-shrink: 0;
+    }
+    .wtp-title { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+    .wtp-cat   { font-size: 12px; color: var(--s400); margin-bottom: 10px; }
+    .wtp-actions { display: flex; gap: 7px; align-items: center; margin-top: 12px; }
+    .wtp-list { flex: 1; overflow-y: auto; }
+    .wtp-list-head {
+      font-size: 10px; font-weight: 700; color: var(--s400);
+      text-transform: uppercase; letter-spacing: .7px; padding: 10px 14px 5px;
+    }
+
+    /* Task list items (compact) */
+    .wtask-item {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 14px; border-bottom: 1px solid var(--s100);
+      cursor: pointer; transition: background .1s;
+    }
+    .wtask-item:hover { background: var(--s50); }
+    .wtask-item.selected { background: var(--blue-50); }
+    .wti-icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+    }
+    .wti-info { flex: 1; min-width: 0; }
+    .wti-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wti-pct  { font-size: 11px; color: var(--s400); margin-top: 1px; }
+    .wti-bar  { width: 44px; height: 4px; background: var(--s200); border-radius: 2px; overflow: hidden; flex-shrink: 0; }
+    .wti-fill { height: 100%; border-radius: 2px; }
+
+    /* Shared progress + action styles (used in detail panel) */
+    .prog-track  { height: 6px; background: var(--s200); border-radius: 3px; overflow: hidden; margin-bottom: 5px; }
+    .prog-fill   { height: 100%; border-radius: 3px; transition: width .3s; }
+    .prog-labels { display: flex; justify-content: space-between; font-size: 11px; }
+    .prog-val    { font-weight: 700; }
+    .prog-dim    { color: var(--s400); }
+    .tc-photo {
+      width: 38px; height: 38px; border-radius: var(--r-sm);
+      border: 1.5px solid var(--s200); background: var(--white);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; cursor: pointer; flex-shrink: 0;
+    }
+    .tc-btn {
+      flex: 1; padding: 9px; border-radius: var(--r-sm);
+      font-size: 12px; font-weight: 700; cursor: pointer; border: none; text-align: center;
+    }
+    .tcb-start  { background: var(--blue-50);  color: var(--blue); }
+    .tcb-update { background: var(--s100);      color: var(--s700); }
+    .tcb-done   { background: var(--green-50);  color: var(--green); }
+
+    /* ══════════════════════════════════════
+       PAGE 4 — DASHBOARD
+    ══════════════════════════════════════ */
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px; margin-bottom: 22px;
+    }
+    .kpi-card { background: var(--white); border-radius: var(--r); box-shadow: var(--sh1); padding: 18px 20px; }
+    .kpi-top-border { border-top: 3px solid; }
+    .kpi-lbl {
+      font-size: 11px; font-weight: 700; color: var(--s400);
+      text-transform: uppercase; letter-spacing: .6px;
+      margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+    }
+    .kpi-val  { font-size: 30px; font-weight: 800; letter-spacing: -1.5px; line-height: 1; margin-bottom: 8px; }
+    .kpi-sub  { font-size: 12px; color: var(--s400); display: flex; align-items: center; gap: 4px; }
+    .trend-up   { color: var(--green); font-weight: 700; }
+    .trend-down { color: var(--red);   font-weight: 700; }
+
+    .dash-grid { display: grid; grid-template-columns: 1fr 330px; gap: 16px; }
+
+    .section-card { background: var(--white); border-radius: var(--r); box-shadow: var(--sh1); overflow: hidden; }
+    .sc-head {
+      padding: 13px 20px; border-bottom: 1px solid var(--s100);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .sc-title { font-size: 13px; font-weight: 700; }
+
+    .boq-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .boq-table th { text-align: right; padding: 9px 16px; font-size: 11px; font-weight: 700; color: var(--s400); background: var(--s50); border-bottom: 1px solid var(--s200); }
+    .boq-table td { padding: 10px 16px; border-bottom: 1px solid var(--s100); color: var(--s700); }
+    .boq-table tr:last-child td { border-bottom: none; }
+    .boq-table tr:hover td { background: var(--s50); }
+    .boq-table td:first-child { font-weight: 600; color: var(--s900); }
+
+    .mini-track { width: 80px; height: 5px; background: var(--s200); border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
+    .mini-fill  { height: 100%; border-radius: 3px; }
+
+    .cat-list { padding: 14px 20px; }
+    .cat-item { margin-bottom: 15px; }
+    .cat-head { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12px; }
+    .cat-name { font-weight: 600; }
+    .cat-pct  { font-weight: 700; }
+    .cat-bar  { height: 7px; background: var(--s200); border-radius: 4px; overflow: hidden; }
+    .cat-fill { height: 100%; border-radius: 4px; }
+
+    .activity { padding: 12px 20px; font-size: 12px; }
+    .act-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--s100); }
+    .act-item:last-child { border-bottom: none; }
+    .act-dot  { width: 8px; height: 8px; border-radius: 50%; margin-top: 3px; flex-shrink: 0; }
+    .act-name { font-weight: 600; }
+    .act-time { font-size: 11px; color: var(--s400); margin-top: 2px; }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--s300); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--s400); }
+
+    /* ══════════════════════════════════════
+       RESPONSIVE — TABLET (≤ 1100px)
+    ══════════════════════════════════════ */
+    @media (max-width: 1100px) {
+      :root { --sidebar: 200px; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .dash-grid { grid-template-columns: 1fr; }
+      .plan-panel { width: 310px; }
+    }
+
+    /* ══════════════════════════════════════
+       RESPONSIVE — MOBILE (≤ 768px)
+    ══════════════════════════════════════ */
+    @media (max-width: 768px) {
+
+      /* ── Sidebar → bottom tab bar ── */
+      .sidebar {
+        width: 100%;
+        height: 58px;
+        top: auto;
+        bottom: 0;
+        flex-direction: row;
+        border-top: 1px solid rgba(255,255,255,.12);
+        z-index: 300;
+      }
+      .sb-brand, .sb-project, .sb-user { display: none; }
+      .sb-nav {
+        display: flex;
+        flex-direction: row;
+        padding: 0;
+        flex: 1;
+        overflow: hidden;
+      }
+      .sb-section { display: none; }
+      .nav-item {
+        flex: 1;
+        flex-direction: column;
+        padding: 6px 2px 4px;
+        font-size: 10px;
+        gap: 2px;
+        justify-content: center;
+        align-items: center;
+        border-right: none !important;
+        border-top: 2px solid transparent !important;
+        position: relative;
+      }
+      .nav-item.active {
+        border-right-color: transparent !important;
+        border-top-color: var(--blue) !important;
+      }
+      .nav-item .ni { font-size: 21px; width: auto; }
+      .nav-badge {
+        position: absolute;
+        top: 4px;
+        left: calc(50% + 6px);
+        margin: 0;
+        font-size: 9px;
+        padding: 1px 5px;
+      }
+
+      /* ── Main area ── */
+      .main { margin-right: 0; margin-bottom: 58px; }
+
+      /* ── Topbar ── */
+      .topbar { padding: 0 14px; height: 50px; }
+      .tb-title { font-size: 14px; }
+      .tb-sub   { font-size: 11px; }
+      /* Show only last button in topbar-right */
+      .tb-right .btn-outline { display: none; }
+      .tb-right select { font-size: 11px; padding: 5px 8px; }
+
+      /* ── Content ── */
+      .content { padding: 14px; }
+
+      /* ── WORKSHOP ── */
+      .upload-zone  { padding: 24px 14px; margin-bottom: 16px; }
+      .upload-icon  { font-size: 28px; }
+      .upload-title { font-size: 13px; }
+      .upload-desc  { font-size: 12px; }
+      .plans-grid   { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+      .plan-thumb   { height: 100px; font-size: 32px; }
+      .plan-name    { font-size: 12px; }
+      .plan-meta    { font-size: 10px; margin-bottom: 8px; }
+      .plan-info    { padding: 10px 12px; }
+
+      /* ── PLANNING — stack vertically ── */
+      .steps-bar {
+        padding: 10px 14px;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        -webkit-overflow-scrolling: touch;
+      }
+      /* Hide step text on mobile, show circles only */
+      .step-label { display: none; }
+      .step-line  { min-width: 16px; margin: 0 6px; }
+
+      .plan-layout {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 0;
+        flex: none;
+      }
+      .plan-canvas {
+        height: 44vw;
+        min-height: 200px;
+        max-height: 50vh;
+      }
+      .plan-panel {
+        border-right: none;
+        border-top: 1px solid var(--s200);
+        height: auto;
+        max-height: none;
+      }
+      .planning-layout { height: auto; }
+
+      /* ── WORKER — stack canvas + panel ── */
+      .worker-strip {
+        padding: 8px 14px;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .wstrip-stat  { min-width: 42px; }
+      .wstrip-num   { font-size: 17px; }
+      .wstrip-sep   { display: none; }
+      .wstrip-prog  { width: 100%; flex-basis: 100%; order: 10; }
+
+      .worker-body {
+        grid-template-columns: 1fr;
+        height: auto;
+        overflow: visible;
+      }
+      .worker-canvas-area {
+        height: 44vw;
+        min-height: 210px;
+        max-height: 48vh;
+      }
+      #worker-svg { max-width: 95%; max-height: 95%; }
+      .worker-task-panel {
+        border-right: none;
+        border-top: 1px solid var(--s200);
+        height: auto;
+        max-height: none;
+        overflow: visible;
+      }
+      .wtp-list { overflow: visible; }
+      .plan-legend {
+        font-size: 10px;
+        gap: 8px;
+        padding: 5px 12px;
+      }
+
+      /* ── DASHBOARD ── */
+      .kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .kpi-card  { padding: 14px; }
+      .kpi-val   { font-size: 24px; }
+      .kpi-lbl   { font-size: 10px; margin-bottom: 8px; }
+      .dash-grid { grid-template-columns: 1fr; gap: 12px; }
+
+      /* Hide less critical BOQ columns on mobile */
+      .boq-table th:nth-child(3),
+      .boq-table td:nth-child(3) { display: none; }
+      .boq-table th, .boq-table td { padding: 8px 10px; }
+      .boq-table { font-size: 11px; }
+      .mini-track { width: 50px; }
+
+      /* ── Vision panel in planning ── */
+      .vcards-row { gap: 5px; }
+      .vcard { min-width: 0; padding: 8px 4px; }
+      .vcard-num { font-size: 14px; }
+      .vcard-lbl { font-size: 9px; }
+    }
+
+    /* ══════════════════════════════════════
+       RESPONSIVE — SMALL PHONE (≤ 480px)
+    ══════════════════════════════════════ */
+    @media (max-width: 480px) {
+      .plans-grid   { grid-template-columns: 1fr; }
+      .kpi-grid     { grid-template-columns: repeat(2, 1fr); }
+      .section-label { font-size: 10px; }
+      .upload-zone  { padding: 18px 12px; }
+      .topbar       { height: 48px; }
+      .tb-title     { font-size: 13px; }
+      .worker-canvas-area { height: 52vw; min-height: 190px; }
+      .wtp-actions  { flex-wrap: wrap; }
+      .wtp-actions .tc-btn { min-width: calc(50% - 4px); }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══ SIDEBAR ══ -->
+  <nav class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-logo">🏗️</div>
+      <div>
+        <div class="sb-name">ConTech</div>
+        <div class="sb-tag">ניהול בנייה חכם</div>
+      </div>
+    </div>
+
+    <div class="sb-project">
+      <div class="sb-proj-label">פרויקט פעיל</div>
+      <div class="sb-proj-name">בניין רסקו — מנחם בגין 132</div>
+    </div>
+
+    <div class="sb-nav">
+      <div class="sb-section">תכנון</div>
+      <div class="nav-item active" onclick="go('workshop')">
+        <span class="ni">🏗️</span> סדנת עבודה
+      </div>
+      <div class="nav-item" onclick="go('planning')">
+        <span class="ni">📋</span> הגדרת תכולה
+      </div>
+      <div class="sb-section">ביצוע</div>
+      <div class="nav-item" onclick="go('worker')">
+        <span class="ni">👷</span> ממשק עובד
+        <span class="nav-badge">3</span>
+      </div>
+      <div class="nav-item" onclick="go('dashboard')">
+        <span class="ni">📊</span> דשבורד
+      </div>
+    </div>
+
+    <div class="sb-user">
+      <div class="avatar">ד"כ</div>
+      <div>
+        <div class="user-name">דוד כהן</div>
+        <div class="user-role">מנהל פרויקט</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ══ MAIN ══ -->
+  <main class="main">
+
+    <!-- ════════════════════════════════════
+         PAGE 1 — WORKSHOP (סדנת עבודה)
+    ════════════════════════════════════ -->
+    <section class="page active" id="page-workshop">
+      <div class="topbar">
+        <div>
+          <div class="tb-title">סדנת עבודה</div>
+          <div class="tb-sub">ניהול תוכניות קומה</div>
+        </div>
+        <div class="tb-right">
+          <button class="btn btn-outline btn-sm">ייצוא רשימה</button>
+          <button class="btn btn-primary">+ העלאת תוכנית</button>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- Upload zone -->
+        <div class="upload-zone">
+          <div class="upload-icon">📄</div>
+          <div class="upload-title">גרור קובץ PDF לכאן להעלאה</div>
+          <div class="upload-desc">או לחץ לבחירת קובץ מהמחשב</div>
+          <div class="upload-hint">PDF בלבד · מקסימום 50MB</div>
+        </div>
+
+        <!-- Plans -->
+        <div class="section-label">תוכניות קומה · 4 קבצים</div>
+        <div class="plans-grid">
+
+          <div class="plan-card">
+            <div class="plan-thumb thumb-done">
+              🏛️
+              <span class="thumb-badge tb-done">✓ נותח</span>
+            </div>
+            <div class="plan-info">
+              <div class="plan-name">קומת קרקע</div>
+              <div class="plan-meta">18.02.2026 · 428 מ"ר · 12 פריטים</div>
+              <button class="btn btn-primary btn-sm" style="width:100%" onclick="go('planning')">פתח לעריכה ←</button>
+            </div>
+          </div>
+
+          <div class="plan-card">
+            <div class="plan-thumb thumb-active">
+              🏛️
+              <span class="thumb-badge tb-active">⚙ בהגדרה</span>
+            </div>
+            <div class="plan-info">
+              <div class="plan-name">קומה א׳</div>
+              <div class="plan-meta">19.02.2026 · 386 מ"ר · שלב 3/5</div>
+              <button class="btn btn-outline btn-sm" style="width:100%">המשך הגדרה</button>
+            </div>
+          </div>
+
+          <div class="plan-card">
+            <div class="plan-thumb thumb-pending">
+              🏛️
+              <span class="thumb-badge tb-pending">⏳ ממתין</span>
+            </div>
+            <div class="plan-info">
+              <div class="plan-name">קומה ב׳</div>
+              <div class="plan-meta">20.02.2026 · 386 מ"ר</div>
+              <button class="btn btn-outline btn-sm" style="width:100%">התחל ניתוח</button>
+            </div>
+          </div>
+
+          <div class="plan-card">
+            <div class="plan-thumb thumb-pending">
+              🏛️
+              <span class="thumb-badge tb-pending">⏳ ממתין</span>
+            </div>
+            <div class="plan-info">
+              <div class="plan-name">קומת גג</div>
+              <div class="plan-meta">22.02.2026 · 210 מ"ר</div>
+              <button class="btn btn-outline btn-sm" style="width:100%">התחל ניתוח</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════
+         PAGE 2 — PLANNING (הגדרת תכולה)
+    ════════════════════════════════════ -->
+    <section class="page" id="page-planning">
+      <div class="topbar">
+        <div>
+          <div class="tb-title">הגדרת תכולה — קומת קרקע</div>
+          <div class="tb-sub">שלב 3 מתוך 5 · הוספת פריטי עבודה</div>
+        </div>
+        <div class="tb-right">
+          <button class="btn btn-outline btn-sm" onclick="go('workshop')">← חזרה</button>
+          <button class="btn btn-primary">שמור וסיים ✓</button>
+        </div>
+      </div>
+
+      <!-- Steps -->
+      <div class="steps-bar">
+        <div class="step-item">
+          <div class="step-circle sc-done">✓</div>
+          <div class="step-label sl-done">כיול קנ"מ</div>
+        </div>
+        <div class="step-line sline-done"></div>
+        <div class="step-item">
+          <div class="step-circle sc-done">✓</div>
+          <div class="step-label sl-done">קטגוריות</div>
+        </div>
+        <div class="step-line sline-done"></div>
+        <div class="step-item">
+          <div class="step-circle sc-now">3</div>
+          <div class="step-label sl-now">פריטי עבודה</div>
+        </div>
+        <div class="step-line sline-todo"></div>
+        <div class="step-item">
+          <div class="step-circle sc-later">4</div>
+          <div class="step-label sl-later">פתחים</div>
+        </div>
+        <div class="step-line sline-todo"></div>
+        <div class="step-item">
+          <div class="step-circle sc-later">5</div>
+          <div class="step-label sl-later">סיום</div>
+        </div>
+      </div>
+
+      <!-- Canvas + Panel -->
+      <div class="plan-layout">
+
+        <!-- Canvas -->
+        <div class="plan-canvas">
+          <div class="canvas-zoom">100%</div>
+          <svg class="floor-svg" viewBox="0 0 500 370" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Outer walls -->
+            <rect x="28" y="28" width="444" height="314" stroke="#60A5FA" stroke-width="4.5" fill="none"/>
+            <!-- Interior walls -->
+            <line x1="218" y1="28"  x2="218" y2="196" stroke="#60A5FA" stroke-width="3"/>
+            <line x1="28"  y1="174" x2="218" y2="174" stroke="#60A5FA" stroke-width="3"/>
+            <line x1="218" y1="148" x2="472" y2="148" stroke="#60A5FA" stroke-width="3"/>
+            <line x1="342" y1="148" x2="342" y2="342" stroke="#60A5FA" stroke-width="3"/>
+            <!-- Highlighted walls (active) -->
+            <line x1="28"  y1="28"  x2="218" y2="28"  stroke="#FCD34D" stroke-width="5"/>
+            <line x1="28"  y1="28"  x2="28"  y2="174" stroke="#FCD34D" stroke-width="5"/>
+            <!-- Door arcs -->
+            <path d="M 188 174 A 30 30 0 0 0 218 144" stroke="#93C5FD" stroke-width="1.5" fill="none" stroke-dasharray="4 3"/>
+            <line x1="188" y1="174" x2="188" y2="144" stroke="#93C5FD" stroke-width="1.5" opacity="0.4"/>
+            <path d="M 342 222 A 30 30 0 0 0 372 192" stroke="#93C5FD" stroke-width="1.5" fill="none" stroke-dasharray="4 3"/>
+            <line x1="342" y1="222" x2="372" y2="222" stroke="#93C5FD" stroke-width="1.5" opacity="0.4"/>
+            <!-- Window marks -->
+            <rect x="90"  y="24"  width="60" height="8" fill="#93C5FD" opacity="0.4"/>
+            <rect x="280" y="24"  width="80" height="8" fill="#93C5FD" opacity="0.4"/>
+            <rect x="464" y="80"  width="8"  height="60" fill="#93C5FD" opacity="0.4"/>
+            <!-- Room labels -->
+            <text x="114" y="96"  fill="#93C5FD" font-size="13" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.75">סלון</text>
+            <text x="114" y="242" fill="#93C5FD" font-size="12" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.75">מטבח</text>
+            <text x="332" y="92"  fill="#93C5FD" font-size="12" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.75">חדר שינה 1</text>
+            <text x="408" y="256" fill="#93C5FD" font-size="11" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.75">חדר שינה 2</text>
+            <text x="278" y="256" fill="#93C5FD" font-size="11" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.75">שירותים</text>
+            <!-- Dimensions -->
+            <line x1="28" y1="16" x2="472" y2="16" stroke="#4ADE80" stroke-width="1"/>
+            <text x="250" y="11" fill="#4ADE80" font-size="9" text-anchor="middle" font-family="Arial">22.0 מ׳</text>
+            <line x1="484" y1="28" x2="484" y2="342" stroke="#4ADE80" stroke-width="1"/>
+          </svg>
+          <!-- Canvas toolbar -->
+          <div class="canvas-tools">
+            <button class="ctool on" title="ניתוח אוטומטי">🔍</button>
+            <button class="ctool" title="ציור ידני">✏️</button>
+            <button class="ctool" title="אזור">⬜</button>
+            <div class="ctool-sep"></div>
+            <button class="ctool" title="הגדל">＋</button>
+            <button class="ctool" title="הקטן">－</button>
+            <button class="ctool" title="איפוס">⟲</button>
+          </div>
+        </div>
+
+        <!-- Panel -->
+        <div class="plan-panel">
+          <div class="panel-tabs">
+            <div class="ptab on">🔍 ניתוח אוטו׳</div>
+            <div class="ptab">✏️ ציור ידני</div>
+            <div class="ptab">⬜ אזור</div>
+          </div>
+
+          <div class="panel-body">
+
+            <!-- Vision section -->
+            <div class="vsection-label">🔍 מה Claude Vision זיהה</div>
+            <div class="vcards-row">
+              <div class="vcard rooms vc-on" onclick="selectVcard(this,'rooms')">
+                <div class="vcard-icon">🏠</div>
+                <div class="vcard-num">4</div>
+                <div class="vcard-lbl">חדרים</div>
+              </div>
+              <div class="vcard elements" onclick="selectVcard(this,'elements')">
+                <div class="vcard-icon">🔧</div>
+                <div class="vcard-num">18</div>
+                <div class="vcard-lbl">אלמנטים</div>
+              </div>
+              <div class="vcard mats" onclick="selectVcard(this,'mats')">
+                <div class="vcard-icon">🧱</div>
+                <div class="vcard-num">6</div>
+                <div class="vcard-lbl">חומרים</div>
+              </div>
+              <div class="vcard dims" onclick="selectVcard(this,'dims')">
+                <div class="vcard-icon">📏</div>
+                <div class="vcard-num">24</div>
+                <div class="vcard-lbl">מידות</div>
+              </div>
+            </div>
+
+            <!-- Detail: rooms -->
+            <div class="vdetail" id="vd-rooms">
+              <table class="vdetail-table">
+                <thead>
+                  <tr><th>שם</th><th>שטח</th><th>ריצוף</th><th>גובה</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><strong>סלון</strong></td><td>28 מ"ר</td><td>פרקט</td><td>2.8 מ׳</td></tr>
+                  <tr><td><strong>מטבח</strong></td><td>14 מ"ר</td><td>אריחים</td><td>2.8 מ׳</td></tr>
+                  <tr><td><strong>חדר שינה 1</strong></td><td>18 מ"ר</td><td>פרקט</td><td>2.8 מ׳</td></tr>
+                  <tr><td><strong>שירותים</strong></td><td>6 מ"ר</td><td>אריחים</td><td>2.5 מ׳</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Detail: elements -->
+            <div class="vdetail" id="vd-elements" style="display:none">
+              <div class="elem-group">
+                <div class="eg-head">🚪 דלתות <span class="eg-count">× 8</span></div>
+                <div class="eg-row"><span class="eg-id">D1</span>כניסה ראשית</div>
+                <div class="eg-row"><span class="eg-id">D2</span>חדר שינה ראשי</div>
+                <div class="eg-row"><span class="eg-id">D3</span>שירותים</div>
+                <div class="eg-row" style="color:var(--s400)"><span class="eg-id">···</span>ועוד 5</div>
+              </div>
+              <div class="elem-group">
+                <div class="eg-head">🪟 חלונות <span class="eg-count">× 10</span></div>
+                <div class="eg-row"><span class="eg-id">W1</span>סלון — צפון</div>
+                <div class="eg-row"><span class="eg-id">W2</span>מטבח — מזרח</div>
+                <div class="eg-row" style="color:var(--s400)"><span class="eg-id">···</span>ועוד 8</div>
+              </div>
+            </div>
+
+            <!-- Detail: materials -->
+            <div class="vdetail" id="vd-mats" style="display:none">
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px">
+                <div style="background:#fff;border:1px solid #FED7AA;border-radius:6px;padding:6px 10px;font-size:11px;color:#431407">🟫 בטון</div>
+                <div style="background:#fff;border:1px solid #FED7AA;border-radius:6px;padding:6px 10px;font-size:11px;color:#431407">🟥 לבנים</div>
+                <div style="background:#fff;border:1px solid #FED7AA;border-radius:6px;padding:6px 10px;font-size:11px;color:#431407">⬜ גבס</div>
+                <div style="background:#fff;border:1px solid #FED7AA;border-radius:6px;padding:6px 10px;font-size:11px;color:#431407">🟨 אריחים</div>
+                <div style="background:#fff;border:1px solid #FED7AA;border-radius:6px;padding:6px 10px;font-size:11px;color:#431407">🟤 פרקט עץ</div>
+                <div style="background:#fff;border:1px solid #FED7AA;border-radius:6px;padding:6px 10px;font-size:11px;color:#431407">⬛ פלדה</div>
+              </div>
+            </div>
+
+            <!-- Detail: dimensions -->
+            <div class="vdetail" id="vd-dims" style="display:none">
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px">
+                <div style="background:#fff;border:1px solid #E9D5FF;border-radius:5px;padding:5px 8px;font-family:monospace;font-size:11px;color:#4C1D95;text-align:center">22.0 מ׳</div>
+                <div style="background:#fff;border:1px solid #E9D5FF;border-radius:5px;padding:5px 8px;font-family:monospace;font-size:11px;color:#4C1D95;text-align:center">16.0 מ׳</div>
+                <div style="background:#fff;border:1px solid #E9D5FF;border-radius:5px;padding:5px 8px;font-family:monospace;font-size:11px;color:#4C1D95;text-align:center">3.50 מ׳</div>
+                <div style="background:#fff;border:1px solid #E9D5FF;border-radius:5px;padding:5px 8px;font-family:monospace;font-size:11px;color:#4C1D95;text-align:center">1.20 מ׳</div>
+                <div style="background:#fff;border:1px solid #E9D5FF;border-radius:5px;padding:5px 8px;font-family:monospace;font-size:11px;color:#4C1D95;text-align:center">2.40 מ׳</div>
+                <div style="background:#fff;border:1px solid #E9D5FF;border-radius:5px;padding:5px 8px;font-family:monospace;font-size:11px;color:#4C1D95;text-align:center">0.90 מ׳</div>
+              </div>
+            </div>
+
+            <!-- Divider -->
+            <div style="height:1px;background:var(--s200);margin:16px 0"></div>
+
+            <!-- Segments -->
+            <div class="vsection-label">🧱 קטעים שזוהו (8 סה"כ)</div>
+
+            <div class="seg-item">
+              <div class="seg-cb">✓</div>
+              <div style="flex:1">
+                <div class="seg-name">קיר צפוני — סלון</div>
+                <div class="seg-dim">12.4 מ׳ · בטון</div>
+              </div>
+              <select class="seg-select"><option>קירות / גמר</option></select>
+            </div>
+
+            <div class="seg-item">
+              <div class="seg-cb">✓</div>
+              <div style="flex:1">
+                <div class="seg-name">קיר מזרחי — חדר שינה</div>
+                <div class="seg-dim">8.2 מ׳ · בטון</div>
+              </div>
+              <select class="seg-select"><option>קירות / גמר</option></select>
+            </div>
+
+            <div class="seg-item" style="opacity:.55">
+              <div class="seg-cb off">—</div>
+              <div style="flex:1">
+                <div class="seg-name">כיור מטבח</div>
+                <div class="seg-dim">אביזר</div>
+              </div>
+              <select class="seg-select"><option>— לא רלוונטי —</option></select>
+            </div>
+
+            <div class="seg-item">
+              <div class="seg-cb">✓</div>
+              <div style="flex:1">
+                <div class="seg-name">קיר פנימי — מטבח/סלון</div>
+                <div class="seg-dim">5.8 מ׳ · גבס</div>
+              </div>
+              <select class="seg-select"><option>קירות / גמר</option></select>
+            </div>
+
+          </div>
+
+          <div class="panel-foot">
+            <button class="btn btn-primary" style="flex:1">✓ אשר 3 פריטים</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════
+         PAGE 3 — WORKER (ממשק עובד)
+    ════════════════════════════════════ -->
+    <section class="page" id="page-worker">
+      <div class="topbar">
+        <div>
+          <div class="tb-title">ממשק עובד — יוסי אברהם</div>
+          <div class="tb-sub">📍 בניין רסקו · קומת קרקע · 27.02.2026</div>
+        </div>
+        <div class="tb-right">
+          <button class="btn btn-outline btn-sm">📷 הוסף תמונה</button>
+        </div>
+      </div>
+
+      <!-- Compact stats strip -->
+      <div class="worker-strip">
+        <div class="wstrip-stat">
+          <div class="wstrip-num" style="color:var(--green)">7</div>
+          <div class="wstrip-lbl">הושלמו</div>
+        </div>
+        <div class="wstrip-stat">
+          <div class="wstrip-num" style="color:var(--blue)">3</div>
+          <div class="wstrip-lbl">בעבודה</div>
+        </div>
+        <div class="wstrip-stat">
+          <div class="wstrip-num" style="color:var(--s400)">2</div>
+          <div class="wstrip-lbl">ממתינות</div>
+        </div>
+        <div class="wstrip-sep"></div>
+        <div class="wstrip-prog">
+          <div class="wstrip-prog-head">
+            <span style="color:var(--s500);font-weight:600">התקדמות כוללת</span>
+            <span class="wstrip-prog-val">58%</span>
+          </div>
+          <div class="prog-track">
+            <div class="prog-fill" style="width:58%;background:var(--blue)"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Canvas + Panel -->
+      <div class="worker-body">
+
+        <!-- ── Floor plan canvas ── -->
+        <div class="worker-canvas-area">
+          <svg id="worker-svg" viewBox="0 0 500 370" style="max-width:92%;max-height:92%" fill="none">
+
+            <!-- ── Room status fills ── -->
+            <!-- Salon: in progress -->
+            <rect class="room-area" id="ra-salon"
+                  x="29" y="29" width="188" height="144"
+                  fill="#2563EB" fill-opacity="0.18" rx="2"
+                  onclick="selectWorkerRoom('salon')"/>
+            <!-- Kitchen: not started -->
+            <rect class="room-area" id="ra-kitchen"
+                  x="29" y="175" width="188" height="166"
+                  fill="#94A3B8" fill-opacity="0.08" rx="2"
+                  onclick="selectWorkerRoom('kitchen')"/>
+            <!-- Bed 1: done -->
+            <rect class="room-area" id="ra-bed1"
+                  x="219" y="29" width="253" height="118"
+                  fill="#059669" fill-opacity="0.2" rx="2"
+                  onclick="selectWorkerRoom('bed1')"/>
+            <!-- Bathroom: done -->
+            <rect class="room-area" id="ra-bath"
+                  x="219" y="149" width="122" height="192"
+                  fill="#059669" fill-opacity="0.2" rx="2"
+                  onclick="selectWorkerRoom('bath')"/>
+            <!-- Bed 2: done -->
+            <rect class="room-area" id="ra-bed2"
+                  x="343" y="149" width="129" height="192"
+                  fill="#059669" fill-opacity="0.2" rx="2"
+                  onclick="selectWorkerRoom('bed2')"/>
+
+            <!-- ── Selection highlight (moved by JS) ── -->
+            <rect id="sel-hl" x="0" y="0" width="0" height="0"
+                  stroke="#FBBF24" stroke-width="3"
+                  fill="#FBBF24" fill-opacity="0.07" rx="2"
+                  pointer-events="none"/>
+
+            <!-- ── Animated border for in-progress rooms ── -->
+            <rect x="29" y="29" width="188" height="144"
+                  stroke="#60A5FA" stroke-width="2" fill="none"
+                  class="room-pulse" rx="2" pointer-events="none"/>
+
+            <!-- ── Walls ── -->
+            <rect x="28" y="28" width="444" height="314" stroke="#60A5FA" stroke-width="3.5" fill="none"/>
+            <line x1="218" y1="28"  x2="218" y2="196" stroke="#60A5FA" stroke-width="2.5"/>
+            <line x1="28"  y1="174" x2="218" y2="174" stroke="#60A5FA" stroke-width="2.5"/>
+            <line x1="218" y1="148" x2="472" y2="148" stroke="#60A5FA" stroke-width="2.5"/>
+            <line x1="342" y1="148" x2="342" y2="342" stroke="#60A5FA" stroke-width="2.5"/>
+
+            <!-- ── Doors ── -->
+            <path d="M 188 174 A 30 30 0 0 0 218 144" stroke="#93C5FD" stroke-width="1.5" fill="none" stroke-dasharray="4 3" opacity="0.7"/>
+            <line x1="188" y1="174" x2="188" y2="144" stroke="#93C5FD" stroke-width="1.5" opacity="0.4"/>
+            <path d="M 342 222 A 30 30 0 0 0 372 192" stroke="#93C5FD" stroke-width="1.5" fill="none" stroke-dasharray="4 3" opacity="0.7"/>
+            <line x1="342" y1="222" x2="372" y2="222" stroke="#93C5FD" stroke-width="1.5" opacity="0.4"/>
+
+            <!-- ── Windows ── -->
+            <rect x="80"  y="25" width="60" height="6" fill="#93C5FD" opacity="0.5"/>
+            <rect x="270" y="25" width="80" height="6" fill="#93C5FD" opacity="0.5"/>
+            <rect x="466" y="70" width="6"  height="60" fill="#93C5FD" opacity="0.5"/>
+
+            <!-- ── Status badges on rooms ── -->
+            <!-- Salon % -->
+            <rect x="30" y="30" width="38" height="17" fill="#2563EB" fill-opacity="0.85" rx="3"/>
+            <text x="49" y="42" fill="white" font-size="9" font-weight="bold" text-anchor="middle" font-family="Arial">65%</text>
+            <!-- Bed1 ✓ -->
+            <rect x="220" y="30" width="20" height="17" fill="#059669" fill-opacity="0.85" rx="3"/>
+            <text x="230" y="42" fill="white" font-size="10" font-weight="bold" text-anchor="middle" font-family="Arial">✓</text>
+            <!-- Bath ✓ -->
+            <rect x="220" y="150" width="20" height="17" fill="#059669" fill-opacity="0.85" rx="3"/>
+            <text x="230" y="162" fill="white" font-size="10" font-weight="bold" text-anchor="middle" font-family="Arial">✓</text>
+            <!-- Bed2 ✓ -->
+            <rect x="344" y="150" width="20" height="17" fill="#059669" fill-opacity="0.85" rx="3"/>
+            <text x="354" y="162" fill="white" font-size="10" font-weight="bold" text-anchor="middle" font-family="Arial">✓</text>
+
+            <!-- ── Room labels ── -->
+            <text x="114" y="94"  fill="#93C5FD" font-size="13" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.9">סלון</text>
+            <text x="114" y="110" fill="#60A5FA" font-size="10" text-anchor="middle" font-family="Arial" opacity="0.75">ריצוף פרקט · 65%</text>
+
+            <text x="114" y="258" fill="#64748B" font-size="12" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.7">מטבח</text>
+            <text x="114" y="273" fill="#64748B" font-size="9"  text-anchor="middle" font-family="Arial" opacity="0.55">ריצוף אריחים · לא התחיל</text>
+
+            <text x="334" y="90"  fill="#4ADE80" font-size="12" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.9">חדר שינה 1</text>
+            <text x="334" y="105" fill="#4ADE80" font-size="9"  text-anchor="middle" font-family="Arial" opacity="0.7">קירות גמר · 100%</text>
+
+            <text x="278" y="248" fill="#4ADE80" font-size="11" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.85">שירותים</text>
+            <text x="278" y="261" fill="#4ADE80" font-size="9"  text-anchor="middle" font-family="Arial" opacity="0.7">100%</text>
+
+            <text x="408" y="248" fill="#4ADE80" font-size="11" text-anchor="middle" font-family="Arial" font-weight="bold" opacity="0.85">חדר שינה 2</text>
+            <text x="408" y="261" fill="#4ADE80" font-size="9"  text-anchor="middle" font-family="Arial" opacity="0.7">100%</text>
+          </svg>
+
+          <!-- Legend -->
+          <div class="plan-legend">
+            <span><span class="legend-dot" style="background:#059669"></span>הושלם</span>
+            <span><span class="legend-dot" style="background:#2563EB"></span>בעבודה</span>
+            <span><span class="legend-dot" style="background:#94A3B8;opacity:.45"></span>לא התחיל</span>
+            <span><span class="legend-dot" style="background:#FBBF24"></span>נבחר</span>
+          </div>
+        </div>
+
+        <!-- ── Task Panel ── -->
+        <div class="worker-task-panel">
+
+          <!-- Selected task detail -->
+          <div id="wtp-detail" class="wtp-placeholder">
+            👆 לחץ על חדר בתוכנית לפרטים ועדכון
+          </div>
+
+          <!-- Task list -->
+          <div class="wtp-list">
+            <div class="wtp-list-head">כל המשימות</div>
+
+            <div class="wtask-item" id="wti-salon" onclick="selectWorkerRoom('salon')">
+              <div class="wti-icon" style="background:var(--blue-50);color:var(--blue)">⚙</div>
+              <div class="wti-info">
+                <div class="wti-name">ריצוף סלון</div>
+                <div class="wti-pct" style="color:var(--blue)">65% · בעבודה</div>
+              </div>
+              <div class="wti-bar"><div class="wti-fill" style="width:65%;background:var(--blue)"></div></div>
+            </div>
+
+            <div class="wtask-item" id="wti-wall" onclick="selectWorkerRoom('wall_n')">
+              <div class="wti-icon" style="background:var(--blue-50);color:var(--blue)">⚙</div>
+              <div class="wti-info">
+                <div class="wti-name">קיר צפוני — טיח</div>
+                <div class="wti-pct" style="color:var(--blue)">30% · בעבודה</div>
+              </div>
+              <div class="wti-bar"><div class="wti-fill" style="width:30%;background:var(--blue)"></div></div>
+            </div>
+
+            <div class="wtask-item" id="wti-kitchen" onclick="selectWorkerRoom('kitchen')">
+              <div class="wti-icon" style="background:var(--s100);color:var(--s400)">○</div>
+              <div class="wti-info">
+                <div class="wti-name">ריצוף מטבח</div>
+                <div class="wti-pct">0% · לא התחיל</div>
+              </div>
+              <div class="wti-bar"><div class="wti-fill" style="width:0%;background:var(--s300)"></div></div>
+            </div>
+
+            <div class="wtask-item" id="wti-bed1" onclick="selectWorkerRoom('bed1')">
+              <div class="wti-icon" style="background:var(--green-50);color:var(--green)">✓</div>
+              <div class="wti-info">
+                <div class="wti-name">חדר שינה 1 — גמר</div>
+                <div class="wti-pct" style="color:var(--green)">100% · הושלם</div>
+              </div>
+              <div class="wti-bar"><div class="wti-fill" style="width:100%;background:var(--green)"></div></div>
+            </div>
+
+            <div class="wtask-item" id="wti-bath" onclick="selectWorkerRoom('bath')">
+              <div class="wti-icon" style="background:var(--green-50);color:var(--green)">✓</div>
+              <div class="wti-info">
+                <div class="wti-name">שירותים — סניטרי</div>
+                <div class="wti-pct" style="color:var(--green)">100% · הושלם</div>
+              </div>
+              <div class="wti-bar"><div class="wti-fill" style="width:100%;background:var(--green)"></div></div>
+            </div>
+
+            <div class="wtask-item" id="wti-bed2" onclick="selectWorkerRoom('bed2')">
+              <div class="wti-icon" style="background:var(--green-50);color:var(--green)">✓</div>
+              <div class="wti-info">
+                <div class="wti-name">חדר שינה 2 — גמר</div>
+                <div class="wti-pct" style="color:var(--green)">100% · הושלם</div>
+              </div>
+              <div class="wti-bar"><div class="wti-fill" style="width:100%;background:var(--green)"></div></div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════
+         PAGE 4 — DASHBOARD
+    ════════════════════════════════════ -->
+    <section class="page" id="page-dashboard">
+      <div class="topbar">
+        <div>
+          <div class="tb-title">דשבורד</div>
+          <div class="tb-sub">עדכון אחרון: לפני 3 דקות</div>
+        </div>
+        <div class="tb-right">
+          <select style="font-size:12px;border:1px solid var(--s300);border-radius:6px;padding:6px 10px;color:var(--s700);background:#fff">
+            <option>כל הקומות</option>
+            <option>קומת קרקע</option>
+            <option>קומה א׳</option>
+          </select>
+          <button class="btn btn-outline btn-sm">ייצוא CSV</button>
+        </div>
+      </div>
+
+      <div class="content">
+
+        <!-- KPIs -->
+        <div class="kpi-grid">
+
+          <div class="kpi-card kpi-top-border" style="border-color:var(--blue)">
+            <div class="kpi-lbl">⚡ התקדמות כללית</div>
+            <div class="kpi-val" style="color:var(--blue)">58%</div>
+            <div style="height:5px;background:var(--s200);border-radius:3px;overflow:hidden;margin-bottom:8px">
+              <div style="width:58%;height:100%;background:var(--blue);border-radius:3px"></div>
+            </div>
+            <div class="kpi-sub"><span class="trend-up">↑ 4%</span> מהשבוע שעבר</div>
+          </div>
+
+          <div class="kpi-card kpi-top-border" style="border-color:var(--green)">
+            <div class="kpi-lbl">✓ פריטים הושלמו</div>
+            <div class="kpi-val" style="color:var(--green)">83</div>
+            <div class="kpi-sub">מתוך <strong>142</strong> פריטים</div>
+          </div>
+
+          <div class="kpi-card kpi-top-border" style="border-color:var(--amber)">
+            <div class="kpi-lbl">⏳ בטיפול כעת</div>
+            <div class="kpi-val" style="color:var(--amber)">28</div>
+            <div class="kpi-sub"><span class="trend-down">↓ 2</span> מאתמול</div>
+          </div>
+
+          <div class="kpi-card kpi-top-border" style="border-color:var(--s300)">
+            <div class="kpi-lbl">💰 BOQ משוערת</div>
+            <div class="kpi-val" style="font-size:24px">₪ 2.4M</div>
+            <div class="kpi-sub">שטח: <strong>1,600 מ"ר</strong></div>
+          </div>
+
+        </div>
+
+        <!-- Main grid -->
+        <div class="dash-grid">
+
+          <!-- BOQ Table -->
+          <div class="section-card">
+            <div class="sc-head">
+              <div class="sc-title">📋 ריכוז כמויות — BOQ</div>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm">מיון ↕</button>
+                <button class="btn btn-outline btn-sm">סינון</button>
+              </div>
+            </div>
+            <table class="boq-table">
+              <thead>
+                <tr>
+                  <th>פריט עבודה</th>
+                  <th>קטגוריה</th>
+                  <th>כמות</th>
+                  <th>התקדמות</th>
+                  <th>סטטוס</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>קירות פנים — גמר טיח</td>
+                  <td style="color:var(--s400)">קירות</td>
+                  <td>248 מ"ר</td>
+                  <td>
+                    <span style="font-weight:700;color:var(--blue)">72%</span>
+                    <span class="mini-track"><span class="mini-fill" style="width:72%;background:var(--blue)"></span></span>
+                  </td>
+                  <td><span class="badge badge-blue">בעבודה</span></td>
+                </tr>
+                <tr>
+                  <td>ריצוף פרקט</td>
+                  <td style="color:var(--s400)">ריצוף</td>
+                  <td>186 מ"ר</td>
+                  <td>
+                    <span style="font-weight:700;color:var(--green)">100%</span>
+                    <span class="mini-track"><span class="mini-fill" style="width:100%;background:var(--green)"></span></span>
+                  </td>
+                  <td><span class="badge badge-green">✓ הושלם</span></td>
+                </tr>
+                <tr>
+                  <td>ריצוף אריחים</td>
+                  <td style="color:var(--s400)">ריצוף</td>
+                  <td>142 מ"ר</td>
+                  <td>
+                    <span style="font-weight:700;color:var(--blue)">45%</span>
+                    <span class="mini-track"><span class="mini-fill" style="width:45%;background:var(--blue)"></span></span>
+                  </td>
+                  <td><span class="badge badge-blue">בעבודה</span></td>
+                </tr>
+                <tr>
+                  <td>תקרה — גבס</td>
+                  <td style="color:var(--s400)">תקרה</td>
+                  <td>320 מ"ר</td>
+                  <td>
+                    <span style="font-weight:700;color:var(--amber)">12%</span>
+                    <span class="mini-track"><span class="mini-fill" style="width:12%;background:var(--amber)"></span></span>
+                  </td>
+                  <td><span class="badge badge-amber">מתחיל</span></td>
+                </tr>
+                <tr>
+                  <td>חלונות — התקנה</td>
+                  <td style="color:var(--s400)">פתחים</td>
+                  <td>24 יח׳</td>
+                  <td>
+                    <span style="font-weight:700;color:var(--s400)">0%</span>
+                    <span class="mini-track"><span class="mini-fill" style="width:0%;background:var(--s300)"></span></span>
+                  </td>
+                  <td><span class="badge badge-gray">ממתין</span></td>
+                </tr>
+                <tr>
+                  <td>דלתות פנים</td>
+                  <td style="color:var(--s400)">פתחים</td>
+                  <td>18 יח׳</td>
+                  <td>
+                    <span style="font-weight:700;color:var(--s400)">0%</span>
+                    <span class="mini-track"><span class="mini-fill" style="width:0%;background:var(--s300)"></span></span>
+                  </td>
+                  <td><span class="badge badge-gray">ממתין</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Side panels -->
+          <div style="display:flex;flex-direction:column;gap:16px">
+
+            <!-- Category progress -->
+            <div class="section-card">
+              <div class="sc-head">
+                <div class="sc-title">📊 לפי קטגוריה</div>
+              </div>
+              <div class="cat-list">
+                <div class="cat-item">
+                  <div class="cat-head">
+                    <div class="cat-name">🧱 קירות</div>
+                    <div class="cat-pct" style="color:var(--blue)">72%</div>
+                  </div>
+                  <div class="cat-bar"><div class="cat-fill" style="width:72%;background:var(--blue)"></div></div>
+                </div>
+                <div class="cat-item">
+                  <div class="cat-head">
+                    <div class="cat-name">🪵 ריצוף</div>
+                    <div class="cat-pct" style="color:var(--green)">68%</div>
+                  </div>
+                  <div class="cat-bar"><div class="cat-fill" style="width:68%;background:var(--green)"></div></div>
+                </div>
+                <div class="cat-item">
+                  <div class="cat-head">
+                    <div class="cat-name">🏠 תקרה</div>
+                    <div class="cat-pct" style="color:var(--amber)">12%</div>
+                  </div>
+                  <div class="cat-bar"><div class="cat-fill" style="width:12%;background:var(--amber)"></div></div>
+                </div>
+                <div class="cat-item">
+                  <div class="cat-head">
+                    <div class="cat-name">🚪 פתחים</div>
+                    <div class="cat-pct" style="color:var(--s400)">0%</div>
+                  </div>
+                  <div class="cat-bar"><div class="cat-fill" style="width:0%;background:var(--s300)"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Activity feed -->
+            <div class="section-card">
+              <div class="sc-head"><div class="sc-title">🕐 עדכונים אחרונים</div></div>
+              <div class="activity">
+                <div class="act-item">
+                  <div class="act-dot" style="background:var(--green)"></div>
+                  <div>
+                    <div><span class="act-name">יוסי אברהם</span> סיים ריצוף פרקט בסלון</div>
+                    <div class="act-time">לפני 14 דקות</div>
+                  </div>
+                </div>
+                <div class="act-item">
+                  <div class="act-dot" style="background:var(--blue)"></div>
+                  <div>
+                    <div><span class="act-name">אחמד חוסין</span> עדכן טיח קיר צפוני — 45%</div>
+                    <div class="act-time">לפני שעה</div>
+                  </div>
+                </div>
+                <div class="act-item">
+                  <div class="act-dot" style="background:var(--s300)"></div>
+                  <div>
+                    <div><span class="act-name">דוד כהן</span> הוסיף 12 פריטי עבודה</div>
+                    <div class="act-time">לפני 3 שעות</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  const pages = ['workshop','planning','worker','dashboard'];
+
+  function go(name) {
+    pages.forEach(p => {
+      document.getElementById('page-' + p).classList.remove('active');
+    });
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('page-' + name).classList.add('active');
+    const idx = pages.indexOf(name);
+    document.querySelectorAll('.nav-item')[idx].classList.add('active');
+    window.scrollTo(0, 0);
+  }
+
+  function selectVcard(el, type) {
+    document.querySelectorAll('.vcard').forEach(v => v.classList.remove('vc-on'));
+    el.classList.add('vc-on');
+    ['rooms','elements','mats','dims'].forEach(t => {
+      const d = document.getElementById('vd-' + t);
+      if (d) d.style.display = (t === type) ? 'block' : 'none';
+    });
+  }
+
+  /* ── Worker floor plan interaction ── */
+  const ROOMS = {
+    salon:   { name:'ריצוף סלון',        cat:'ריצוף · פרקט עץ',      status:'active', pct:65,  dim:'28 מ"ר מתוך 43 מ"ר',   listId:'wti-salon',   hl:{x:29,  y:29,  w:188, h:144} },
+    kitchen: { name:'ריצוף מטבח',        cat:'ריצוף · אריחים 60×60', status:'none',   pct:0,   dim:'14 מ"ר',               listId:'wti-kitchen', hl:{x:29,  y:175, w:188, h:166} },
+    bed1:    { name:'חדר שינה 1 — גמר',  cat:'קירות · גמר',           status:'done',   pct:100, dim:'18 מ"ר',               listId:'wti-bed1',    hl:{x:219, y:29,  w:253, h:118} },
+    bath:    { name:'שירותים — סניטרי',  cat:'סניטרי + אריחים',       status:'done',   pct:100, dim:'6 מ"ר',                listId:'wti-bath',    hl:{x:219, y:149, w:122, h:192} },
+    bed2:    { name:'חדר שינה 2 — גמר',  cat:'קירות · גמר',           status:'done',   pct:100, dim:'16 מ"ר',               listId:'wti-bed2',    hl:{x:343, y:149, w:129, h:192} },
+    wall_n:  { name:'קיר צפוני — טיח',   cat:'קירות · טיח פנים',      status:'active', pct:30,  dim:'3.7 מ׳ מתוך 12.4 מ׳', listId:'wti-wall',    hl:null },
+  };
+
+  function selectWorkerRoom(id) {
+    const r = ROOMS[id];
+    if (!r) return;
+
+    /* move highlight rect */
+    const hl = document.getElementById('sel-hl');
+    if (r.hl) {
+      hl.setAttribute('x', r.hl.x); hl.setAttribute('y', r.hl.y);
+      hl.setAttribute('width', r.hl.w); hl.setAttribute('height', r.hl.h);
+    } else {
+      hl.setAttribute('width', 0); hl.setAttribute('height', 0);
+    }
+
+    /* highlight list item */
+    document.querySelectorAll('.wtask-item').forEach(el => el.classList.remove('selected'));
+    const li = document.getElementById(r.listId);
+    if (li) { li.classList.add('selected'); li.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+
+    /* build detail panel */
+    const clr  = r.status === 'done' ? 'var(--green)' : r.status === 'active' ? 'var(--blue)' : 'var(--s400)';
+    const lbl  = r.status === 'done' ? '✓ הושלם'     : r.status === 'active' ? 'בעבודה'      : 'לא התחיל';
+    const acts = r.status === 'done'
+      ? `<button class="tc-btn tcb-update" style="flex:1">עדכון / תיקון</button>`
+      : r.status === 'active'
+      ? `<button class="tc-btn tcb-update">עדכן</button><button class="tc-btn tcb-done">✓ סיים</button>`
+      : `<button class="tc-btn tcb-start" style="flex:1">▶ התחל עבודה</button>`;
+
+    const panel = document.getElementById('wtp-detail');
+    panel.className = 'wtp-detail';
+    panel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div>
+          <div class="wtp-title">${r.name}</div>
+          <div class="wtp-cat">${r.cat}</div>
+        </div>
+        <span style="font-size:11px;font-weight:700;color:${clr}">${lbl}</span>
+      </div>
+      <div class="prog-track" style="margin-bottom:6px">
+        <div class="prog-fill" style="width:${r.pct}%;background:${clr}"></div>
+      </div>
+      <div class="prog-labels" style="margin-bottom:12px">
+        <span class="prog-val" style="color:${clr}">${r.pct}%</span>
+        <span class="prog-dim">${r.dim}</span>
+      </div>
+      <div class="wtp-actions">
+        <div class="tc-photo">📷</div>
+        ${acts}
+      </div>`;
+  }
+</script>
+</body>
+</html>

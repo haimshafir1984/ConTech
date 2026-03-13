@@ -1,0 +1,827 @@
+import React from "react";
+import { useToast } from "../components/Toast";
+import { useConfirm } from "../components/ConfirmDialog";
+import { ErrorAlert } from "../components/UiHelpers";
+import { apiClient } from "../api/client";
+import { listWorkshopPlans, type PlanSummary } from "../api/managerWorkshopApi";
+import {
+  createWorkerReport,
+  listWorkerReports,
+  measureWorkerItem,
+  type WorkerMeasuredItem,
+  type WorkerReport
+} from "../api/workerApi";
+import { getPlanningState, type WorkSection } from "../api/planningApi";
+
+type DrawMode = "line" | "rect" | "path";
+type Point = { x: number; y: number };
+type WorkerTab = "map" | "notes" | "history";
+
+// ─── Printable progress report ───────────────────────────────────────────────
+function printProgressReport(reports: WorkerReport[], planName: string) {
+  const rows = reports.map((r) => `
+    <tr>
+      <td>${r.date}</td>
+      <td>${r.shift}</td>
+      <td>${r.report_type === "walls" ? "קירות" : "ריצוף/חיפוי"}</td>
+      <td>${r.report_type === "walls" ? r.total_length_m.toFixed(2) + " מ'" : r.total_area_m2.toFixed(2) + " מ\"ר"}</td>
+      <td>${r.note || "—"}</td>
+    </tr>`).join("");
+
+  const totalWalls = reports.filter(r => r.report_type === "walls").reduce((s, r) => s + r.total_length_m, 0);
+  const totalFloor = reports.filter(r => r.report_type === "floor").reduce((s, r) => s + r.total_area_m2, 0);
+
+  const html = `<!doctype html><html dir="rtl" lang="he"><head>
+    <meta charset="UTF-8"><title>דוח התקדמות - ${planName}</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 24px; direction: rtl; }
+      h1 { color: #FF4B4B; } table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+      th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: right; }
+      th { background: #f5f5f5; } .totals { margin-top: 16px; font-weight: bold; }
+    </style></head><body>
+    <h1>דוח התקדמות עובד</h1>
+    <p>פרויקט: <b>${planName}</b> | הופק: ${new Date().toLocaleDateString("he-IL")}</p>
+    <table><thead><tr><th>תאריך</th><th>משמרת</th><th>סוג</th><th>כמות</th><th>הערה</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <div class="totals">
+      <div>סה"כ קירות: ${totalWalls.toFixed(2)} מ'</div>
+      <div>סה"כ ריצוף: ${totalFloor.toFixed(2)} מ"ר</div>
+    </div>
+  </body></html>`;
+
+  const w = window.open("", "_blank");
+  if (w) { w.document.write(html); w.document.close(); w.print(); }
+}
+
+// ─── Zoom canvas for worker drawing ──────────────────────────────────────────
+interface WorkerCanvasProps {
+  imageUrl: string;
+  items: WorkerMeasuredItem[];
+  drawMode: DrawMode;
+  sections?: WorkSection[];
+  activeSectionUid?: string;
+  onDrawComplete: (raw: { object_type: DrawMode; raw_object: Record<string, unknown> }) => void;
+}
+
+const WorkerCanvas: React.FC<WorkerCanvasProps> = ({ imageUrl, items, drawMode, sections = [], activeSectionUid = "", onDrawComplete }) => {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const imgRef = React.useRef<HTMLImageElement>(null);
+  const [zoom, setZoom] = React.useState(1);
+  const [pan, setPan] = React.useState({ x: 0, y: 0 });
+  const isPanningRef = React.useRef(false);
+  const isDrawingRef = React.useRef(false);
+  const lastMouse = React.useRef({ x: 0, y: 0 });
+  const lastPathPointTime = React.useRef<number>(0); // throttle for path drawing
+  const panRef = React.useRef({ x: 0, y: 0 });
+  const zoomRef = React.useRef(1);
+  const [startPt, setStartPt] = React.useState<Point | null>(null);
+  const [tempPt, setTempPt] = React.useState<Point | null>(null);
+  const [pathPts, setPathPts] = React.useState<Point[]>([]);
+  const [imgSize, setImgSize] = React.useState({ w: 0, h: 0 });
+  const [renderZoom, setRenderZoom] = React.useState(1);
+  const [renderPan, setRenderPan] = React.useState({ x: 0, y: 0 });
+  const [isDrawingState, setIsDrawingState] = React.useState(false);
+  const [isPanningState, setIsPanningState] = React.useState(false);
+
+  const clampZ = (z: number) => Math.min(8, Math.max(0.25, z));
+
+  const setZoomSync = (z: number) => { zoomRef.current = z; setZoom(z); setRenderZoom(z); };
+  const setPanSync = (p: { x: number; y: number }) => { panRef.current = p; setPan(p); setRenderPan(p); };
+
+  const toCanvasPoint = React.useCallback((clientX: number, clientY: number): Point => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    const z = zoomRef.current;
+    const p = panRef.current;
+    return {
+      x: Math.max(0, (clientX - rect.left - p.x) / z),
+      y: Math.max(0, (clientY - rect.top - p.y) / z),
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      if (isDrawingRef.current) return;
+      const rect = el.getBoundingClientRect();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      const oldZ = zoomRef.current;
+      const newZ = clampZ(oldZ * factor);
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const newP = {
+        x: mx - (mx - panRef.current.x) * (newZ / oldZ),
+        y: my - (my - panRef.current.y) * (newZ / oldZ),
+      };
+      setZoomSync(newZ);
+      setPanSync(newP);
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if (!imageUrl) return;
+    if (e.altKey || e.metaKey) {
+      isPanningRef.current = true;
+      setIsPanningState(true);
+      lastMouse.current = { x: e.clientX, y: e.clientY };
+      return;
+    }
+    isDrawingRef.current = true;
+    setIsDrawingState(true);
+    const p = toCanvasPoint(e.clientX, e.clientY);
+    setStartPt(p);
+    setTempPt(p);
+    if (drawMode === "path") setPathPts([p]);
+  };
+
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (isPanningRef.current) {
+      const dx = e.clientX - lastMouse.current.x;
+      const dy = e.clientY - lastMouse.current.y;
+      lastMouse.current = { x: e.clientX, y: e.clientY };
+      setPanSync({ x: panRef.current.x + dx, y: panRef.current.y + dy });
+      return;
+    }
+    if (!isDrawingRef.current) return;
+    const p = toCanvasPoint(e.clientX, e.clientY);
+    setTempPt(p);
+    if (drawMode === "path") {
+      // Throttle to ~15fps to avoid re-render thrashing at 60fps
+      const now = Date.now();
+      if (now - lastPathPointTime.current >= 66) {
+        lastPathPointTime.current = now;
+        setPathPts((prev) => [...prev, p]);
+      }
+    }
+  };
+
+  const finishDraw = React.useCallback((currentStartPt: Point | null, currentTempPt: Point | null, currentPathPts: Point[]) => {
+    if (!isDrawingRef.current || !currentStartPt || !currentTempPt) {
+      isDrawingRef.current = false;
+      setIsDrawingState(false);
+      return;
+    }
+    isDrawingRef.current = false;
+    setIsDrawingState(false);
+    const dx = currentTempPt.x - currentStartPt.x;
+    const dy = currentTempPt.y - currentStartPt.y;
+    if (drawMode !== "path" && Math.sqrt(dx * dx + dy * dy) < 5) return;
+
+    let raw_object: Record<string, unknown> = {};
+    if (drawMode === "line") {
+      raw_object = { x1: currentStartPt.x, y1: currentStartPt.y, x2: currentTempPt.x, y2: currentTempPt.y };
+    } else if (drawMode === "rect") {
+      raw_object = {
+        x: Math.min(currentStartPt.x, currentTempPt.x), y: Math.min(currentStartPt.y, currentTempPt.y),
+        width: Math.abs(currentTempPt.x - currentStartPt.x), height: Math.abs(currentTempPt.y - currentStartPt.y),
+      };
+    } else {
+      raw_object = { points: currentPathPts.map((p) => [p.x, p.y]) };
+    }
+    onDrawComplete({ object_type: drawMode, raw_object });
+    setStartPt(null); setTempPt(null); setPathPts([]);
+  }, [drawMode, onDrawComplete]);
+
+  const onMouseUp = React.useCallback((e?: React.MouseEvent) => {
+    if (isPanningRef.current) {
+      isPanningRef.current = false;
+      setIsPanningState(false);
+      return;
+    }
+    setStartPt(sp => {
+      setTempPt(tp => {
+        setPathPts(pp => {
+          finishDraw(sp, tp, pp);
+          return [];
+        });
+        return null;
+      });
+      return null;
+    });
+    void e;
+  }, [finishDraw]);
+
+  // ── Touch support ──
+  const lastPinchDistRef = React.useRef<number | null>(null);
+  const lastTouchPosRef = React.useRef<{ x: number; y: number } | null>(null);
+
+  const onTouchStart = React.useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+      lastPinchDistRef.current = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      lastTouchPosRef.current = null;
+      isPanningRef.current = false;
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0];
+      lastPinchDistRef.current = null;
+      lastTouchPosRef.current = { x: t.clientX, y: t.clientY };
+      isDrawingRef.current = true;
+      setIsDrawingState(true);
+      const p = toCanvasPoint(t.clientX, t.clientY);
+      setStartPt(p); setTempPt(p);
+      if (drawMode === "path") setPathPts([p]);
+    }
+  }, [toCanvasPoint, drawMode]);
+
+  const onTouchMove = React.useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 2 && lastPinchDistRef.current !== null) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const ratio = dist / lastPinchDistRef.current;
+      const rect = containerRef.current?.getBoundingClientRect();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - (rect?.left ?? 0);
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - (rect?.top ?? 0);
+      const oldZ = zoomRef.current;
+      const newZ = clampZ(oldZ * ratio);
+      const newP = {
+        x: cx - (cx - panRef.current.x) * (newZ / oldZ),
+        y: cy - (cy - panRef.current.y) * (newZ / oldZ),
+      };
+      setZoomSync(newZ);
+      setPanSync(newP);
+      lastPinchDistRef.current = dist;
+    } else if (e.touches.length === 1 && lastTouchPosRef.current) {
+      const t = e.touches[0];
+      if (!isDrawingRef.current) {
+        const dx = t.clientX - lastTouchPosRef.current.x;
+        const dy = t.clientY - lastTouchPosRef.current.y;
+        setPanSync({ x: panRef.current.x + dx, y: panRef.current.y + dy });
+        lastTouchPosRef.current = { x: t.clientX, y: t.clientY };
+      } else {
+        const p = toCanvasPoint(t.clientX, t.clientY);
+        setTempPt(p);
+        if (drawMode === "path") {
+          const now = Date.now();
+          if (now - lastPathPointTime.current >= 66) {
+            lastPathPointTime.current = now;
+            setPathPts((prev) => [...prev, p]);
+          }
+        }
+      }
+    }
+  }, [toCanvasPoint, drawMode]);
+
+  const onTouchEnd = React.useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    lastPinchDistRef.current = null;
+    lastTouchPosRef.current = null;
+    if (isDrawingRef.current) {
+      setStartPt(sp => {
+        setTempPt(tp => {
+          setPathPts(pp => {
+            finishDraw(sp, tp, pp);
+            return [];
+          });
+          return null;
+        });
+        return null;
+      });
+    }
+  }, [finishDraw]);
+
+  return (
+    <div style={{ position: "relative", background: "#F1F5F9", borderRadius: 12, overflow: "hidden", border: "1px solid #E2E8F0", minHeight: 420 }}>
+      <div
+        ref={containerRef}
+        style={{ width: "100%", overflow: "hidden", userSelect: "none", cursor: isDrawingState ? "crosshair" : isPanningState ? "grabbing" : "crosshair", minHeight: 420, touchAction: "none" }}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={() => {
+          if (isPanningRef.current) { isPanningRef.current = false; setIsPanningState(false); }
+        }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        <div style={{
+          transform: `translate(${renderPan.x}px,${renderPan.y}px) scale(${renderZoom})`,
+          transformOrigin: "top left",
+          display: "inline-block",
+          position: "relative"
+        }}>
+          {imageUrl ? (
+            <img
+              ref={imgRef}
+              src={imageUrl}
+              alt="plan"
+              draggable={false}
+              style={{ display: "block", userSelect: "none" }}
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+              }}
+            />
+          ) : (
+            <div style={{ width: 760, height: 420, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 14 }}>
+              בחר תוכנית כדי להתחיל סימון
+            </div>
+          )}
+
+          {imgSize.w > 0 && (
+            <svg width={imgSize.w} height={imgSize.h} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+              {sections.map((sec) => {
+                if (sec.width < 2 || sec.height < 2) return null;
+                const isActive = sec.uid === activeSectionUid;
+                return (
+                  <g key={sec.uid}>
+                    <rect x={sec.x} y={sec.y} width={sec.width} height={sec.height}
+                      fill={isActive ? `${sec.color}30` : `${sec.color}10`}
+                      stroke={sec.color}
+                      strokeWidth={isActive ? 3 / zoom : 1.5 / zoom}
+                      strokeDasharray={isActive ? undefined : "6 4"}
+                      rx={2}
+                    />
+                    <rect x={sec.x} y={sec.y} width={Math.min(sec.width, 200)} height={18 / zoom} fill={sec.color} rx={2} />
+                    <text x={sec.x + 4} y={sec.y + 13 / zoom} fill="white" fontSize={11 / zoom} fontWeight="bold">
+                      {sec.name || "גזרה"} | {sec.worker || sec.contractor || ""}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {items.map((item) => {
+                const obj = item.raw_object;
+                const label = item.unit === "m" ? `${item.measurement.toFixed(2)} מ'` : `${item.measurement.toFixed(2)} מ"ר`;
+                if (item.type === "line") {
+                  return (
+                    <g key={item.uid}>
+                      <line x1={Number(obj.x1)} y1={Number(obj.y1)} x2={Number(obj.x2)} y2={Number(obj.y2)} stroke="#22d3ee" strokeWidth={2/zoom} />
+                      <text x={(Number(obj.x1)+Number(obj.x2))/2} y={(Number(obj.y1)+Number(obj.y2))/2 - 4/zoom} fill="#0891b2" fontSize={12/zoom} textAnchor="middle">{label}</text>
+                    </g>
+                  );
+                }
+                if (item.type === "rect") {
+                  return (
+                    <g key={item.uid}>
+                      <rect x={Number(obj.x)} y={Number(obj.y)} width={Number(obj.width)} height={Number(obj.height)} fill="rgba(59,130,246,0.15)" stroke="#3b82f6" strokeWidth={2/zoom} />
+                      <text x={Number(obj.x)+Number(obj.width)/2} y={Number(obj.y)+Number(obj.height)/2} fill="#1d4ed8" fontSize={12/zoom} textAnchor="middle">{label}</text>
+                    </g>
+                  );
+                }
+                const pts = Array.isArray(obj.points) ? (obj.points as number[][]).map((p) => `${p[0]},${p[1]}`).join(" ") : "";
+                return <polyline key={item.uid} points={pts} fill="none" stroke="#f59e0b" strokeWidth={2/zoom} />;
+              })}
+
+              {isDrawingState && startPt && tempPt && drawMode === "line" && (
+                <line x1={startPt.x} y1={startPt.y} x2={tempPt.x} y2={tempPt.y} stroke="#22c55e" strokeWidth={2/renderZoom} strokeDasharray="4" />
+              )}
+              {isDrawingState && startPt && tempPt && drawMode === "rect" && (
+                <rect
+                  x={Math.min(startPt.x, tempPt.x)} y={Math.min(startPt.y, tempPt.y)}
+                  width={Math.abs(tempPt.x - startPt.x)} height={Math.abs(tempPt.y - startPt.y)}
+                  fill="rgba(34,197,94,0.15)" stroke="#22c55e" strokeWidth={2/renderZoom} strokeDasharray="4"
+                />
+              )}
+              {isDrawingState && drawMode === "path" && pathPts.length > 1 && (
+                <polyline points={pathPts.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#22c55e" strokeWidth={2/renderZoom} />
+              )}
+            </svg>
+          )}
+        </div>
+      </div>
+
+      {/* Zoom controls */}
+      <div style={{ position: "absolute", bottom: 12, left: 12, display: "flex", flexDirection: "column", gap: 4, zIndex: 10 }}>
+        <button type="button" onClick={() => setZoomSync(clampZ(zoomRef.current * 1.25))} style={zoomBtnStyle}>+</button>
+        <button type="button" onClick={() => { setZoomSync(1); setPanSync({ x: 0, y: 0 }); }} style={zoomBtnStyle}>↺</button>
+        <button type="button" onClick={() => setZoomSync(clampZ(zoomRef.current * 0.8))} style={zoomBtnStyle}>−</button>
+      </div>
+      <div style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(0,0,0,0.4)", color: "#fff", fontSize: 11, padding: "2px 8px", borderRadius: 6 }}>{Math.round(renderZoom * 100)}%</div>
+      <div style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.4)", color: "#fff", fontSize: 10, padding: "2px 8px", borderRadius: 6 }}>גלגלת=זום | Alt+גרור=הזזה</div>
+    </div>
+  );
+};
+
+const zoomBtnStyle: React.CSSProperties = {
+  width: 32, height: 32, background: "#fff", border: "1px solid #CBD5E1",
+  borderRadius: 8, boxShadow: "0 1px 4px rgba(0,0,0,0.12)", fontSize: 16,
+  fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+};
+
+// ─── Main WorkerPage ──────────────────────────────────────────────────────────
+export const WorkerPage: React.FC = () => {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [plans, setPlans] = React.useState<PlanSummary[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = React.useState("");
+  const [reportType, setReportType] = React.useState<"walls" | "floor">("walls");
+  const [drawMode, setDrawMode] = React.useState<DrawMode>("line");
+  const [shift, setShift] = React.useState("בוקר");
+  const [reportDate, setReportDate] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [note, setNote] = React.useState("");
+  const [items, setItems] = React.useState<WorkerMeasuredItem[]>([]);
+  const [reports, setReports] = React.useState<WorkerReport[]>([]);
+  const [error, setError] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [measuring, setMeasuring] = React.useState(false);
+  const [sections, setSections] = React.useState<WorkSection[]>([]);
+  const [selectedSectionUid, setSelectedSectionUid] = React.useState<string>("");
+  const [activeTab, setActiveTab] = React.useState<WorkerTab>("map");
+
+  const selectedPlan = plans.find((p) => p.id === selectedPlanId) ?? null;
+  const imageUrl = selectedPlanId
+    ? `${apiClient.defaults.baseURL}/manager/workshop/plans/${encodeURIComponent(selectedPlanId)}/image`
+    : "";
+
+  const loadPlans = React.useCallback(async () => {
+    const list = await listWorkshopPlans();
+    setPlans(list);
+    if (!selectedPlanId && list.length > 0) setSelectedPlanId(list[0].id);
+  }, [selectedPlanId]);
+
+  React.useEffect(() => { void loadPlans().catch(console.error); }, [loadPlans]);
+
+  // Load reports with AbortController to cancel stale in-flight requests
+  React.useEffect(() => {
+    if (!selectedPlanId) return;
+    const controller = new AbortController();
+    listWorkerReports(selectedPlanId, controller.signal)
+      .then(data => { if (!controller.signal.aborted) setReports(data); })
+      .catch(err => { if (!controller.signal.aborted) console.error(err); });
+    return () => { controller.abort(); };
+  }, [selectedPlanId]);
+
+  React.useEffect(() => {
+    if (!selectedPlanId) { setSections([]); setSelectedSectionUid(""); return; }
+    let cancelled = false;
+    getPlanningState(selectedPlanId)
+      .then(state => {
+        if (!cancelled) {
+          setSections(state.sections ?? []);
+          setSelectedSectionUid("");
+        }
+      })
+      .catch(() => { if (!cancelled) setSections([]); });
+    return () => { cancelled = true; };
+  }, [selectedPlanId]);
+
+  const handleDrawComplete = React.useCallback(async (payload: { object_type: DrawMode; raw_object: Record<string, unknown> }) => {
+    if (!selectedPlanId) return;
+    try {
+      setMeasuring(true);
+      setError("");
+      const measured = await measureWorkerItem({
+        plan_id: selectedPlanId,
+        object_type: payload.object_type,
+        raw_object: payload.raw_object,
+        display_scale: 1,
+        report_type: reportType
+      });
+      setItems((prev) => [...prev, measured]);
+    } catch (e) {
+      console.error(e);
+      const msg = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
+        || (e as { message?: string })?.message
+        || "שגיאה במדידת פריט";
+      setError(msg);
+    } finally {
+      setMeasuring(false);
+    }
+  }, [selectedPlanId, reportType, drawMode]);
+
+  const totalLength = React.useMemo(() => items.filter((i) => i.unit === "m").reduce((s, i) => s + i.measurement, 0), [items]);
+  const totalArea = React.useMemo(() => items.filter((i) => i.unit !== "m").reduce((s, i) => s + i.measurement, 0), [items]);
+
+  const saveReport = async () => {
+    if (!selectedPlanId || items.length === 0) return;
+    try {
+      setSaving(true);
+      await createWorkerReport({ plan_id: selectedPlanId, date: reportDate, shift, report_type: reportType, draw_mode: drawMode, items, note });
+      setItems([]);
+      setNote("");
+      setReports(await listWorkerReports(selectedPlanId));
+      toast("הדיווח נשמר בהצלחה");
+    } catch (e) {
+      console.error(e);
+      setError("שגיאה בשמירת הדיווח.");
+    } finally { setSaving(false); }
+  };
+
+  const totalReportWalls = reports.filter(r => r.report_type === "walls").reduce((s, r) => s + r.total_length_m, 0);
+  const totalReportFloor = reports.filter(r => r.report_type === "floor").reduce((s, r) => s + r.total_area_m2, 0);
+
+  const TAB_ITEMS: { id: WorkerTab; icon: React.ReactNode; label: string }[] = [
+    { id: "map",     icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>, label: "מפה" },
+    { id: "notes",   icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, label: "הערות" },
+    { id: "history", icon: <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>, label: "היסטוריה" },
+  ];
+
+  const panelTabItems = TAB_ITEMS.filter((t) => t.id !== "map");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, minHeight: "100%" }}>
+
+      {/* ── Top bar ── */}
+      <div style={{ background: "#fff", borderBottom: "1px solid var(--s200)", padding: "10px 20px", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", flexShrink: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 140 }}>
+          <span style={{ fontSize: 11, color: "var(--s500)" }}>פרויקט</span>
+          <select
+            style={{ padding: "7px 10px", border: "1px solid var(--s300)", borderRadius: "var(--r-sm)", fontSize: 13, background: "#fff" }}
+            value={selectedPlanId}
+            onChange={(e) => setSelectedPlanId(e.target.value)}
+          >
+            {plans.length === 0 && <option value="">אין תוכניות</option>}
+            {plans.map((p) => <option key={p.id} value={p.id}>{p.plan_name}</option>)}
+          </select>
+        </div>
+
+        {sections.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 140 }}>
+            <span style={{ fontSize: 11, color: "var(--s500)" }}>גזרת עבודה</span>
+            <select
+              style={{ padding: "7px 10px", border: "1px solid var(--s300)", borderRadius: "var(--r-sm)", fontSize: 13, background: "#fff" }}
+              value={selectedSectionUid}
+              onChange={(e) => setSelectedSectionUid(e.target.value)}
+            >
+              <option value="">— כל הפרויקט —</option>
+              {sections.map(sec => (
+                <option key={sec.uid} value={sec.uid}>
+                  {sec.name || "גזרה"} — {sec.contractor || sec.worker || ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginRight: "auto" }}>
+          {/* Work type selector buttons */}
+          <div style={{ display: "flex", gap: 6 }}>
+            {([
+              { val: "walls" as const, label: "קירות", icon: <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="9" y2="21"/><line x1="15" y1="9" x2="15" y2="21"/></svg> },
+              { val: "floor" as const, label: "ריצוף", icon: <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="9" height="9" rx="1"/><rect x="13" y="2" width="9" height="9" rx="1"/><rect x="2" y="13" width="9" height="9" rx="1"/><rect x="13" y="13" width="9" height="9" rx="1"/></svg> },
+            ]).map((t) => (
+              <button
+                key={t.val}
+                type="button"
+                onClick={() => setReportType(t.val)}
+                className={`work-type-btn${reportType === t.val ? " selected" : ""}`}
+                style={{ minHeight: 64, padding: "10px 16px" }}
+              >
+                {t.icon}
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+          {reports.length > 0 && (
+            <button
+              type="button"
+              onClick={() => printProgressReport(reports, selectedPlan?.plan_name ?? "פרויקט")}
+              style={{ padding: "7px 14px", border: "1px solid var(--s300)", color: "var(--s700)", borderRadius: "var(--r-sm)", fontSize: 12, fontWeight: 600, background: "#fff", cursor: "pointer" }}
+            >
+              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              הדפס
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Stats strip ── */}
+      <div style={{ background: "#fff", borderBottom: "1px solid var(--s200)", padding: "10px 20px", display: "flex", gap: 20, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
+        <div style={{ textAlign: "center", minWidth: 52 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--green)" }}>{reports.length}</div>
+          <div style={{ fontSize: 11, color: "var(--s400)" }}>דיווחים</div>
+        </div>
+        <div style={{ textAlign: "center", minWidth: 52 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--blue)" }}>{totalReportWalls.toFixed(1)}</div>
+          <div style={{ fontSize: 11, color: "var(--s400)" }}>מ' קירות</div>
+        </div>
+        <div style={{ textAlign: "center", minWidth: 52 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "var(--amber)" }}>{totalReportFloor.toFixed(1)}</div>
+          <div style={{ fontSize: 11, color: "var(--s400)" }}>מ"ר ריצוף</div>
+        </div>
+        {items.length > 0 && (
+          <>
+            <div style={{ width: 1, height: 32, background: "var(--s200)" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--amber-50)", border: "1px solid #FCD34D", borderRadius: 8, padding: "5px 12px" }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--amber)", display: "inline-block", flexShrink: 0 }} />
+              <span style={{ fontWeight: 700, fontSize: 12, color: "#92400E" }}>סשן פעיל · {items.length} פריטים</span>
+              {totalLength > 0 && <span style={{ fontSize: 12, color: "#78350F" }}>{totalLength.toFixed(2)} מ'</span>}
+              {totalArea > 0 && <span style={{ fontSize: 12, color: "#78350F" }}>{totalArea.toFixed(2)} מ"ר</span>}
+              {measuring && <span style={{ fontSize: 11, color: "var(--blue)" }}>מודד...</span>}
+            </div>
+          </>
+        )}
+      </div>
+
+      {error && <ErrorAlert message={error} onDismiss={() => setError("")} />}
+
+      {/* ── Main body: canvas + side panel ── */}
+      <div className="worker-main-grid">
+
+        {/* Canvas area */}
+        <div style={{ background: "#1A2744", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {/* Draw toolbar */}
+          <div style={{ display: "flex", gap: 6, padding: "8px 14px", background: "rgba(0,0,0,0.25)", flexShrink: 0, alignItems: "center", overflowX: "auto", minHeight: 52 }}>
+            {([
+              { val: "line" as DrawMode, icon: <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg>, label: "קו" },
+              { val: "rect" as DrawMode, icon: <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>, label: "מלבן" },
+              { val: "path" as DrawMode, icon: <svg viewBox="0 0 24 24"><path d="M3 17c3-3 6-3 9 0s6 3 9 0"/></svg>, label: "חופשי" },
+            ]).map((m) => (
+              <button
+                key={m.val}
+                type="button"
+                onClick={() => setDrawMode(m.val)}
+                className={`tool-btn${drawMode === m.val ? " active" : ""}`}
+                style={drawMode === m.val ? {} : { background: "rgba(255,255,255,0.1)", borderColor: "rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.8)" }}
+              >
+                {m.icon} {m.label}
+              </button>
+            ))}
+          </div>
+          {/* Canvas */}
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <WorkerCanvas
+              imageUrl={imageUrl}
+              items={items}
+              drawMode={drawMode}
+              sections={sections}
+              activeSectionUid={selectedSectionUid}
+              onDrawComplete={(p) => void handleDrawComplete(p)}
+            />
+          </div>
+        </div>
+
+        {/* Right panel */}
+        <div style={{ background: "#fff", borderRight: "1px solid var(--s200)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* Panel tab bar */}
+          <div style={{ display: "flex", borderBottom: "1px solid var(--s200)", flexShrink: 0 }}>
+            {panelTabItems.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTab(t.id)}
+                style={{
+                  flex: 1, padding: "12px 6px", border: "none",
+                  borderBottom: activeTab === t.id ? `2px solid var(--orange)` : "2px solid transparent",
+                  background: "none",
+                  color: activeTab === t.id ? "var(--navy)" : "var(--s500)",
+                  fontWeight: activeTab === t.id ? 700 : 400,
+                  fontSize: 12, cursor: "pointer", textAlign: "center",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+                }}
+              >
+                <span style={{ fontSize: 16 }}>{t.icon}</span>
+                <span>{t.label}</span>
+                {t.id === "notes" && items.length > 0 && (
+                  <span style={{ background: "var(--red)", color: "#fff", borderRadius: 99, fontSize: 10, fontWeight: 700, padding: "1px 6px" }}>{items.length}</span>
+                )}
+                {t.id === "history" && reports.length > 0 && (
+                  <span style={{ background: "var(--s200)", color: "var(--s700)", borderRadius: 99, fontSize: 10, fontWeight: 700, padding: "1px 6px" }}>{reports.length}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Panel body */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
+
+            {/* ── Notes panel ── */}
+            {activeTab === "notes" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <span style={{ fontSize: 11, color: "var(--s500)" }}>תאריך</span>
+                    <input type="date" style={fieldStyle} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <span style={{ fontSize: 11, color: "var(--s500)" }}>משמרת</span>
+                    <select style={fieldStyle} value={shift} onChange={(e) => setShift(e.target.value)}>
+                      <option>בוקר</option>
+                      <option>צהריים</option>
+                      <option>לילה</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Items list */}
+                {items.length > 0 ? (
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--s500)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 4 }}>פריטים ({items.length})</div>
+                    {items.map((item, idx) => (
+                      <div key={item.uid} className="measure-row">
+                        <span className="measure-name" style={{ fontSize: 13 }}>#{idx + 1} {item.type}</span>
+                        <span className="measure-qty">{item.measurement.toFixed(2)}</span>
+                        <span className="measure-unit">{item.unit}</span>
+                        <button
+                          type="button"
+                          title="הסר"
+                          onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
+                          style={{ color: "var(--red)", background: "none", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "2px 4px" }}
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: "var(--s400)", background: "var(--s50)", border: "1px dashed var(--s300)", borderRadius: "var(--r-sm)", padding: "20px", textAlign: "center" }}>
+                    סמן פריטים על השרטוט
+                  </div>
+                )}
+
+                {/* Note */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <span style={{ fontSize: 11, color: "var(--s500)" }}>הערה</span>
+                  <textarea
+                    style={{ ...fieldStyle, minHeight: 64, resize: "vertical" }}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="הערות לדיווח..."
+                  />
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = await confirm({ title: "נקה סימון", message: "האם למחוק את כל הפריטים המסומנים?", confirmText: "נקה", danger: true });
+                      if (ok) setItems([]);
+                    }}
+                    style={{ flex: 1, padding: "9px", border: "1px solid var(--s300)", borderRadius: "var(--r-sm)", fontSize: 12, background: "#fff", cursor: "pointer", fontWeight: 600, color: "var(--s700)" }}
+                  >
+                    נקה
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveReport()}
+                    disabled={items.length === 0 || saving}
+                    style={{ flex: 2, height: 56, background: items.length === 0 ? "var(--s300)" : "var(--orange)", color: "#fff", borderRadius: 10, fontSize: "1.05rem", fontWeight: 700, border: "none", cursor: items.length === 0 ? "not-allowed" : "pointer", width: "100%" }}
+                  >
+                    {saving ? "שומר..." : "שלח דיווח"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── History panel ── */}
+            {activeTab === "history" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div className="stats-grid" style={{ marginBottom: 0 }}>
+                  <div className="stat-card info">
+                    <div className="stat-value" style={{ fontSize: "1.3rem" }}>{totalReportWalls.toFixed(1)} <span style={{ fontSize: ".7rem", fontWeight: 500 }}>מ'</span></div>
+                    <div className="stat-label">קירות כולל</div>
+                  </div>
+                  <div className="stat-card warn">
+                    <div className="stat-value" style={{ fontSize: "1.3rem" }}>{totalReportFloor.toFixed(1)} <span style={{ fontSize: ".7rem", fontWeight: 500 }}>מ"ר</span></div>
+                    <div className="stat-label">ריצוף כולל</div>
+                  </div>
+                </div>
+
+                {reports.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "32px 0", color: "var(--s400)", fontSize: 13 }}>אין דיווחים עדיין.</div>
+                ) : (
+                  <div>
+                    {reports.slice(-50).reverse().map((r) => (
+                      <div key={r.id} className="history-item">
+                        <div className="history-item-header">
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: ".9rem", color: "var(--text-1)" }}>{r.date} — {r.shift}</div>
+                            <div style={{ fontSize: ".75rem", color: "var(--text-2)", marginTop: 2 }}>
+                              {r.report_type === "walls" ? "קירות" : "ריצוף"}{r.note ? ` · ${r.note}` : ""}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "left" }}>
+                            <span style={{ fontWeight: 800, fontSize: "1.05rem", color: "var(--navy)" }}>
+                              {r.report_type === "walls" ? `${r.total_length_m.toFixed(2)} מ'` : `${r.total_area_m2.toFixed(2)} מ"ר`}
+                            </span>
+                            <div style={{ marginTop: 3 }}>
+                              <span className={`badge ${r.report_type === "walls" ? "badge-blue" : "badge-amber"}`}>
+                                {r.report_type === "walls" ? "קירות" : "ריצוף"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const fieldStyle: React.CSSProperties = {
+  padding: "7px 10px",
+  border: "1px solid #CBD5E1",
+  borderRadius: 8,
+  fontSize: 13,
+  background: "#fff",
+  width: "100%",
+  boxSizing: "border-box",
+};

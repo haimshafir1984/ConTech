@@ -1,0 +1,19 @@
+streamlit>=1.28.0,<1.30.0
+opencv-python-headless
+numpy
+pandas
+Pillow
+streamlit-drawable-canvas==0.9.3
+anthropic
+pymupdf
+psycopg2-binary
+reportlab
+scikit-learn>=1.0.0
+sqlalchemy
+
+# Phase 1: Smart Measurements + Quantity Calculator
+plotly>=5.0.0
+
+# Google Cloud Vision OCR
+google-cloud-vision>=3.7.0
+pdf2image>=1.17.0

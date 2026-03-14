@@ -1949,6 +1949,7 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             "llm_data": llm_data,
             "llm_suggestions": llm_data,
             "assets": assets,
+            "image_shape": {"width": int(image_proc.shape[1]), "height": int(image_proc.shape[0])},
             "planning": {
                 "categories": {},
                 "items": [],
@@ -2742,6 +2743,19 @@ async def manager_add_zone_item(
     return _build_planning_state(plan_id, proj)
 
 
+def _is_page_frame(seg, image_w: float, image_h: float) -> bool:
+    """מסנן קירות שהם כנראה מסגרת הדף ולא קיר אמיתי"""
+    bx, by, bw, bh = seg.bbox
+    # קיר שתופס >60% מגובה או רוחב התמונה = מסגרת דף
+    if bh > image_h * 0.6 or bw > image_w * 0.6:
+        return True
+    # קיר שמרכזו בשליש השמאלי של הדף ואין שם תוכן (אזור לגנדה/title block)
+    cx = bx + bw / 2
+    if cx < image_w * 0.35 and bh > image_h * 0.15:
+        return True
+    return False
+
+
 # ── Auto-analyze endpoint ──────────────────────────────────────────────────
 @app.post("/manager/planning/{plan_id}/auto-analyze", response_model=AutoAnalyzeResponse)
 async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
@@ -3338,6 +3352,18 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             except Exception as _hough_err:
                 print(f"[auto-analyze] Hough fallback error: {_hough_err}")
 
+        # ── סינון false positives של מסגרת הדף ────────────────────────────────
+        try:
+            img_shape = proj.get("image_shape") or {}
+            img_w = img_shape.get("width", 9999)
+            img_h = img_shape.get("height", 9999)
+            before = len(all_segments)
+            all_segments = [s for s in all_segments if not _is_page_frame(s, img_w, img_h)]
+            if len(all_segments) < before:
+                print(f"[auto-analyze] Filtered {before - len(all_segments)} page-frame false positives")
+        except Exception as _fe:
+            print(f"[auto-analyze] Frame filter error: {_fe}")
+
         _init_planning_if_missing(proj)
         proj["planning"]["auto_segments"] = [s.model_dump() for s in all_segments]
 
@@ -3577,6 +3603,44 @@ async def manager_confirm_auto_segment(
         width=float(bw), height=float(bh),
     )
     return await manager_add_zone_item(plan_id, zone_req)
+
+
+@app.post("/manager/planning/{plan_id}/confirm-auto-segments-batch", response_model=PlanningState)
+async def manager_confirm_batch(plan_id: str, body: dict) -> PlanningState:
+    """מאשר מספר segments בבת אחת עם אותה קטגוריה"""
+    segment_ids = body.get("segment_ids", [])
+    category_key = body.get("category_key", "")
+    proj = _get_project_or_404(plan_id)
+    _ensure_arrays_loaded(plan_id, proj)
+    _init_planning_if_missing(proj)
+    cats = proj["planning"].get("categories", {})
+    if category_key not in cats:
+        raise HTTPException(status_code=400, detail=f"Category '{category_key}' not found")
+    auto_segs = proj["planning"].get("auto_segments", [])
+    seg_map = {s["segment_id"]: s for s in auto_segs if isinstance(s, dict)}
+    added = 0
+    for seg_id in segment_ids:
+        seg = seg_map.get(seg_id)
+        if not seg:
+            continue
+        item = {
+            "uid": f"auto_{seg_id[:8]}_{added}",
+            "type": cats[category_key]["type"],
+            "category": category_key,
+            "points": [{"x": seg["bbox"][0], "y": seg["bbox"][1]},
+                       {"x": seg["bbox"][0] + seg["bbox"][2], "y": seg["bbox"][1] + seg["bbox"][3]}],
+            "length_m": seg.get("length_m", 0),
+            "area_m2": seg.get("area_m2", 0),
+            "source": "auto",
+        }
+        proj["planning"]["items"].append(item)
+        added += 1
+    # הסר את ה-segments שאושרו
+    proj["planning"]["auto_segments"] = [
+        s for s in auto_segs if isinstance(s, dict) and s["segment_id"] not in segment_ids
+    ]
+    _persist_plan_to_database(plan_id, proj)
+    return _build_planning_state(plan_id, proj)
 
 
 @app.post("/manager/planning/{plan_id}/items/{item_uid}/resolve-opening", response_model=PlanningState)

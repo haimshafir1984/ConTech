@@ -305,6 +305,18 @@ export async function confirmAutoSegments(
   return state;
 }
 
+export async function confirmAutoSegmentsBatch(
+  planId: string,
+  segmentIds: string[],
+  categoryKey: string
+): Promise<PlanningState> {
+  const { data } = await apiClient.post<PlanningState>(
+    `/manager/planning/${encodeURIComponent(planId)}/confirm-auto-segments-batch`,
+    { segment_ids: segmentIds, category_key: categoryKey }
+  );
+  return data;
+}
+
 // ── Import vision elements ─────────────────────────────────────────────────
 export async function importVisionItems(planId: string): Promise<PlanningState> {
   const { data } = await apiClient.post<PlanningState>(

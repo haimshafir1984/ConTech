@@ -18,6 +18,7 @@ import {
   resolvePlanningOpening,
   resolvePlanningWall,
   confirmAutoSegments,
+  confirmAutoSegmentsBatch,
   deleteAutoSegment,
   fetchBoqSummary,
   type AutoSegment,
@@ -793,6 +794,7 @@ export const PlanningPage: React.FC = () => {
   const [visionActiveCard, setVisionActiveCard] = React.useState<string | null>(null);
   const [autoLoading, setAutoLoading] = React.useState(false);
   const [autoSelected, setAutoSelected] = React.useState<Set<string>>(new Set());
+  const [selectedSegIds, setSelectedSegIds] = React.useState<Set<string>>(new Set());
   const [autoConfirmedKeys, setAutoConfirmedKeys] = React.useState<Record<string, string>>({}); // segIdג†’catKey
   const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set(["walls"]));
   const [bulkOpen, setBulkOpen] = React.useState(false);
@@ -1147,6 +1149,20 @@ export const PlanningPage: React.FC = () => {
       const state = await deletePlanningItem(selectedPlanId, uid);
       setPlanningState(state);
     } catch { setError("שגיאה במחיקת פריט."); }
+  };
+
+  const handleBatchAssign = async (categoryKey: string) => {
+    if (!selectedPlanId || selectedSegIds.size === 0) return;
+    setCategoryPickerOpen(false);
+    setLoading(true);
+    try {
+      const ids = [...selectedSegIds];
+      const state = await confirmAutoSegmentsBatch(selectedPlanId, ids, categoryKey);
+      setPlanningState(state);
+      setAutoSegments(prev => prev ? prev.filter(s => !ids.includes(s.segment_id)) : prev);
+      setSelectedSegIds(new Set());
+    } catch { setError("שגיאה בשיוך מרובה."); }
+    finally { setLoading(false); }
   };
 
   const startReviewMode = () => {
@@ -2028,7 +2044,7 @@ export const PlanningPage: React.FC = () => {
         <CategoryPickerModal
           categories={planningState.categories}
           pendingCount={pendingShapes.length}
-          onPick={(key) => { void handleAssignCategory(key); }}
+          onPick={(key) => { if (selectedSegIds.size > 0) { void handleBatchAssign(key); } else { void handleAssignCategory(key); } }}
           onCreateAndPick={(type, subtype, param, note) => { void handleCreateAndAssign(type, subtype, param, note); }}
           onCancel={() => setCategoryPickerOpen(false)}
         />
@@ -2163,6 +2179,18 @@ export const PlanningPage: React.FC = () => {
                     </button>
                   </>
                 )}
+                {selectedSegIds.size > 0 && (
+                  <>
+                    <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
+                    <button
+                      type="button"
+                      onClick={() => setCategoryPickerOpen(true)}
+                      style={{ padding: "4px 10px", borderRadius: 8, background: "#e67e22", border: "none", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer" }}
+                    >
+                      שייך {selectedSegIds.size} נבחרים ←
+                    </button>
+                  </>
+                )}
               </div>
               </div>{/* end toolbar sticky wrapper */}
 
@@ -2215,6 +2243,25 @@ export const PlanningPage: React.FC = () => {
                             >
                               <rect x={bx} y={by} width={bw} height={bh} fill={fillColor} fillOpacity={isSelected ? .26 : .08} stroke={strokeColor} strokeWidth={isSelected ? 3 : 2} rx={seg.element_class === "room" ? 5 : 1} strokeDasharray={seg.element_class === "fixture" ? "5 3" : "none"} />
                               <text x={bx + Math.max(10, bw / 2)} y={by + Math.max(12, bh / 2)} fill="#fff" fontSize={seg.element_class === "room" ? 10 : 9} fontWeight="700" textAnchor="middle" stroke="rgba(15,23,42,.35)" strokeWidth={.6} style={{ pointerEvents: "none" }}>{seg.element_class === "room" ? (seg.room_name ?? seg.label) : String(idx + 1)}</text>
+                              {/* Checkbox */}
+                              <rect
+                                x={bx + 4} y={by + 4} width={14} height={14}
+                                fill={selectedSegIds.has(seg.segment_id) ? "#e67e22" : "rgba(255,255,255,0.9)"}
+                                stroke="#e67e22" strokeWidth={1.5} rx={3}
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setSelectedSegIds(prev => {
+                                    const next = new Set(prev);
+                                    next.has(seg.segment_id) ? next.delete(seg.segment_id) : next.add(seg.segment_id);
+                                    return next;
+                                  });
+                                }}
+                                style={{ cursor: "pointer" }}
+                              />
+                              {selectedSegIds.has(seg.segment_id) && (
+                                <text x={bx + 11} y={by + 14} fill="#fff" fontSize={10} fontWeight="bold"
+                                  textAnchor="middle" style={{ pointerEvents: "none" }}>✓</text>
+                              )}
                               {hoveredSegId === seg.segment_id && (
                                 <g onClick={(ev) => { ev.stopPropagation(); void handleDeleteSegment(seg.segment_id); setContextMenu(null); }} style={{ cursor: "pointer" }}>
                                   <circle cx={bx + bw - 8} cy={by + 8} r={8} fill="#DC2626" />
@@ -2511,18 +2558,36 @@ export const PlanningPage: React.FC = () => {
                       עדיין אין פריטים משויכים
                     </div>
                   );
-                  return entries.map(([key, g]) => (
-                    <div key={key} style={{ marginBottom: 6, padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: g.color, flexShrink: 0, display: "inline-block" }} />
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>{g.type}</span>
-                        <span style={{ fontSize: 11, color: "#64748b" }}>{g.subtype}</span>
+                  return entries.map(([key, g]) => {
+                    const groupItems = planningState.items.filter(it => {
+                      const cat = planningState.categories[it.category];
+                      return cat && `${cat.type}:${cat.subtype}` === key;
+                    });
+                    return (
+                      <div key={key} style={{ marginBottom: 6, borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0", overflow: "hidden" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 10px 3px" }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: g.color, flexShrink: 0, display: "inline-block" }} />
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>{g.type}</span>
+                          <span style={{ fontSize: 11, color: "#64748b" }}>{g.subtype}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#94a3b8", paddingRight: 15, paddingBottom: groupItems.length > 0 ? 4 : 8, paddingLeft: 10 }}>
+                          {g.count} {g.count === 1 ? "פריט" : "פריטים"}{g.totalLength > 0 && ` · ${g.totalLength.toFixed(1)} מ'`}
+                        </div>
+                        {groupItems.map(item => (
+                          <div key={item.uid} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderTop: "1px solid #f1f5f9" }}>
+                            <span style={{ flex: 1, fontSize: 10, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {Number(item.length_m_effective ?? item.length_m ?? 0).toFixed(1)} מ'
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteItem(item.uid)}
+                              style={{ marginRight: "auto", padding: "2px 8px", borderRadius: 6, border: "1px solid #fecaca", background: "#fff", color: "#dc2626", fontSize: 11, cursor: "pointer" }}
+                            >×</button>
+                          </div>
+                        ))}
                       </div>
-                      <div style={{ fontSize: 11, color: "#94a3b8", paddingRight: 15 }}>
-                        {g.count} {g.count === 1 ? "פריט" : "פריטים"}{g.totalLength > 0 && ` · ${g.totalLength.toFixed(1)} מ'`}
-                      </div>
-                    </div>
-                  ));
+                    );
+                  });
                 })()}
               </div>
 

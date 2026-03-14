@@ -3364,6 +3364,70 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         except Exception as _fe:
             print(f"[auto-analyze] Frame filter error: {_fe}")
 
+        # ════════════════════════════════════════════
+        # פילטר A — סגמנטים דקים ואורכיים (צינורות/קווי מד)
+        # ════════════════════════════════════════════
+        def _is_thin_pipe(seg, scale_px_per_m: float) -> bool:
+            """מסנן קווי אינסטלציה/מידות שמזוהים בטעות כקירות"""
+            if seg.element_class != "wall":
+                return False
+            bx, by, bw, bh = seg.bbox
+            if bw == 0 or bh == 0:
+                return False
+            aspect = max(bw, bh) / max(min(bw, bh), 1)
+            short_side_m = min(bw, bh) / max(scale_px_per_m, 1)
+            # קו דק מאוד: יחס צד > 12 וגובה/רוחב קצר < 0.25 מטר
+            if aspect > 12 and short_side_m < 0.25:
+                return True
+            return False
+
+        scale_pxm = proj.get("scale_px_per_m") or proj.get("planning", {}).get("scale_px_per_m") or 25.0
+        before_pipe = len(all_segments)
+        all_segments = [s for s in all_segments if not _is_thin_pipe(s, scale_pxm)]
+        if len(all_segments) < before_pipe:
+            print(f"[auto-analyze] Pipe filter removed {before_pipe - len(all_segments)} thin segments")
+
+        # ════════════════════════════════════════════
+        # פילטר B — סגמנטים בתחתית הדף (ציורי פרטים)
+        # ════════════════════════════════════════════
+        try:
+            img_shape = proj.get("image_shape") or {}
+            img_h_b = img_shape.get("height", 0)
+            if img_h_b > 0:
+                # הכל מתחת ל-80% גובה הדף — כנראה ציורי פרטים ולא התוכנית הראשית
+                bottom_threshold = img_h_b * 0.80
+                before_bot = len(all_segments)
+                all_segments = [
+                    s for s in all_segments
+                    if (s.bbox[1] + s.bbox[3] / 2) < bottom_threshold
+                ]
+                if len(all_segments) < before_bot:
+                    print(f"[auto-analyze] Bottom-area filter removed {before_bot - len(all_segments)} segments")
+        except Exception as _bf:
+            print(f"[auto-analyze] Bottom filter error: {_bf}")
+
+        # ════════════════════════════════════════════
+        # פילטר C — סגמנטים בשוליים ימין/שמאל (טבלאות מידות)
+        # ════════════════════════════════════════════
+        try:
+            img_shape = proj.get("image_shape") or {}
+            img_w_c = img_shape.get("width", 0)
+            if img_w_c > 0:
+                # שוליים שמאל: עד 12% = בלוק כותרת / הערות
+                left_bound  = img_w_c * 0.12
+                # שוליים ימין: מ-88% = טבלת מקרא
+                right_bound = img_w_c * 0.88
+                before_margin = len(all_segments)
+                all_segments = [
+                    s for s in all_segments
+                    if (s.bbox[0] + s.bbox[2] / 2) > left_bound
+                    and (s.bbox[0] + s.bbox[2] / 2) < right_bound
+                ]
+                if len(all_segments) < before_margin:
+                    print(f"[auto-analyze] Margin filter removed {before_margin - len(all_segments)} segments")
+        except Exception as _mf:
+            print(f"[auto-analyze] Margin filter error: {_mf}")
+
         _init_planning_if_missing(proj)
         proj["planning"]["auto_segments"] = [s.model_dump() for s in all_segments]
 

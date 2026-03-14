@@ -46,49 +46,112 @@ interface PendingShape {
 }
 
 const CATEGORY_SUBTYPES: Record<string, string[]> = {
-  "קירות": ["בטון", "בלוקים", "גבס", "מחיצה קלה"],
-  "ריצוף": ["קרמיקה", "גרניט פורצלן", "פרקט", "בטון מוחלק"],
-  "תקרה": ["גבס", "אקוסטית", "חשופה", "צבועה"],
-  "דלתות וחלונות": ["דלת פנים", "דלת כניסה", "חלון אלומיניום", "חלון עץ", "ויטרינה"],
-  "אינסטלציה": ["מים קרים", "מים חמים", "ביוב", "גז"],
-  "חשמל": ["תאורה", "שקעים", "לוח חשמל", "גנרטור"],
-  "טיח וצבע": ["טיח פנים", "טיח חוץ", "צבע פנים", "צבע חוץ"],
-  "עמודים": ["עמוד בטון", "עמוד מתכת", "קורה"],
+  "קירות":             ["בטון", "בלוקים", "גבס", "מחיצה קלה", "קיר חיצוני", "קיר פנימי"],
+  "ריצוף":             ["קרמיקה", "גרניט פורצלן", "פרקט", "בטון מוחלק", "אבן טבעית"],
+  "תקרה":              ["גבס", "אקוסטית", "חשופה", "צבועה", "קורות עץ"],
+  "דלתות וחלונות":    ["דלת פנים", "דלת כניסה", "חלון אלומיניום", "חלון עץ", "ויטרינה", "דלת זכוכית"],
+  "כלים סניטריים":   ["כיור", "אסלה", "אמבטיה", "מקלחת", "ברז / מיקסר", "בידה", "אביזר סניטרי"],
+  "מטבח":              ["כיור מטבח", "משטח עבודה", "ארון מטבח עליון", "ארון מטבח תחתון", "מכשיר חשמלי"],
+  "אינסטלציה":        ["מים קרים", "מים חמים", "ביוב", "גז", "נקז", "צינור גשם"],
+  "חשמל ותאורה":     ["תאורה", "שקעים", "לוח חשמל", "גנרטור", "מצלמה", "אינטרקום"],
+  "מיזוג ואוורור":   ["מזגן", "תעלת אוורור", "צינור מיזוג", "מאוורר תקרה"],
+  "טיח וצבע":         ["טיח פנים", "טיח חוץ", "צבע פנים", "צבע חוץ", "חיפוי קיר"],
+  "עמודים ושלד":      ["עמוד בטון", "עמוד מתכת", "קורה", "רגל פלדה"],
+  "פרטים":             ["מדרגות", "מעקה", "משקוף", "ריסייה", "פרט קטן"],
+  // ישנים — שמירת תאימות לאחור
+  "חשמל":              ["תאורה", "שקעים", "לוח חשמל", "גנרטור"],
+  "עמודים":            ["עמוד בטון", "עמוד מתכת", "קורה"],
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
+  // קירות
   "קירות:בטון": "#0ea5e9",
   "קירות:בלוקים": "#2563eb",
   "קירות:גבס": "#6366f1",
   "קירות:מחיצה קלה": "#8b5cf6",
+  "קירות:קיר חיצוני": "#1d4ed8",
+  "קירות:קיר פנימי": "#059669",
+  // ריצוף
   "ריצוף:קרמיקה": "#f97316",
   "ריצוף:גרניט פורצלן": "#ea580c",
   "ריצוף:פרקט": "#a16207",
   "ריצוף:בטון מוחלק": "#b45309",
+  "ריצוף:אבן טבעית": "#92400e",
+  // תקרה
   "תקרה:גבס": "#14b8a6",
   "תקרה:אקוסטית": "#0d9488",
   "תקרה:חשופה": "#059669",
   "תקרה:צבועה": "#10b981",
+  "תקרה:קורות עץ": "#a16207",
+  // דלתות וחלונות
   "דלתות וחלונות:דלת פנים": "#84cc16",
   "דלתות וחלונות:דלת כניסה": "#65a30d",
   "דלתות וחלונות:חלון אלומיניום": "#4ade80",
   "דלתות וחלונות:חלון עץ": "#22c55e",
   "דלתות וחלונות:ויטרינה": "#16a34a",
+  "דלתות וחלונות:דלת זכוכית": "#15803d",
+  // כלים סניטריים
+  "כלים סניטריים:כיור":          "#0ea5e9",
+  "כלים סניטריים:אסלה":          "#0284c7",
+  "כלים סניטריים:אמבטיה":        "#0369a1",
+  "כלים סניטריים:מקלחת":         "#075985",
+  "כלים סניטריים:ברז / מיקסר":   "#38bdf8",
+  "כלים סניטריים:בידה":           "#7dd3fc",
+  "כלים סניטריים:אביזר סניטרי":  "#bae6fd",
+  // מטבח
+  "מטבח:כיור מטבח":               "#f97316",
+  "מטבח:משטח עבודה":              "#ea580c",
+  "מטבח:ארון מטבח עליון":         "#c2410c",
+  "מטבח:ארון מטבח תחתון":         "#9a3412",
+  "מטבח:מכשיר חשמלי":             "#7c2d12",
+  // אינסטלציה
   "אינסטלציה:מים קרים": "#38bdf8",
   "אינסטלציה:מים חמים": "#fb923c",
   "אינסטלציה:ביוב": "#a78bfa",
   "אינסטלציה:גז": "#fde047",
+  "אינסטלציה:נקז": "#818cf8",
+  "אינסטלציה:צינור גשם": "#6366f1",
+  // חשמל ותאורה (חדש)
+  "חשמל ותאורה:תאורה":            "#facc15",
+  "חשמל ותאורה:שקעים":            "#eab308",
+  "חשמל ותאורה:לוח חשמל":        "#ca8a04",
+  "חשמל ותאורה:גנרטור":           "#a16207",
+  "חשמל ותאורה:מצלמה":            "#854d0e",
+  "חשמל ותאורה:אינטרקום":         "#713f12",
+  // חשמל (ישן — תאימות לאחור)
   "חשמל:תאורה": "#facc15",
   "חשמל:שקעים": "#eab308",
   "חשמל:לוח חשמל": "#ca8a04",
   "חשמל:גנרטור": "#a16207",
+  // מיזוג ואוורור
+  "מיזוג ואוורור:מזגן":           "#6366f1",
+  "מיזוג ואוורור:תעלת אוורור":   "#4f46e5",
+  "מיזוג ואוורור:צינור מיזוג":   "#4338ca",
+  "מיזוג ואוורור:מאוורר תקרה":   "#3730a3",
+  // טיח וצבע
   "טיח וצבע:טיח פנים": "#f9a8d4",
   "טיח וצבע:טיח חוץ": "#f472b6",
   "טיח וצבע:צבע פנים": "#e879f9",
   "טיח וצבע:צבע חוץ": "#d946ef",
+  "טיח וצבע:חיפוי קיר": "#c026d3",
+  // עמודים ושלד (חדש)
+  "עמודים ושלד:עמוד בטון":        "#94a3b8",
+  "עמודים ושלד:עמוד מתכת":        "#64748b",
+  "עמודים ושלד:קורה":             "#475569",
+  "עמודים ושלד:רגל פלדה":         "#334155",
+  // עמודים (ישן — תאימות לאחור)
   "עמודים:עמוד בטון": "#94a3b8",
   "עמודים:עמוד מתכת": "#64748b",
   "עמודים:קורה": "#475569",
+  // פרטים
+  "פרטים:מדרגות":                  "#a78bfa",
+  "פרטים:מעקה":                    "#8b5cf6",
+  "פרטים:משקוף":                   "#7c3aed",
+  "פרטים:ריסייה":                  "#6d28d9",
+  "פרטים:פרט קטן":                 "#5b21b6",
+  // חשמל ותאורה — כינויים נוספים
+  "חשמל ותאורה:מצלמה":            "#854d0e",
+  "חשמל ותאורה:אינטרקום":         "#713f12",
 };
 
 const DEFAULT_CATEGORY_COLOR = "#334155";
@@ -2536,19 +2599,38 @@ export const PlanningPage: React.FC = () => {
                     return Array.from(detGroups.values()).sort((a, b) => b.count - a.count).map(row => {
                       const active = highlightedClass === row.key;
                       return (
-                        <button key={row.key} type="button"
-                          onClick={() => { if (active) { setHighlightedClass(null); setHighlightedType(null); } else { setHighlightedClass(row.key); setHighlightedType(row.label); } }}
-                          style={{ textAlign: "right", width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${active ? row.color : '#E2E8F0'}`, background: active ? hexToRgba(row.color, .1) : "#f8fafc", cursor: "pointer", marginBottom: 6 }}
+                        <div key={row.key}
+                          style={{ textAlign: "right", width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${active ? row.color : '#E2E8F0'}`, background: active ? hexToRgba(row.color, .1) : "#f8fafc", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}
                         >
-                          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: row.color, flexShrink: 0, display: "inline-block" }} />
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.label}</span>
-                            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>{row.count}</span>
+                          {/* אזור לחיץ להדגשה */}
+                          <div style={{ flex: 1, cursor: "pointer", minWidth: 0 }}
+                            onClick={() => { if (active) { setHighlightedClass(null); setHighlightedType(null); } else { setHighlightedClass(row.key); setHighlightedType(row.label); } }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: "50%", background: row.color, flexShrink: 0, display: "inline-block" }} />
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.label}</span>
+                              <span style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>{row.count}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: "#94a3b8", paddingRight: 15 }}>
+                              {row.length > 0 ? `${row.length.toFixed(1)} מ'` : "ללא מידה"}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 11, color: "#94a3b8", paddingRight: 15 }}>
-                            {row.length > 0 ? `${row.length.toFixed(1)} מ'` : "ללא מידה"}
-                          </div>
-                        </button>
+                          {/* כפתור מחיקת כל הסגמנטים מסוג זה */}
+                          <button type="button"
+                            title="הסר את כל הסגמנטים מסוג זה"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              const segsToDelete = (autoSegments ?? []).filter(seg => {
+                                const typeLabel = seg.suggested_type ?? (seg.element_class === "room" ? "חדרים" : seg.element_class === "fixture" ? "אביזרים" : "קירות");
+                                const subtypeLabel = seg.suggested_subtype ?? seg.wall_type ?? "ללא סוג";
+                                return (typeLabel + "|" + subtypeLabel) === row.key;
+                              });
+                              segsToDelete.forEach(seg => { void handleDeleteSegment(seg.segment_id); });
+                              if (highlightedClass === row.key) { setHighlightedClass(null); setHighlightedType(null); }
+                            }}
+                            style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 6, border: "1px solid #fecaca", background: "#fff", color: "#dc2626", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, lineHeight: 1 }}
+                          >×</button>
+                        </div>
                       );
                     });
                   }

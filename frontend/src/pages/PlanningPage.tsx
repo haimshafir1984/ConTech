@@ -852,6 +852,11 @@ export const PlanningPage: React.FC = () => {
 
   // ג"€ג"€ Auto-analyze state ג"€ג"€
   const [autoSegments, setAutoSegments] = React.useState<AutoSegment[] | null>(null);
+  const [autoReviewMode, setAutoReviewMode] = React.useState(false);
+  const [autoReviewQueue, setAutoReviewQueue] = React.useState<string[]>([]);
+  const [autoReviewIndex, setAutoReviewIndex] = React.useState(0);
+  const [autoReviewDecisions, setAutoReviewDecisions] = React.useState<Record<string, "approve" | "delete">>({});
+  const [autoReviewDone, setAutoReviewDone] = React.useState(false);
   const [autoVisionData, setAutoVisionData] = React.useState<AutoAnalyzeVisionData | null>(null);
   const [visionCatSuggestions, setVisionCatSuggestions] = React.useState<{ type: string; subtype: string; paramValue: number }[]>([]);
   const [visionActiveCard, setVisionActiveCard] = React.useState<string | null>(null);
@@ -1007,6 +1012,23 @@ export const PlanningPage: React.FC = () => {
       .catch(() => setError("שגיאה בטעינת נתוני הגדרת התכולה."))
       .finally(() => setLoading(false));
   }, [selectedPlanId, loadPlanningState]);
+
+  React.useEffect(() => {
+    if (!autoReviewMode || autoReviewDone) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight" || e.key === " ") {
+        e.preventDefault();
+        autoReviewDecide("approve");
+      } else if (e.key === "ArrowLeft" || e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        autoReviewDecide("delete");
+      } else if (e.key === "Escape") {
+        stopAutoReviewMode();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [autoReviewMode, autoReviewDone, autoReviewIndex, autoReviewQueue]);
 
   const selectedPlan = plans.find((p) => p.id === selectedPlanId) ?? null;
 
@@ -1243,6 +1265,79 @@ export const PlanningPage: React.FC = () => {
     setReviewIndex(0);
   };
 
+  const startAutoReviewFromSegments = (segs: AutoSegment[]) => {
+    const validSegs = segs.filter(s => s.suggested_subtype !== "פרט קטן");
+    if (validSegs.length === 0) return;
+    setAutoReviewQueue(validSegs.map(s => s.segment_id));
+    setAutoReviewIndex(0);
+    setAutoReviewDecisions({});
+    setAutoReviewDone(false);
+    setAutoReviewMode(true);
+    setTimeout(() => scrollCanvasToSegment(validSegs[0].segment_id), 200);
+  };
+
+  const startAutoReviewMode = () => {
+    if (!autoSegments || autoSegments.length === 0) return;
+    startAutoReviewFromSegments(autoSegments);
+  };
+
+  const stopAutoReviewMode = () => {
+    setAutoReviewMode(false);
+    setAutoReviewQueue([]);
+    setAutoReviewIndex(0);
+    setAutoReviewDecisions({});
+    setAutoReviewDone(false);
+  };
+
+  const scrollCanvasToSegment = (segId: string) => {
+    const seg = autoSegments?.find(s => s.segment_id === segId);
+    if (!seg || !canvasContainerRef.current) return;
+    const [bx, by, bw, bh] = seg.bbox.map(v => v * displayScale);
+    const container = canvasContainerRef.current;
+    const cx = bx + bw / 2;
+    const cy = by + bh / 2;
+    container.scrollTo({
+      left: Math.max(0, cx - container.clientWidth / 2),
+      top: Math.max(0, cy - container.clientHeight / 2),
+      behavior: "smooth",
+    });
+  };
+
+  const autoReviewDecide = (decision: "approve" | "delete") => {
+    const segId = autoReviewQueue[autoReviewIndex];
+    if (!segId) return;
+    setAutoReviewDecisions(prev => ({ ...prev, [segId]: decision }));
+    const nextIdx = autoReviewIndex + 1;
+    if (nextIdx >= autoReviewQueue.length) {
+      setAutoReviewDone(true);
+      return;
+    }
+    setAutoReviewIndex(nextIdx);
+    setTimeout(() => scrollCanvasToSegment(autoReviewQueue[nextIdx]), 80);
+  };
+
+  const autoReviewGoTo = (idx: number) => {
+    if (idx < 0 || idx >= autoReviewQueue.length) return;
+    setAutoReviewIndex(idx);
+    setTimeout(() => scrollCanvasToSegment(autoReviewQueue[idx]), 80);
+  };
+
+  const applyAutoReviewDecisions = async () => {
+    if (!planningState) return;
+    const toDelete = Object.entries(autoReviewDecisions)
+      .filter(([, d]) => d === "delete")
+      .map(([id]) => id);
+    const toApprove = Object.entries(autoReviewDecisions)
+      .filter(([, d]) => d === "approve")
+      .map(([id]) => id);
+    for (const segId of toDelete) {
+      await handleDeleteSegment(segId);
+    }
+    setApproveAllMsg(`✅ ${toApprove.length} פריטים אושרו | 🗑 ${toDelete.length} פריטים נמחקו`);
+    setTimeout(() => setApproveAllMsg(null), 4000);
+    stopAutoReviewMode();
+  };
+
   const reviewAdvance = (updatedQueue?: string[]) => {
     const q = updatedQueue ?? reviewQueue;
     if (reviewIndex + 1 >= q.length) {
@@ -1445,6 +1540,7 @@ export const PlanningPage: React.FC = () => {
     try {
       const result = await autoAnalyzePlan(selectedPlanId);
       setAutoSegments(result.segments);
+      setTimeout(() => startAutoReviewFromSegments(result.segments), 400);
       setAutoVisionData(result.vision_data ?? null);
       setVisionActiveCard(null);
       // Pre-select all except unidentified small fixtures ("׳₪׳¨׳˜ ׳§׳˜׳")
@@ -2259,6 +2355,11 @@ export const PlanningPage: React.FC = () => {
 
               {/* The canvas itself */}
               <div style={{ position: "relative" }}>
+                <style>{`
+                  @keyframes dash {
+                    to { stroke-dashoffset: -24; }
+                  }
+                `}</style>
                 <PlanningCanvasErrorBoundary>
                   <div className="relative select-none" style={{ flexShrink: 0, boxShadow: "0 24px 60px rgba(15,23,42,.18)", border: "1px solid #7C8EA3", background: "#fff", borderRadius: 18, overflow: "hidden" }}>
                     <img
@@ -2273,21 +2374,48 @@ export const PlanningPage: React.FC = () => {
 
                     {/* Auto segments overlay */}
                     {step3Tab === "auto" && autoSegments !== null && autoSegments.length > 0 && (
-                      <svg width={displaySize.width} height={displaySize.height} className="absolute inset-0" onClick={() => { setContextMenu(null); setSelectedSegmentId(null); setSelectedPopoverItem(null); }}>
-                        {highlightedClass && <rect x={0} y={0} width={displaySize.width} height={displaySize.height} fill="rgba(15,23,42,.12)" style={{ pointerEvents: "none" }} />}
+                      <svg width={displaySize.width} height={displaySize.height} className="absolute inset-0"
+                        onClick={() => { setContextMenu(null); setSelectedSegmentId(null); setSelectedPopoverItem(null); }}
+                      >
+                        {/* Dimming overlay during auto review */}
+                        {autoReviewMode && !autoReviewDone && (
+                          <rect x={0} y={0} width={displaySize.width} height={displaySize.height}
+                            fill="rgba(15,23,42,0.55)" style={{ pointerEvents: "none" }} />
+                        )}
+
                         {autoSegments.filter(seg => seg.suggested_subtype !== "פרט קטן").map((seg, idx) => {
                           const [bx, by, bw, bh] = seg.bbox.map(v => v * displayScale);
+                          const isCurrentReview = autoReviewMode && autoReviewQueue[autoReviewIndex] === seg.segment_id;
+                          const reviewDecision = autoReviewDecisions[seg.segment_id];
+                          const isApproved = reviewDecision === "approve";
+                          const isDeleted = reviewDecision === "delete";
                           const isSelected = selectedSegmentId === seg.segment_id;
                           const summaryKey = (seg.suggested_type ?? seg.element_class) + "|" + (seg.suggested_subtype ?? seg.wall_type ?? "");
                           if (highlightedClass && summaryKey !== highlightedClass) return null;
-                          const strokeColor = isSelected ? "#0F172A" : seg.category_color ?? (seg.confidence >= .75 ? "#15803D" : seg.confidence >= .5 ? "#B45309" : "#DC2626");
-                          const fillColor = seg.category_color ?? (seg.element_class === "fixture" ? "#0EA5E9" : seg.element_class === "room" ? "#7C3AED" : "#2563EB");
+                          if (autoReviewMode && isDeleted) return null;
+
+                          const baseColor = seg.category_color ?? (seg.confidence >= .75 ? "#15803D" : seg.confidence >= .5 ? "#B45309" : "#DC2626");
+                          const strokeColor = isCurrentReview ? "#F59E0B" : isApproved ? "#15803D" : isSelected ? "#0F172A" : baseColor;
+                          const fillColor = isCurrentReview ? "#F59E0B" : isApproved ? "#15803D" : (seg.category_color ?? (seg.element_class === "fixture" ? "#0EA5E9" : seg.element_class === "room" ? "#7C3AED" : "#2563EB"));
+                          const fillOpacity = isCurrentReview ? 0.22 : isApproved ? 0.18 : isSelected ? 0.26 : 0.08;
+                          const strokeWidth = isCurrentReview ? 4 : isApproved ? 2.5 : isSelected ? 3 : 2;
+                          const filterStyle = isCurrentReview ? "drop-shadow(0 0 10px rgba(245,158,11,0.9))" : isApproved ? "drop-shadow(0 0 4px rgba(21,128,61,0.6))" : undefined;
+
                           return (
-                            <g key={seg.segment_id} style={{ cursor: "pointer" }}
+                            <g key={seg.segment_id}
+                              style={{
+                                cursor: "pointer",
+                                opacity: autoReviewMode && !isCurrentReview && !isApproved ? 0.18 : 1,
+                              }}
                               onMouseEnter={() => setHoveredSegId(seg.segment_id)}
                               onMouseLeave={() => setHoveredSegId(null)}
                               onClick={(ev) => {
                                 ev.stopPropagation();
+                                if (autoReviewMode) {
+                                  const idxInQueue = autoReviewQueue.indexOf(seg.segment_id);
+                                  if (idxInQueue !== -1) autoReviewGoTo(idxInQueue);
+                                  return;
+                                }
                                 setSelectedSegmentId(seg.segment_id);
                                 const cats = Object.values(planningState.categories);
                                 const match = cats.find(cat => cat.type === seg.suggested_type && cat.subtype === seg.suggested_subtype) ?? cats.find(cat => cat.subtype === seg.suggested_subtype) ?? cats[0];
@@ -2298,38 +2426,59 @@ export const PlanningPage: React.FC = () => {
                                 const vpX = cRect.left - cScrollLeft + bx + bw / 2 - 120;
                                 const vpY = cRect.top  - cScrollTop  + by - 220;
                                 setContextMenu({
-                                  x: Math.max(8, Math.min(window.innerWidth  - 256, vpX)),
+                                  x: Math.max(8, Math.min(window.innerWidth - 256, vpX)),
                                   y: Math.max(56, Math.min(window.innerHeight - 260, vpY)),
                                   segId: seg.segment_id,
                                 });
                               }}
                             >
-                              <rect x={bx} y={by} width={bw} height={bh} fill={fillColor} fillOpacity={isSelected ? .26 : .08} stroke={strokeColor} strokeWidth={isSelected ? 3 : 2} rx={seg.element_class === "room" ? 5 : 1} strokeDasharray={seg.element_class === "fixture" ? "5 3" : "none"} />
-                              <text x={bx + Math.max(10, bw / 2)} y={by + Math.max(12, bh / 2)} fill="#fff" fontSize={seg.element_class === "room" ? 10 : 9} fontWeight="700" textAnchor="middle" stroke="rgba(15,23,42,.35)" strokeWidth={.6} style={{ pointerEvents: "none" }}>{seg.element_class === "room" ? (seg.room_name ?? seg.label) : String(idx + 1)}</text>
-                              {/* Checkbox */}
-                              <rect
-                                x={bx + 4} y={by + 4} width={14} height={14}
-                                fill={selectedSegIds.has(seg.segment_id) ? "#e67e22" : "rgba(255,255,255,0.9)"}
-                                stroke="#e67e22" strokeWidth={1.5} rx={3}
-                                onClick={(ev) => {
-                                  ev.stopPropagation();
-                                  setSelectedSegIds(prev => {
-                                    const next = new Set(prev);
-                                    next.has(seg.segment_id) ? next.delete(seg.segment_id) : next.add(seg.segment_id);
-                                    return next;
-                                  });
-                                }}
-                                style={{ cursor: "pointer" }}
+                              <rect x={bx} y={by} width={bw} height={bh}
+                                fill={fillColor} fillOpacity={fillOpacity}
+                                stroke={strokeColor} strokeWidth={strokeWidth}
+                                rx={seg.element_class === "room" ? 5 : 1}
+                                strokeDasharray={seg.element_class === "fixture" ? "5 3" : "none"}
+                                style={{ filter: filterStyle }}
                               />
-                              {selectedSegIds.has(seg.segment_id) && (
-                                <text x={bx + 11} y={by + 14} fill="#fff" fontSize={10} fontWeight="bold"
-                                  textAnchor="middle" style={{ pointerEvents: "none" }}>✓</text>
+                              <text x={bx + Math.max(10, bw / 2)} y={by + Math.max(12, bh / 2)}
+                                fill="#fff" fontSize={seg.element_class === "room" ? 10 : 9}
+                                fontWeight="700" textAnchor="middle"
+                                stroke="rgba(15,23,42,.35)" strokeWidth={0.6}
+                                style={{ pointerEvents: "none" }}>
+                                {isApproved ? "✓" : (seg.element_class === "room" ? (seg.room_name ?? seg.label) : String(idx + 1))}
+                              </text>
+                              {!autoReviewMode && (
+                                <>
+                                  <rect x={bx + 4} y={by + 4} width={14} height={14}
+                                    fill={selectedSegIds.has(seg.segment_id) ? "#e67e22" : "rgba(255,255,255,0.9)"}
+                                    stroke="#e67e22" strokeWidth={1.5} rx={3}
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      setSelectedSegIds(prev => {
+                                        const next = new Set(prev);
+                                        next.has(seg.segment_id) ? next.delete(seg.segment_id) : next.add(seg.segment_id);
+                                        return next;
+                                      });
+                                    }}
+                                    style={{ cursor: "pointer" }}
+                                  />
+                                  {selectedSegIds.has(seg.segment_id) && (
+                                    <text x={bx + 11} y={by + 14} fill="#fff" fontSize={10} fontWeight="bold"
+                                      textAnchor="middle" style={{ pointerEvents: "none" }}>✓</text>
+                                  )}
+                                </>
                               )}
-                              {hoveredSegId === seg.segment_id && (
+                              {!autoReviewMode && hoveredSegId === seg.segment_id && (
                                 <g onClick={(ev) => { ev.stopPropagation(); void handleDeleteSegment(seg.segment_id); setContextMenu(null); }} style={{ cursor: "pointer" }}>
                                   <circle cx={bx + bw - 8} cy={by + 8} r={8} fill="#DC2626" />
                                   <text x={bx + bw - 8} y={by + 11} fill="#fff" fontSize={10} fontWeight="700" textAnchor="middle" style={{ pointerEvents: "none" }}>×</text>
                                 </g>
+                              )}
+                              {isCurrentReview && (
+                                <rect x={bx - 3} y={by - 3} width={bw + 6} height={bh + 6}
+                                  fill="none" stroke="#F59E0B" strokeWidth={3}
+                                  strokeDasharray="8 4" rx={4}
+                                  style={{ pointerEvents: "none", animation: "dash 1s linear infinite" }}
+                                />
                               )}
                             </g>
                           );
@@ -2337,7 +2486,131 @@ export const PlanningPage: React.FC = () => {
                       </svg>
                     )}
 
-                    {/* Context menu popover */}
+                    {/* ===== AUTO REVIEW BAR ===== */}
+                    {autoReviewMode && autoSegments && !autoReviewDone && (() => {
+                      const currentSeg = autoSegments.find(s => s.segment_id === autoReviewQueue[autoReviewIndex]);
+                      const label = currentSeg
+                        ? `${currentSeg.suggested_type ?? "אלמנט"} — ${currentSeg.suggested_subtype ?? ""}` 
+                        : `פריט ${autoReviewIndex + 1}`;
+                      const conf = currentSeg ? Math.round((currentSeg.confidence ?? 0) * 100) : 0;
+                      const approvedCount = Object.values(autoReviewDecisions).filter(d => d === "approve").length;
+                      const deletedCount  = Object.values(autoReviewDecisions).filter(d => d === "delete").length;
+                      const progress = (autoReviewIndex / autoReviewQueue.length) * 100;
+
+                      return (
+                        <div style={{
+                          position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 40,
+                          background: "rgba(15,23,42,0.92)", backdropFilter: "blur(8px)",
+                          padding: "12px 20px", direction: "rtl",
+                          display: "flex", flexDirection: "column", gap: 10,
+                          borderTop: "2px solid rgba(245,158,11,0.6)",
+                        }}>
+                          <div style={{ height: 3, background: "rgba(255,255,255,0.12)", borderRadius: 2 }}>
+                            <div style={{ height: "100%", width: `${progress}%`, background: "#F59E0B", borderRadius: 2, transition: "width 0.2s" }} />
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{label}</span>
+                              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)" }}>
+                                ביטחון: {conf}% &nbsp;|&nbsp; {autoReviewIndex + 1}/{autoReviewQueue.length} &nbsp;|&nbsp;
+                                <span style={{ color: "#4ade80" }}>✓ {approvedCount}</span>
+                                &nbsp;
+                                <span style={{ color: "#f87171" }}>✗ {deletedCount}</span>
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                              <button type="button"
+                                onClick={() => autoReviewDecide("delete")}
+                                style={{
+                                  width: 52, height: 52, borderRadius: "50%",
+                                  background: "#DC2626", border: "2px solid rgba(255,255,255,0.2)",
+                                  color: "#fff", fontSize: 22, cursor: "pointer",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  boxShadow: "0 4px 16px rgba(220,38,38,0.5)",
+                                }}
+                                title="מחק (← או Delete)"
+                              >✗</button>
+                              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxWidth: 180, justifyContent: "center" }}>
+                                {autoReviewQueue.slice(Math.max(0, autoReviewIndex - 5), autoReviewIndex + 6).map((id, i) => {
+                                  const absIdx = Math.max(0, autoReviewIndex - 5) + i;
+                                  const d = autoReviewDecisions[id];
+                                  return (
+                                    <div key={id}
+                                      onClick={() => autoReviewGoTo(absIdx)}
+                                      style={{
+                                        width: 10, height: 10, borderRadius: "50%", cursor: "pointer",
+                                        background: d === "approve" ? "#4ade80" : d === "delete" ? "#f87171" : absIdx === autoReviewIndex ? "#F59E0B" : "rgba(255,255,255,0.25)",
+                                        border: absIdx === autoReviewIndex ? "2px solid #fff" : "none",
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </div>
+                              <button type="button"
+                                onClick={() => autoReviewDecide("approve")}
+                                style={{
+                                  width: 52, height: 52, borderRadius: "50%",
+                                  background: "#15803D", border: "2px solid rgba(255,255,255,0.2)",
+                                  color: "#fff", fontSize: 22, cursor: "pointer",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  boxShadow: "0 4px 16px rgba(21,128,61,0.5)",
+                                }}
+                                title="אשר (→ או Space)"
+                              >✓</button>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                              <button type="button" onClick={stopAutoReviewMode}
+                                style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", background: "transparent", border: "none", cursor: "pointer", padding: "2px 4px" }}>
+                                סגור סקירה ×
+                              </button>
+                              <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>→ אשר &nbsp;|&nbsp; ← מחק</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ===== AUTO REVIEW DONE SCREEN ===== */}
+                    {autoReviewMode && autoReviewDone && (
+                      <div style={{
+                        position: "absolute", inset: 0, zIndex: 50,
+                        background: "rgba(15,23,42,0.88)", backdropFilter: "blur(6px)",
+                        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                        gap: 18, direction: "rtl",
+                      }}>
+                        <div style={{ fontSize: 40 }}>🎉</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>סקירה הושלמה!</div>
+                        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", display: "flex", gap: 20 }}>
+                          <span>✓ אושרו: <strong style={{ color: "#4ade80" }}>{Object.values(autoReviewDecisions).filter(d => d === "approve").length}</strong></span>
+                          <span>🗑 נמחקו: <strong style={{ color: "#f87171" }}>{Object.values(autoReviewDecisions).filter(d => d === "delete").length}</strong></span>
+                          <span>⛔ לא נסקרו: <strong style={{ color: "#fbbf24" }}>{autoReviewQueue.length - Object.keys(autoReviewDecisions).length}</strong></span>
+                        </div>
+                        <div style={{ display: "flex", gap: 12 }}>
+                          <button type="button"
+                            onClick={() => void applyAutoReviewDecisions()}
+                            style={{
+                              padding: "12px 28px", borderRadius: 10,
+                              background: "#15803D", color: "#fff", border: "none",
+                              fontSize: 15, fontWeight: 700, cursor: "pointer",
+                              boxShadow: "0 4px 16px rgba(21,128,61,0.5)",
+                            }}>
+                            ✓ אשר ומחק — סיים שלב זה
+                          </button>
+                          <button type="button"
+                            onClick={stopAutoReviewMode}
+                            style={{
+                              padding: "12px 20px", borderRadius: 10,
+                              background: "transparent", color: "rgba(255,255,255,0.5)",
+                              border: "1px solid rgba(255,255,255,0.2)",
+                              fontSize: 13, cursor: "pointer",
+                            }}>
+                            ביטול
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Context menu popover */}                    {/* Context menu popover */}
                     {contextMenu && (() => {
                       const cats = Object.values(planningState.categories);
                       const types = Array.from(new Set(cats.map(cat => cat.type))).filter(Boolean);
@@ -2535,6 +2808,33 @@ export const PlanningPage: React.FC = () => {
                 >
                   {autoLoading ? "מנתח..." : "נתח תוכנית"}
                 </button>
+                {autoSegments && autoSegments.filter(s => s.suggested_subtype !== "פרט קטן").length > 0 && !autoReviewMode && (
+                  <button
+                    type="button"
+                    onClick={startAutoReviewMode}
+                    style={{
+                      marginTop: 6, width: "100%", height: 36, borderRadius: 8,
+                      border: "2px solid #15803D", background: "transparent",
+                      color: "#15803D", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    }}
+                  >
+                    <span style={{ fontSize: 14 }}>▶</span>
+                    סקור {autoSegments.filter(s => s.suggested_subtype !== "פרט קטן").length} פריטים
+                  </button>
+                )}
+                {autoReviewMode && (
+                  <div style={{
+                    marginTop: 6, padding: "6px 10px", borderRadius: 8,
+                    background: "#FEF3C7", border: "1px solid #F59E0B",
+                    fontSize: 11, color: "#92400E", fontWeight: 600,
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                  }}>
+                    <span>🎬 סקירה פעילה — {autoReviewIndex + 1}/{autoReviewQueue.length}</span>
+                    <button type="button" onClick={stopAutoReviewMode}
+                      style={{ background: "transparent", border: "none", color: "#92400E", cursor: "pointer", fontSize: 12 }}>×</button>
+                  </div>
+                )}
               </div>
 
               {/* Review mode button / badge */}

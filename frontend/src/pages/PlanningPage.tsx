@@ -241,24 +241,30 @@ const CategoryPickerModal: React.FC<CategoryPickerProps> = ({
         {tab === "new" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <label style={{ fontSize: 13 }}>
-              x?
-              <select
-                style={{ display: "block", width: "100%", marginTop: 4, border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}
-                value={newType}
-                onChange={(e) => setNewType(e.target.value)}
-              >
-                {Object.keys(CATEGORY_SUBTYPES).map(t => <option key={t}>{t}</option>)}
-              </select>
+              סוג
+              <div style={{ display: "flex", alignItems: "center", marginTop: 4 }}>
+                <div style={{ width: 14, height: 14, borderRadius: "50%", background: getCategoryColor(newType, newSubtype), display: "inline-block", marginLeft: 6, flexShrink: 0 }}/>
+                <select
+                  style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}
+                  value={newType}
+                  onChange={(e) => setNewType(e.target.value)}
+                >
+                  {Object.keys(CATEGORY_SUBTYPES).map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
             </label>
             <label style={{ fontSize: 13 }}>
-              ׳×׳×-סוג
-              <select
-                style={{ display: "block", width: "100%", marginTop: 4, border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}
-                value={newSubtype}
-                onChange={(e) => setNewSubtype(e.target.value)}
-              >
-                {subtypeOptions.map((sub) => <option key={sub}>{sub}</option>)}
-              </select>
+              תת-סוג
+              <div style={{ display: "flex", alignItems: "center", marginTop: 4 }}>
+                <div style={{ width: 14, height: 14, borderRadius: "50%", background: getCategoryColor(newType, newSubtype), display: "inline-block", marginLeft: 6, flexShrink: 0 }}/>
+                <select
+                  style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}
+                  value={newSubtype}
+                  onChange={(e) => setNewSubtype(e.target.value)}
+                >
+                  {subtypeOptions.map((sub) => <option key={sub}>{sub}</option>)}
+                </select>
+              </div>
             </label>
             <label style={{ fontSize: 13 }}>
               פרמטר (גובה/עובי)
@@ -281,7 +287,7 @@ const CategoryPickerModal: React.FC<CategoryPickerProps> = ({
             <button
               type="button"
               onClick={() => onCreateAndPick(newType, newSubtype, newParamValue, newParamNote)}
-              style={{ padding: "10px 0", borderRadius: 10, background: "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer" }}
+              style={{ padding: "12px 0", borderRadius: 12, background: "var(--orange)", color: "#fff", border: "none", fontWeight: 700, fontSize: 15, cursor: "pointer" }}
             >
               צור קטגוריה ושייך
             </button>
@@ -663,15 +669,16 @@ const ToolbarButton: React.FC<{
     onClick={onClick}
     title={label}
     style={{
-      display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-      padding: "5px 8px", borderRadius: 8,
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+      padding: "10px 14px", borderRadius: 8,
       background: active ? "#1e3a5f" : "transparent",
       border: "none",
+      borderBottom: active ? "3px solid #e67e22" : "3px solid transparent",
       color: active ? "#fff" : "#475569",
       cursor: "pointer",
-      fontSize: 9,
+      fontSize: 12,
       fontWeight: 600,
-      minWidth: 44,
+      minWidth: 60,
       transition: "background 0.15s",
     }}
   >
@@ -681,13 +688,13 @@ const ToolbarButton: React.FC<{
 );
 
 const SelectIcon = () => (
-  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <path d="M5 3l14 9-7 1-4 7z"/>
   </svg>
 );
 
 const LineIcon = () => (
-  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
     <line x1="4" y1="20" x2="20" y2="4"/>
     <circle cx="4" cy="20" r="2" fill="currentColor"/>
     <circle cx="20" cy="4" r="2" fill="currentColor"/>
@@ -695,13 +702,13 @@ const LineIcon = () => (
 );
 
 const RectIcon = () => (
-  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="18" height="18" rx="2"/>
   </svg>
 );
 
 const PathIcon = () => (
-  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <path d="M3 20 Q8 5 12 12 Q16 19 21 4"/>
   </svg>
 );
@@ -777,6 +784,7 @@ export const PlanningPage: React.FC = () => {
   const [newSubtype, setNewSubtype] = React.useState("בטון");
   const [newParamValue, setNewParamValue] = React.useState<number>(2.6);
   const [newParamNote, setNewParamNote] = React.useState("");
+  const [addCatOpen, setAddCatOpen] = React.useState(false);
 
   // ג"€ג"€ Auto-analyze state ג"€ג"€
   const [autoSegments, setAutoSegments] = React.useState<AutoSegment[] | null>(null);
@@ -2597,18 +2605,32 @@ export const PlanningPage: React.FC = () => {
 
               {/* Add category button */}
               <div style={{ padding: "10px 12px", borderTop: "1px solid #f1f5f9" }}>
-                <details style={{ fontSize: 12 }}>
-                  <summary style={{ cursor: "pointer", listStyle: "none", color: "#64748b", fontWeight: 600, padding: "4px 0" }}>+ הוסף קטגוריה / חומר</summary>
-                  <div style={{ padding: "8px 0 4px", display: "grid", gap: 6 }}>
-                    <select className="pro-field" value={newType} onChange={ev => setNewType(ev.target.value)} style={{ fontSize: 12 }}>
-                      {Object.keys(CATEGORY_SUBTYPES).map(type => <option key={type}>{type}</option>)}
+                <button
+                  type="button"
+                  onClick={() => setAddCatOpen(prev => !prev)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px dashed #e67e22",
+                    background: addCatOpen ? "#fff7ed" : "#fff", color: "#c96a10", fontWeight: 700, fontSize: 13,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8 }}
+                >
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> הוסף קטגוריה
+                </button>
+                {addCatOpen && (
+                  <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: 14, marginBottom: 12, direction: "rtl" }}>
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8, fontWeight: 600 }}>סוג</div>
+                    <select className="pro-field" value={newType} onChange={ev => setNewType(ev.target.value)} style={{ fontSize: 13, marginBottom: 8, width: "100%" }}>
+                      {Object.keys(CATEGORY_SUBTYPES).map(t => <option key={t}>{t}</option>)}
                     </select>
-                    <select className="pro-field" value={newSubtype} onChange={ev => setNewSubtype(ev.target.value)} style={{ fontSize: 12 }}>
-                      {subtypeOptions.map(subtype => <option key={subtype}>{subtype}</option>)}
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8, fontWeight: 600 }}>תת-סוג</div>
+                    <select className="pro-field" value={newSubtype} onChange={ev => setNewSubtype(ev.target.value)} style={{ fontSize: 13, marginBottom: 12, width: "100%" }}>
+                      {(CATEGORY_SUBTYPES[newType] ?? ["כללי"]).map(s => <option key={s}>{s}</option>)}
                     </select>
-                    <button type="button" className="pro-btn pro-btn-soft" onClick={() => { handleAddCategory(); void handleSaveCategories(); }} style={{ height: 30, fontSize: 11 }}>צור קטגוריה חדשה</button>
+                    <button type="button"
+                      style={{ width: "100%", padding: "9px 0", borderRadius: 9, background: "#e67e22", color: "#fff",
+                        border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+                      onClick={() => { handleAddCategory(); void handleSaveCategories(); setAddCatOpen(false); }}
+                    >✓ צור קטגוריה</button>
                   </div>
-                </details>
+                )}
               </div>
 
               {/* BOQ button */}

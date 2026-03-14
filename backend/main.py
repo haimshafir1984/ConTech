@@ -3341,40 +3341,54 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         _init_planning_if_missing(proj)
         proj["planning"]["auto_segments"] = [s.model_dump() for s in all_segments]
 
-        # ── הוסף קטגוריות אוטומטיות ל-planning state אם לא קיימות ─────────────
+        # ── הוסף קטגוריות אוטומטיות ל-planning state לפי מה שנמצא בפועל ─────────
         existing_cats = proj["planning"].get("categories") or {}
-        AUTO_CATEGORIES = {
-            "wall_exterior": {
-                "key": "wall_exterior", "type": "קירות", "subtype": "קיר חיצוני",
-                "unit": "מ׳", "price_per_unit": 0.0, "color": "#1D4ED8",
-            },
-            "wall_interior": {
-                "key": "wall_interior", "type": "קירות", "subtype": "קיר פנימי",
-                "unit": "מ׳", "price_per_unit": 0.0, "color": "#059669",
-            },
-            "wall_partition": {
-                "key": "wall_partition", "type": "קירות", "subtype": "קיר הפרדה / גבס",
-                "unit": "מ׳", "price_per_unit": 0.0, "color": "#D97706",
-            },
-            "fixture_sanitary": {
-                "key": "fixture_sanitary", "type": "אביזרים סניטריים", "subtype": "כיור / אסלה",
-                "unit": "יח׳", "price_per_unit": 0.0, "color": "#0EA5E9",
-            },
-            "fixture_stairs": {
-                "key": "fixture_stairs", "type": "תחבורה אנכית", "subtype": "מדרגות / מעלית",
-                "unit": "יח׳", "price_per_unit": 0.0, "color": "#F59E0B",
-            },
+        AUTO_CATEGORIES = {}
+
+        # קירות — לפי wall_type שנמצא
+        wall_types_found = set(s.wall_type for s in all_segments if s.element_class == "wall" and s.wall_type)
+        wall_color_map = {
+            "exterior": ("#1D4ED8", "קיר חיצוני/בטון"),
+            "interior": ("#059669", "קיר פנימי/בטון"),
+            "partition": ("#D97706", "קיר הפרדה / גבס"),
+            "block": ("#7C3AED", "קיר בלוקים"),
+            "concrete": ("#1D4ED8", "קיר בטון"),
         }
+        for wt in wall_types_found:
+            color, label = wall_color_map.get(wt, ("#64748B", f"קיר {wt}"))
+            parts = label.split("/")
+            AUTO_CATEGORIES[f"wall_{wt}"] = {
+                "key": f"wall_{wt}", "type": "קירות",
+                "subtype": parts[0].strip(),
+                "unit": "מ׳", "price_per_unit": 0.0, "color": color,
+            }
+
+        # אם אין שום קיר מזוהה — הוסף ברירות מחדל
+        if not wall_types_found:
+            AUTO_CATEGORIES["wall_exterior"] = {"key": "wall_exterior", "type": "קירות", "subtype": "קיר חיצוני", "unit": "מ׳", "price_per_unit": 0.0, "color": "#1D4ED8"}
+            AUTO_CATEGORIES["wall_interior"]  = {"key": "wall_interior",  "type": "קירות", "subtype": "קיר פנימי",  "unit": "מ׳", "price_per_unit": 0.0, "color": "#059669"}
+
+        # אביזרים סניטריים
+        fix_subtypes = set(s.suggested_subtype for s in all_segments if s.element_class == "fixture" and s.suggested_subtype and s.suggested_subtype != "פרט קטן")
+        fix_color_map = {
+            "כיור / אסלה": ("#0EA5E9", "fixture_sanitary"),
+            "אמבטיה / מקלחת": ("#6366F1", "fixture_bathroom"),
+            "ריהוט / מכשיר": ("#F59E0B", "fixture_furniture"),
+        }
+        for fst in fix_subtypes:
+            color, key = fix_color_map.get(fst, ("#94A3B8", f"fixture_{len(AUTO_CATEGORIES)}"))
+            AUTO_CATEGORIES[key] = {"key": key, "type": "אביזרים", "subtype": fst, "unit": "יח׳", "price_per_unit": 0.0, "color": color}
+
+        # מדרגות
+        if any(s.suggested_subtype in ("מדרגות", "מעלית", "מדרגות / מעלית") for s in all_segments):
+            AUTO_CATEGORIES["fixture_stairs"] = {"key": "fixture_stairs", "type": "תחבורה אנכית", "subtype": "מדרגות / מעלית", "unit": "יח׳", "price_per_unit": 0.0, "color": "#EC4899"}
+
+        # הוסף לפרויקט רק מה שלא קיים
         cats_added = []
         for cat_key, cat_data in AUTO_CATEGORIES.items():
-            has_relevant = any(
-                (s.wall_type == cat_key.replace("wall_", "") if s.element_class == "wall"
-                 else s.suggested_type == cat_data["type"])
-                for s in all_segments
-            )
-            if has_relevant and cat_key not in existing_cats:
+            if cat_key not in existing_cats:
                 existing_cats[cat_key] = cat_data
-                cats_added.append(cat_key)
+                cats_added.append(cat_data["subtype"])
         if cats_added:
             proj["planning"]["categories"] = existing_cats
             print(f"[auto-analyze] Auto-added categories: {cats_added}")

@@ -203,7 +203,20 @@ def _build_vector_cache(pdf_bytes: bytes) -> Optional[dict]:
         return None
 
 
-app = FastAPI(title="ConTech Analyzer API", version="1.0.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def _lifespan(application):
+    """Run DB init in a background thread so /health can respond immediately."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, init_database)
+    except Exception as _db_err:
+        print(f"[startup] init_database failed (non-fatal): {_db_err}")
+    yield  # server is now running
+
+app = FastAPI(title="ConTech Analyzer API", version="1.0.0", lifespan=_lifespan)
 
 # Thread pool for CPU-bound / blocking-IO work (keeps event loop free for /health)
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="contech-worker")
@@ -226,9 +239,7 @@ DEFAULT_UNIT_PRICES: Dict[str, float] = {
     "ריצוף/חיפוי": 250.0,
 }
 
-init_database()
-
-# CORS — מאפשר לפרונטאנד לתקשר עם הבאקאנד
+# CORS  (init_database now called via lifespan above) — מאפשר לפרונטאנד לתקשר עם הבאקאנד
 # ניתן להגדיר ALLOWED_ORIGINS כמשתנה סביבה ב-Render (מופרד בפסיקים)
 _cors_env = os.environ.get("ALLOWED_ORIGINS", "")
 _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]

@@ -233,6 +233,8 @@ export interface AutoSegment {
   room_name?: string;
   area_label?: string;
   category_color?: string;  // hex color
+  review_status?: "auto" | "medium" | "review";
+  flags?: string[];
 }
 
 export interface VisionRoom {
@@ -274,9 +276,18 @@ export interface AutoAnalyzeVisionData {
   execution_notes?: string[];
 }
 
+export interface LegendItem {
+  label: string;
+  mean_hue: number;
+  mean_sat: number;
+  mean_val: number;
+  fill_ratio: number;
+}
+
 export interface AutoAnalyzeResult {
   segments: AutoSegment[];
   vision_data?: AutoAnalyzeVisionData;
+  legend_items?: LegendItem[];
 }
 
 export async function autoAnalyzePlan(planId: string): Promise<AutoAnalyzeResult> {

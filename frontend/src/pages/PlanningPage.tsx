@@ -23,6 +23,7 @@ import {
   fetchBoqSummary,
   type AutoSegment,
   type AutoAnalyzeVisionData,
+  type LegendItem,
   type BoqSummary,
   type PlanningCategory,
   type PlanningState,
@@ -852,6 +853,7 @@ export const PlanningPage: React.FC = () => {
 
   // ג"€ג"€ Auto-analyze state ג"€ג"€
   const [autoSegments, setAutoSegments] = React.useState<AutoSegment[] | null>(null);
+  const [legendItems, setLegendItems] = React.useState<LegendItem[]>([]);
   const [autoReviewMode, setAutoReviewMode] = React.useState(false);
   const [autoReviewQueue, setAutoReviewQueue] = React.useState<string[]>([]);
   const [autoReviewIndex, setAutoReviewIndex] = React.useState(0);
@@ -1542,6 +1544,9 @@ export const PlanningPage: React.FC = () => {
       setAutoSegments(result.segments);
       setTimeout(() => startAutoReviewFromSegments(result.segments), 400);
       setAutoVisionData(result.vision_data ?? null);
+      if (result.legend_items && result.legend_items.length >= 2) {
+        setLegendItems(result.legend_items);
+      }
       setVisionActiveCard(null);
       // Pre-select all except unidentified small fixtures ("׳₪׳¨׳˜ ׳§׳˜׳")
       setAutoSelected(new Set(
@@ -2394,10 +2399,27 @@ export const PlanningPage: React.FC = () => {
                           if (highlightedClass && summaryKey !== highlightedClass) return null;
                           if (autoReviewMode && isDeleted) return null;
 
+                          const getSegmentStroke = (s: AutoSegment, sel: boolean, hov: boolean): string => {
+                            if (sel || hov) return "#f59e0b";
+                            switch (s.review_status) {
+                              case "auto":   return "#16a34a";
+                              case "medium": return "#d97706";
+                              case "review": return "#dc2626";
+                              default:       return s.category_color ?? "#7c3aed";
+                            }
+                          };
+                          const getSegmentFill = (s: AutoSegment): string => {
+                            switch (s.review_status) {
+                              case "auto":   return "rgba(22,163,74,0.08)";
+                              case "medium": return "rgba(217,119,6,0.12)";
+                              case "review": return "rgba(220,38,38,0.18)";
+                              default:       return "rgba(124,58,237,0.10)";
+                            }
+                          };
                           const baseColor = seg.category_color ?? (seg.confidence >= .75 ? "#15803D" : seg.confidence >= .5 ? "#B45309" : "#DC2626");
-                          const strokeColor = isCurrentReview ? "#F59E0B" : isApproved ? "#15803D" : isSelected ? "#0F172A" : baseColor;
-                          const fillColor = isCurrentReview ? "#F59E0B" : isApproved ? "#15803D" : (seg.category_color ?? (seg.element_class === "fixture" ? "#0EA5E9" : seg.element_class === "room" ? "#7C3AED" : "#2563EB"));
-                          const fillOpacity = isCurrentReview ? 0.22 : isApproved ? 0.18 : isSelected ? 0.26 : 0.08;
+                          const strokeColor = isCurrentReview ? "#F59E0B" : isApproved ? "#15803D" : getSegmentStroke(seg, isSelected, hoveredSegId === seg.segment_id);
+                          const fillColor   = isCurrentReview ? "#F59E0B" : isApproved ? "#15803D" : getSegmentFill(seg);
+                          const fillOpacity = isCurrentReview ? 0.22 : isApproved ? 0.18 : isSelected ? 0.26 : 1;
                           const strokeWidth = isCurrentReview ? 4 : isApproved ? 2.5 : isSelected ? 3 : 2;
                           const filterStyle = isCurrentReview ? "drop-shadow(0 0 10px rgba(245,158,11,0.9))" : isApproved ? "drop-shadow(0 0 4px rgba(21,128,61,0.6))" : undefined;
 
@@ -2499,7 +2521,7 @@ export const PlanningPage: React.FC = () => {
 
                       return (
                         <div style={{
-                          position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 40,
+                          position: "fixed", bottom: 0, left: 268, right: 0, zIndex: 9999,
                           background: "rgba(15,23,42,0.92)", backdropFilter: "blur(8px)",
                           padding: "12px 20px", direction: "rtl",
                           display: "flex", flexDirection: "column", gap: 10,
@@ -2870,6 +2892,68 @@ export const PlanningPage: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Legend card */}
+              {legendItems.length >= 2 && (
+                <div style={{
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  marginBottom: 12,
+                  flexShrink: 0,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#15803d", marginBottom: 6 }}>
+                    ✓ זוהו {legendItems.length} סוגי קירות מהמקרא
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {legendItems.map((item, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                        <div style={{
+                          width: 20, height: 14, borderRadius: 3,
+                          background: item.fill_ratio > 0.4 ? "#1e293b" :
+                                      item.fill_ratio > 0.2 ? "#94a3b8" : "#e2e8f0",
+                          border: "1px solid #cbd5e1",
+                          flexShrink: 0,
+                        }} />
+                        <span style={{ color: "#334155" }}>{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Status summary strip */}
+              {autoSegments !== null && autoSegments.length > 0 && (() => {
+                const autoCount   = autoSegments.filter(s => s.review_status === "auto").length;
+                const mediumCount = autoSegments.filter(s => s.review_status === "medium").length;
+                const reviewCount = autoSegments.filter(s => s.review_status === "review").length;
+                return (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10, flexShrink: 0, padding: "0 12px" }}>
+                    <div style={{
+                      flex: 1, background: "#f0fdf4", border: "1px solid #bbf7d0",
+                      borderRadius: 6, padding: "6px 8px", textAlign: "center",
+                    }}>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: "#16a34a" }}>{autoCount}</div>
+                      <div style={{ fontSize: 10, color: "#15803d" }}>אוטומטי</div>
+                    </div>
+                    <div style={{
+                      flex: 1, background: "#fffbeb", border: "1px solid #fde68a",
+                      borderRadius: 6, padding: "6px 8px", textAlign: "center",
+                    }}>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: "#d97706" }}>{mediumCount}</div>
+                      <div style={{ fontSize: 10, color: "#b45309" }}>בינוני</div>
+                    </div>
+                    <div style={{
+                      flex: 1, background: "#fef2f2", border: "1px solid #fecaca",
+                      borderRadius: 6, padding: "6px 8px", textAlign: "center",
+                    }}>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: "#dc2626" }}>{reviewCount}</div>
+                      <div style={{ fontSize: 10, color: "#b91c1c" }}>לבדיקה</div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Aggregated summaries */}
               <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>

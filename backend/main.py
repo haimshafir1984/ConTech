@@ -1760,6 +1760,7 @@ async def analyze_pdf(file: UploadFile = File(...)) -> AnalysisResult:
             blocks_mask,
             flooring,
             debug_img,
+            _thickness_map_unused,
         ) = analyzer.process_file(tmp_path, save_debug=False, crop_bbox=None)
 
         meta_clean = clean_metadata_for_json(meta)
@@ -1836,6 +1837,7 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             blocks_mask,
             flooring,
             debug_img,
+            thickness_map,
         ) = await loop.run_in_executor(
             _executor,
             lambda: analyzer.process_file(tmp_path, save_debug=False, crop_bbox=None)
@@ -2006,6 +2008,7 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             "llm_suggestions": llm_data,
             "assets": assets,
             "image_shape": {"width": int(image_proc.shape[1]), "height": int(image_proc.shape[0])},
+            "thickness_map": thickness_map,
             "pdf_bytes": tmp_pdf_bytes,
             "vector_cache": _build_vector_cache(tmp_pdf_bytes),
             "planning": {
@@ -2799,6 +2802,53 @@ async def manager_add_zone_item(
     proj["planning"]["items"].append(item)
     _recompute_boq(proj)
     return _build_planning_state(plan_id, proj)
+
+
+def _refine_segment_bbox(
+    seg_bbox: list,
+    original_img: np.ndarray,
+    scale_px_per_meter: float,
+) -> list:
+    """
+    מכוון bbox של segment ע"י חיפוש פיקסלים כהים בתוך אזור מורחב.
+    מצמצם bbox מנופח ומיישר אותו לקצוות הקיר האמיתיים.
+    """
+    bx, by, bw, bh = [int(v) for v in seg_bbox]
+    h, w = original_img.shape[:2]
+
+    margin = int(scale_px_per_meter * 0.05)  # 5cm padding
+    x0 = max(0, bx - margin)
+    y0 = max(0, by - margin)
+    x1 = min(w, bx + bw + margin)
+    y1 = min(h, by + bh + margin)
+
+    crop = original_img[y0:y1, x0:x1]
+    if crop.size == 0:
+        return seg_bbox
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if len(crop.shape) == 3 else crop
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    coords = np.where(thresh > 0)
+    if len(coords[0]) < 10:
+        return seg_bbox  # אין מספיק פיקסלים — שומר bbox מקורי
+
+    min_y, max_y = int(coords[0].min()), int(coords[0].max())
+    min_x, max_x = int(coords[1].min()), int(coords[1].max())
+
+    refined = [
+        float(x0 + min_x),
+        float(y0 + min_y),
+        float(max_x - min_x + 1),
+        float(max_y - min_y + 1),
+    ]
+
+    # וודא שה-bbox המכוון לא קטן מדי (תוצאת threshold בלבד)
+    min_dim = scale_px_per_meter * 0.3  # מינימום 30cm
+    if refined[2] < min_dim and refined[3] < min_dim:
+        return seg_bbox
+
+    return refined
 
 
 def _is_page_frame(seg, image_w: float, image_h: float) -> bool:
@@ -3766,6 +3816,19 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             db_save_auto_segments(plan_id, [s.model_dump() for s in all_segments])
         except Exception as _dsa_err:
             print(f"[DB] db_save_auto_segments failed: {_dsa_err}")
+
+        # ── Bbox refinement pass ──────────────────────────────────────────────
+        orig_img = proj.get("original")
+        if isinstance(orig_img, np.ndarray) and orig_img.size > 0:
+            for seg in all_segments:
+                try:
+                    refined = _refine_segment_bbox(seg.bbox, orig_img, scale_px_per_meter)
+                    seg.bbox = refined
+                    bw_r, bh_r = refined[2], refined[3]
+                    seg.length_m = round(max(bw_r, bh_r) / max(scale_px_per_meter, 1.0), 3)
+                    seg.area_m2  = round((bw_r * bh_r) / max(scale_px_per_meter ** 2, 1.0), 4)
+                except Exception:
+                    pass
 
         _legend_out = proj.get("legend_items") or []
         return AutoAnalyzeResponse(

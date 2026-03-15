@@ -29,6 +29,13 @@ FIXTURE_AREA_SMALL   = 0.10
 FIXTURE_AREA_SINK    = 0.40
 FIXTURE_AREA_BATH    = 1.20
 
+# ── שכבות OCG שיש לדלג עליהן (Revit/ArchiCAD layer names) ───────────────────
+_EXCLUDED_LAYERS = {
+    "dimensions", "dim", "grids", "grid", "annotations", "anno",
+    "text", "tags", "notes", "titleblock", "title block",
+    "a-anno-dims", "a-anno-grid", "a-anno-note",
+}
+
 
 def _round_color(c: Optional[tuple], decimals: int = 1) -> Tuple:
     if not c or len(c) < 3:
@@ -81,6 +88,15 @@ def _drawing_to_segment(
     seg_idx: int,
 ) -> Optional[dict]:
     """ממיר drawing אחד מ-PyMuPDF לסגמנט."""
+    # ── פילטר OCG שכבה ──
+    layer_name = (drawing.get("layer") or "").lower().strip()
+    if any(excl in layer_name for excl in _EXCLUDED_LAYERS):
+        return None
+
+    # ── פילטר Dashed lines (קווי מידה / ציר / מקוקו) ──
+    if drawing.get("dashes"):
+        return None
+
     stroke_w = drawing.get("width") or 0.0
     color    = drawing.get("color") or (0.0, 0.0, 0.0)
     rect     = drawing.get("rect")
@@ -152,6 +168,33 @@ def _drawing_to_segment(
     }
 
 
+def _build_dimension_zones(vector_cache: dict, sx: float, sy: float, margin: float = 15.0) -> list:
+    """מזהה מספרי מידה בטקסט ומחזיר bbox zones לסינון קווי מידות סמוכים."""
+    import re
+    zones = []
+    words = vector_cache.get("words") or []
+    dim_pattern = re.compile(r"^\d{2,4}$")  # מספרים 2-4 ספרות (מידות בס"מ / ס"מ)
+    for w in words:
+        text = (w.get("text") or "").strip() if isinstance(w, dict) else (str(w[4]) if len(w) > 4 else "")
+        if dim_pattern.match(text):
+            bbox = w.get("bbox") if isinstance(w, dict) else (w[0], w[1], w[2], w[3])
+            if bbox and len(bbox) >= 4:
+                zones.append((
+                    bbox[0] * sx - margin,
+                    bbox[1] * sy - margin,
+                    bbox[2] * sx + margin,
+                    bbox[3] * sy + margin,
+                ))
+    return zones
+
+
+def _point_in_zones(px: float, py: float, zones: list) -> bool:
+    for (x0, y0, x1, y1) in zones:
+        if x0 <= px <= x1 and y0 <= py <= y1:
+            return True
+    return False
+
+
 def extract_from_pdf(
     pdf_bytes: bytes,
     scale_px_per_meter: float,
@@ -185,11 +228,26 @@ def extract_from_pdf(
         print(f"[vector_extractor] Only {len(thick)} thick paths — likely raster, fallback to OpenCV")
         return []
 
+    # בנה zones של מספרי מידה לסינון קווי מידות
+    _words_raw = page.get_text("words")  # list of (x0, y0, x1, y1, text, ...)
+    _words_for_zones = [
+        {"text": w[4], "bbox": (w[0], w[1], w[2], w[3])}
+        for w in _words_raw if len(w) >= 5
+    ]
+    _vc_words = {"words": _words_for_zones}
+    dim_zones = _build_dimension_zones(_vc_words, sx, sy, margin=15.0)
+
     segments = []
     for idx, d in enumerate(thick):
         seg = _drawing_to_segment(d, sx, sy, scale_px_per_meter, img_w, img_h, idx)
-        if seg:
-            segments.append(seg)
+        if seg is None:
+            continue
+        # סנן segments שפינותיהם חופפות אזור מספרי מידה
+        bx, by, bw, bh = seg["bbox"]
+        corners = [(bx, by), (bx + bw, by), (bx, by + bh), (bx + bw, by + bh)]
+        if any(_point_in_zones(cx, cy, dim_zones) for cx, cy in corners):
+            continue
+        segments.append(seg)
 
     segments = _deduplicate(segments, threshold_px=6.0)
     segments = _filter_page_frame(segments, img_w, img_h)

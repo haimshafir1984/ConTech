@@ -22,6 +22,13 @@ from collections import defaultdict as _defaultdict
 
 # ── Vector-based wall detection ───────────────────────────────────────────────
 
+_EXCLUDED_LAYERS = {
+    "dimensions", "dim", "grids", "grid", "annotations", "anno",
+    "text", "tags", "notes", "titleblock", "title block",
+    "a-anno-dims", "a-anno-grid", "a-anno-note",
+}
+
+
 def _is_dark_color(color: tuple) -> bool:
     """Return True if the colour tuple (r,g,b) represents a dark stroke."""
     if not color or len(color) < 3:
@@ -70,6 +77,13 @@ def _walls_from_vectors(
     # ── Collect raw line items from thick dark paths ──────────────────────────
     raw_lines = []
     for d in drawings:
+        # פילטר dashed lines (קווי מידה / ציר)
+        if d.get("dashes"):
+            continue
+        # פילטר OCG שכבה (Dimensions / Grid / Annotations)
+        layer_name = (d.get("layer") or "").lower().strip()
+        if any(excl in layer_name for excl in _EXCLUDED_LAYERS):
+            continue
         if (d.get("width") or 0) < 1.0:   # קירות בלבד — מסנן מידות/האצ'ינג
             continue
         if not _is_dark_color(d.get("color") or (0, 0, 0)):

@@ -259,6 +259,7 @@ scrollable panel body** — visible on every tab without scrolling. (Removed fro
 | `7378a7b` | fix(planning): sticky add-category bar + reliable banner from autoSegments |
 | `13c0072` | fix(auto-analyze): fallback fixture detection from original image |
 | *(pending)* | feat: improve Step 3 UX — auto-approve by confidence, bulk categorize, bidirectional highlight |
+| *(pending)* | feat(engines): Phase 1 — Intake + Classification + Region + TextSemantics + AnnotationFilter |
 
 ---
 
@@ -377,6 +378,44 @@ async def manager_boq_summary(plan_id):
 
 ---
 
+### Session E — ארכיטקטורת מנועים + Phase 1 Prompt (מרץ 2026)
+
+#### שינוי פרדיגמה — מחד-מנועי לרב-מנועי
+
+**⏳ `engines.py` (שורש — חדש):**
+- `classify_document()` — Engine 2: סוג גיליון לפי מילות מפתח + יחס צבע
+- `segment_regions()` — Engine 3: main_drawing / legend / title_block / excluded_regions
+- `extract_text_semantics()` — Engine 4: חדרים, שטחים, scale, door/window tags
+- `build_annotation_filter()` — Engine 5: מסנן drawings לפי dashes + stroke_width + OCG layer + dimension zones
+- `bbox_in_excluded()` / `point_in_excluded()` — utilities
+
+**⏳ `backend/main.py` — analyze endpoint:**
+- הוסף Phase 1 block לפני הזיהוי הקיים
+- סדר ריצה: classify → segment_regions → text_semantics → annotation_filter
+- Post-filter: הוצא סגמנטים שה-bbox ב-excluded regions
+- שמור תוצרים: `proj["doc_classification"]`, `proj["region_data"]`, `proj["text_semantics"]`, `proj["annotation_filter"]`
+- MEP detection: אם `sheet_type=mep` + `confidence≥0.6` → `skip_walls=True`
+
+**⏳ `vector_extractor.py`:**
+- הוסף `annotation_filter` parameter ל-`extract_segments_from_pdf`
+- דלג על drawings שה-index שלהם נמצא ב-`filtered_indices`
+
+#### תוצאה צפויה לאחר Phase 1
+
+```
+[classify] sheet_type=architectural conf=0.72
+[regions] excluded=2 areas
+[text] rooms=8 scale=100
+[filter] drawings=917 filtered=860 pass=57
+[post-filter] 57 → 52 segments after region exclusion
+```
+
+917 סגמנטים → ~52 — בלי שינוי במנוע הזיהוי עצמו.
+
+> **פרומפט מלא**: `help/PROMPT_PHASE1_ENGINES.md`
+
+---
+
 ### Session D — תיקון Validation + Cold-start + Over-detection (מרץ 2026)
 
 #### בעיות שנמצאו ותוקנו
@@ -430,6 +469,70 @@ async def manager_boq_summary(plan_id):
 - כפתור "אשר הכל" בלחיצה אחת — ללא עיון בכל פריט
 - רק פריטים ב-confidence נמוך (<70%) יוצגו לבדיקה ידנית
 - מחיקה גורפת לפי סוג (למשל: מחק כל פריט מסוג "מידה")
+
+---
+
+---
+
+## 🏗️ ארכיטקטורת מנועים — חזון מלא (מרץ 2026)
+
+> **עיקרון**: לא מנוע אחד שמנסה לזהות הכל — אלא אוסף מנועים מתמחים.
+> **מסמך מלא**: `help/ARCHITECTURE_ENGINES.md` (ראה שיחה מרץ 2026)
+
+### 14 מנועים — מבנה על
+
+| # | מנוע | תפקיד | שלב |
+|---|------|--------|------|
+| 1 | Intake Engine | שמירת כל חומרי הגלם ב-upload | ✅ Phase 1 |
+| 2 | Document Classification Engine | סוג גיליון: arch / MEP / struct | ✅ Phase 1 |
+| 3 | Region Segmentation Engine | main_drawing / legend / title_block | ✅ Phase 1 |
+| 4 | Vector Geometry Engine | נרמול ומיזוג primitives | 🔵 Phase 2 |
+| 5 | Text Semantics Engine | חדרים / שטחים / scale / tags | ✅ Phase 1 |
+| 6 | Annotation Filtering Engine | הוצאת מידות / גרידים / leaders | ✅ Phase 1 |
+| 7 | Wall System Engine | line → chain → pair → typed wall | 🔵 Phase 2 |
+| 8 | Opening Engine | דלתות / חלונות / פתחים בקיר | 🔵 Phase 2 |
+| 9 | Room Engine | polygon חלל + שיוך שם/שטח | 🔵 Phase 2 |
+| 10 | Object / Fixture Engine | ציוד / סניטריה / ריהוט | 🟡 Phase 3 |
+| 11 | Legend Engine | לימוד מהמקרא של הגיליון עצמו | 🟡 Phase 3 |
+| 12 | Spatial Reasoning Engine | topology graph — קשרים בין ישויות | 🟡 Phase 3 |
+| 13 | Validation & Confidence Engine | evidence-based confidence + review_status | 🔴 Phase 4 |
+| 14 | Review Packaging Engine | JSON סופי + שכבות תצוגה | 🔴 Phase 4 |
+
+### מה נותן כל שלב (ROI)
+
+**Phase 1 — ניקוי סביבה** (5 מנועים):
+- Annotation Filter: 917 → ~50 סגמנטים (מסנן מידות/גרידים/leaders)
+- Region Segmentation: מקרא ו-title block לא נכנסים לזיהוי
+- Document Classification: MEP sheet לא מופעל עליו מנוע קירות
+- Text Semantics: חדרים + שטחים + scale מה-PDF ישירות (לא מ-Vision)
+- **תוצאה**: פחות ביקורת ידנית, BOQ מדויק יותר
+
+**Phase 2 — זיהוי אמיתי** (3 מנועים):
+- Wall System: line pairs → typed walls (exterior/interior/partition)
+- Opening: gap בקיר + arc = דלת/חלון
+- Room: polygon סגור + שם + שטח מ-text
+- **תוצאה**: המערכת מחזירה מודל קומה ולא רק lines
+
+**Phase 3 — הרחבת כיסוי** (3 מנועים):
+- Fixture: context-aware classification (פיר חשמל, ארון כיבוי)
+- Legend: template matching לפי מקרא הגיליון
+- Spatial: graph topology — מי ליד מי
+- **תוצאה**: כיסוי >80% מהפריטים בתוכנית
+
+**Phase 4 — ייצוב מוצר** (2 מנועים):
+- Validation: חסימת false positives
+- Review Packaging: ממשק בדיקה חכם
+- **תוצאה**: מערכת production-ready
+
+### קובץ פרומפט לכל שלב
+
+| שלב | קובץ |
+|-----|------|
+| Phase 1 | `help/PROMPT_PHASE1_ENGINES.md` ← **נוכחי** |
+| Phase 2 | `help/PROMPT_PHASE2_WALL_SYSTEM.md` (טרם נוצר) |
+| Phase 3 | `help/PROMPT_PHASE3_FIXTURES.md` (טרם נוצר) |
+| Phase 4 | `help/PROMPT_PHASE4_SEGMENT_FIX.md` (קיים — UX approve-all) |
+| Phase 5 | `help/PROMPT_PHASE5_PRECISION.md` (קיים — Distance Transform + bbox refinement) |
 
 ---
 

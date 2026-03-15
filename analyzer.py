@@ -311,6 +311,36 @@ def compute_skeleton_length_px(skeleton: np.ndarray) -> float:
     return total_length
 
 
+def _skeletonize_distance_transform(binary_input: np.ndarray) -> tuple:
+    """
+    Distance Transform skeleton — מהיר ומדויק יותר מ-morphological thinning.
+
+    מחזיר (skeleton, thickness_map):
+    - skeleton: uint8 binary — צנטר-ליין של הקירות
+    - thickness_map: float32 — מחצית עובי הקיר בפיקסלים בכל נקודה
+
+    יתרון: thickness_map מאפשר לחשב bbox מדויק של קיר לפי עובי אמיתי.
+    """
+    if not isinstance(binary_input, np.ndarray):
+        raise TypeError(f"Expected numpy array, got {type(binary_input).__name__}")
+
+    img = binary_input.copy()
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    _, binary = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
+
+    # Distance transform: כל פיקסל = מרחקו מהקצה הקרוב ביותר
+    dist = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+
+    # Local maxima = צנטר-ליין (skeleton)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    local_max = cv2.dilate(dist, kernel)
+    skeleton = ((dist == local_max) & (dist > 0)).astype(np.uint8) * 255
+
+    return skeleton, dist
+
+
 class FloorPlanAnalyzer:
     """
     גרסה 2.0 - Multi-pass filtering עם confidence scoring
@@ -320,6 +350,11 @@ class FloorPlanAnalyzer:
         self.debug_layers = {}  # לשמירת שכבות ביניים
 
     def _skeletonize(self, img: np.ndarray) -> np.ndarray:
+        """יצירת skeleton — wrapper ל-_skeletonize_distance_transform (מחזיר skeleton בלבד)."""
+        skel, _ = _skeletonize_distance_transform(img)
+        return skel
+
+    def _skeletonize_legacy(self, img: np.ndarray) -> np.ndarray:
         """יצירת skeleton ללא צורך ב-ximgproc"""
         # Ensure we have a valid numpy array of an image
         if not isinstance(img, np.ndarray):
@@ -881,7 +916,7 @@ class FloorPlanAnalyzer:
                 print(f"⚠️ Failed to read PDF bytes: {e}")
                 pdf_bytes_for_ocr = None
         # === חישובים ונתונים ===
-        skel = self._skeletonize(final_walls)
+        skel, thickness_map = _skeletonize_distance_transform(final_walls)
         pix = cv2.countNonZero(skel)
 
         meta = {
@@ -1115,6 +1150,7 @@ class FloorPlanAnalyzer:
             blocks_mask,
             flooring,
             debug_img,
+            thickness_map,
         )
 
     # ==========================================

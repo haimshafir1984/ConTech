@@ -8,8 +8,15 @@ import os
 import re
 from typing import Dict, List, Optional, Tuple
 
-import fitz
-import anthropic
+try:
+    import fitz
+except ImportError:
+    fitz = None  # type: ignore
+
+try:
+    import anthropic
+except ImportError:
+    anthropic = None  # type: ignore
 
 
 LEGEND_KEYWORDS = ["מקרא", "legend", "סימון", "הסבר", "רשימה", "תוכן"]

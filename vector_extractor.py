@@ -3,7 +3,10 @@ vector_extractor.py — מחלץ קירות ואביזרים ישירות מ-PDF
 מחזיר רשימת segments תואמת ל-AutoAnalyzeResponse.segments.
 """
 import uuid
-import fitz  # PyMuPDF
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None  # type: ignore
 from typing import List, Dict, Optional, Tuple
 
 

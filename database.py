@@ -19,7 +19,7 @@ def get_connection():
     """יוצר חיבור למסד הנתונים המתאים (Postgres או SQLite)"""
     if DB_URL:
         try:
-            conn = psycopg2.connect(DB_URL, cursor_factory=RealDictCursor)
+            conn = psycopg2.connect(DB_URL, cursor_factory=RealDictCursor, connect_timeout=8)
             return conn
         except Exception as e:
             print(f"Error connecting to Postgres: {e}")

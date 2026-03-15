@@ -41,6 +41,7 @@ def _walls_from_vectors(
     vector_cache: dict,
     scale_px_per_meter: float,
     image_shape: Optional[dict] = None,
+    proj: Optional[dict] = None,
 ) -> list:
     """Extract wall segments from PDF vector data via Union-Find line chaining.
 
@@ -189,6 +190,23 @@ def _walls_from_vectors(
             "area_label":        None,
             "category_color":    None,
         })
+
+    # ── Phase 2: region gate ──────────────────────────────────────────────────
+    if proj is not None:
+        _main_region    = (proj.get("region_data") or {}).get("main_drawing_region")
+        _excl_regions   = (proj.get("region_data") or {}).get("excluded_regions", [])
+        if _main_region or _excl_regions:
+            try:
+                from engines import is_in_main_drawing as _imd, bbox_in_excluded as _bie
+                _before_rg = len(segments)
+                segments = [
+                    s for s in segments
+                    if (not _main_region or _imd(s["bbox"], _main_region, threshold=0.25))
+                    and not _bie(s["bbox"], _excl_regions, threshold=0.5)
+                ]
+                print(f"[brain-region-filter] {_before_rg} → {len(segments)} after region gate")
+            except Exception as _rg_err:
+                print(f"[brain-region-filter] failed (non-fatal): {_rg_err}")
 
     print(f"[_walls_from_vectors] {len(segments)} wall segments from {len(raw_lines)} lines")
     return segments

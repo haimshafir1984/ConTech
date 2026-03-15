@@ -176,7 +176,7 @@ except ImportError as _ve:
     print(f"[main] vector modules not available: {_ve}")
     _VECTOR_AVAILABLE = False
 
-# ── Phase 1 engines (pre-processing) ──────────────────────────────────────────
+# ── Phase 1 + Phase 2 engines (pre-processing + geometric gating) ─────────────
 try:
     from engines import (
         classify_document as _classify_document,
@@ -185,6 +185,17 @@ try:
         build_annotation_filter as _build_annotation_filter,
         bbox_in_excluded as _bbox_in_excluded,
         get_page_rect_wh as _get_page_rect_wh,
+        # Phase 2
+        refine_main_drawing_region as _refine_main_drawing_region,
+        is_in_main_drawing as _is_in_main_drawing,
+        compute_exclusion_gate as _compute_exclusion_gate,
+        classify_primitive_families as _classify_primitive_families,
+        compute_ink_overlap as _compute_ink_overlap,
+        compute_anchor_support as _compute_anchor_support,
+        compute_legality_score as _compute_legality_score,
+        post_gate_filter as _post_gate_filter,
+        PRIM_UNKNOWN as _PRIM_UNKNOWN,
+        FORBIDDEN_FAMILIES as _FORBIDDEN_FAMILIES,
     )
     _ENGINES_AVAILABLE = True
 except ImportError as _eng_err:
@@ -3010,6 +3021,57 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                     import traceback as _p1_tb
                     print(f"[phase1] engines failed (non-fatal): {_p1_err}\n{_p1_tb.format_exc()}")
 
+        # ════════════════════════════════════════════════════════════════════
+        # PHASE 2 ENGINES — Geometric Gating + Primitive Classification
+        # ════════════════════════════════════════════════════════════════════
+        if _ENGINES_AVAILABLE and proj.get("annotation_filter"):
+            try:
+                _vc_p2   = proj.get("vector_cache") or {}
+                _rd_p2   = proj.get("region_data") or {}
+                _ts_p2   = proj.get("text_semantics") or {}
+                _pr_p2   = proj.get("page_rect_wh") or _get_page_rect_wh(_vc_p2)
+
+                # Engine P2-1: Refine main drawing region
+                _refined = _refine_main_drawing_region(
+                    _vc_p2, _ts_p2, _rd_p2, _pr_p2,
+                    preview_image=proj.get("original_image"),
+                )
+                if _refined["main_drawing_confidence"] > 0.5:
+                    _rd_p2["main_drawing_region"] = _refined["main_drawing_region"]
+                    proj["region_data"] = _rd_p2
+                logging.info(
+                    f"[p2-main-region] {_refined['main_drawing_region']} "
+                    f"conf={_refined['main_drawing_confidence']}"
+                )
+
+                # Engine P2-3: Primitive Family Classification
+                _prim_fam = _classify_primitive_families(
+                    _vc_p2, _ts_p2, _rd_p2, _pr_p2
+                )
+                proj["prim_families"] = _prim_fam
+                logging.info(
+                    f"[p2-families] {_prim_fam['family_counts']} "
+                    f"forbidden={len(_prim_fam['forbidden_indices'])}"
+                )
+
+                # Merge forbidden indices into annotation_filter
+                _ann_f = proj["annotation_filter"]
+                _existing_fi = _ann_f.get("filtered_indices", set())
+                _combined_fi = _existing_fi | _prim_fam["forbidden_indices"]
+                _ann_f["filtered_indices"] = _combined_fi
+                _ann_f["filtered_count"] = len(_combined_fi)
+                proj["annotation_filter"] = _ann_f
+                logging.info(
+                    f"[p2-combined-filter] total_filtered={len(_combined_fi)} "
+                    f"(was {len(_existing_fi)}, added {len(_prim_fam['forbidden_indices'])})"
+                )
+
+                proj["phase2_ready"] = True
+
+            except Exception as _p2_err:
+                import traceback as _p2_tb
+                print(f"[phase2] engines failed (non-fatal): {_p2_err}\n{_p2_tb.format_exc()}")
+
         # ── חילוץ סמנטיקה טקסטואלית מה-vector cache ──────────────────────────
         _vc = proj.get("vector_cache")
         if _vc and not proj.get("text_semantics"):
@@ -3027,7 +3089,10 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             if len(pdf_bytes) > 1000:
                 try:
                     img_shape   = proj.get("image_shape") or {"width": 1000, "height": 1000}
-                    vector_segs = _vector_extract(pdf_bytes, scale_px_per_meter, img_shape)
+                    vector_segs = _vector_extract(
+                        pdf_bytes, scale_px_per_meter, img_shape,
+                        region_data=proj.get("region_data"),
+                    )
 
                     if len(vector_segs) >= 5:
                         # פעל על מקרא אם קיים
@@ -3078,7 +3143,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             try:
                 from brain import _walls_from_vectors as _wfv
                 _img_shape2 = proj.get("image_shape") or {"width": 1000, "height": 1000}
-                _chain_segs = _wfv(_vc2, scale_px_per_meter, _img_shape2)
+                _chain_segs = _wfv(_vc2, scale_px_per_meter, _img_shape2, proj=proj)
                 if len(_chain_segs) >= 5:
                     # Apply legend enrichment
                     try:
@@ -3918,6 +3983,111 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                 print(
                     f"[phase1] post-filter: {_before_excl} → {len(all_segments)} "
                     f"segments after region exclusion"
+                )
+
+        # ════════════════════════════════════════════════════════════════════
+        # PHASE 2 POST-PROCESSING — Legality scoring + gate filter
+        # ════════════════════════════════════════════════════════════════════
+        if _ENGINES_AVAILABLE and proj.get("phase2_ready") and all_segments:
+            try:
+                _rd_post  = proj.get("region_data") or {}
+                _ts_post  = proj.get("text_semantics") or {}
+                _pr_post  = proj.get("page_rect_wh") or _get_page_rect_wh(proj.get("vector_cache") or {})
+                _vc_post  = proj.get("vector_cache") or {}
+                _pf_post  = proj.get("prim_families") or {}
+                _main_reg = _rd_post.get("main_drawing_region")
+                _excl_reg = _rd_post.get("excluded_regions", [])
+                _orig_img = proj.get("original_image")
+                _pw       = _pr_post.get("w", 2480)
+                _ph       = _pr_post.get("h", 3508)
+                # scale factor: image pixels / PDF points
+                _img_shp  = proj.get("image_shape") or {}
+                _sf       = _img_shp.get("width", _pw) / max(_pw, 1)
+
+                legality_map: Dict = {}
+                segments_as_dicts: List[Dict] = []
+
+                for _seg in all_segments:
+                    if hasattr(_seg, "dict"):
+                        _sd = _seg.dict()
+                    elif hasattr(_seg, "__dict__"):
+                        _sd = dict(_seg.__dict__)
+                    else:
+                        _sd = dict(_seg)
+
+                    _seg_id = _sd.get("segment_id", "")
+                    _bbox   = _sd.get("bbox", [0, 0, 1, 1])
+
+                    # P2-2: Exclusion Gate
+                    _excl_r = _compute_exclusion_gate(_bbox, _excl_reg)
+
+                    # P2-4: Ink Overlap
+                    _ink_r = _compute_ink_overlap(
+                        _bbox, _vc_post,
+                        preview_image=_orig_img,
+                        scale_factor=_sf,
+                    )
+
+                    # P2-5: Anchor Support
+                    _anc_r = _compute_anchor_support(
+                        _bbox, _ts_post, _pr_post,
+                        wall_segments=[s for s in segments_as_dicts if s.get("element_class") == "wall"],
+                    )
+
+                    # P2-1: Main region check
+                    _in_main = _is_in_main_drawing(_bbox, _main_reg) if _main_reg else True
+
+                    # P2-6: Legality Score (primitive family = UNKNOWN unless we can derive it)
+                    _leg_r = _compute_legality_score(
+                        main_region_in=_in_main,
+                        exclusion_result=_excl_r,
+                        primitive_family=_PRIM_UNKNOWN,
+                        ink_result=_ink_r,
+                        anchor_result=_anc_r,
+                    )
+                    legality_map[_seg_id] = _leg_r
+                    segments_as_dicts.append(_sd)
+
+                # P2-7: Post-Gate Rejection (min_gate=soft_pass)
+                _gate_res = _post_gate_filter(
+                    segments_as_dicts, legality_map, min_gate="soft_pass"
+                )
+                logging.info(
+                    f"[p2-gate] pass={_gate_res['pass_count']} "
+                    f"reject={_gate_res['reject_count']}"
+                )
+                if _gate_res["rejection_log"]:
+                    logging.info(f"[p2-rejection-log] {_gate_res['rejection_log']}")
+
+                # Store rejected for debug
+                proj["phase2_rejected"] = _gate_res["rejected_segments"]
+
+                # Repack filtered segments as AutoAnalyzeSegment
+                from .models import AutoAnalyzeSegment as _AAS
+                _filtered_segs: List = []
+                for _fs in _gate_res["filtered_segments"]:
+                    try:
+                        _filtered_segs.append(_AAS(**{
+                            k: v for k, v in _fs.items()
+                            if k not in ("legality_score", "gate_decision",
+                                         "rejection_reason", "legality_breakdown")
+                        }))
+                    except Exception as _rp_err:
+                        logging.warning(f"[p2] repack segment {_fs.get('segment_id')}: {_rp_err}")
+
+                if _filtered_segs:
+                    _before_p2 = len(all_segments)
+                    all_segments = _filtered_segs
+                    logging.info(
+                        f"[p2-final] {len(all_segments)} segments after Phase 2 gating "
+                        f"(was {_before_p2})"
+                    )
+
+            except Exception as _p2_post_err:
+                import traceback as _p2_post_tb
+                print(
+                    f"[phase2-post] gating failed (non-fatal): {_p2_post_err}\n"
+                    f"{_p2_post_tb.format_exc()}"
                 )
 
         # ── Bbox refinement pass ──────────────────────────────────────────────

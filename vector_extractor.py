@@ -200,6 +200,7 @@ def extract_from_pdf(
     scale_px_per_meter: float,
     image_shape: dict,
     filtered_indices: set = None,
+    region_data: dict = None,
 ) -> List[dict]:
     """
     קלט: bytes של PDF + scale + מידות תמונה.
@@ -241,6 +242,23 @@ def extract_from_pdf(
     # שמור original_idx → drawing mapping לפילטר filtered_indices
     _fi = set(filtered_indices) if filtered_indices else set()
 
+    # Phase 2: region gate data
+    _main_region: Optional[list] = None
+    _excl_regions: list = []
+    if region_data:
+        _main_region = region_data.get("main_drawing_region")
+        _excl_regions = region_data.get("excluded_regions", [])
+
+    _region_gate_available = False
+    _imd_fn = None
+    _bie_fn = None
+    if _main_region or _excl_regions:
+        try:
+            from engines import is_in_main_drawing as _imd_fn, bbox_in_excluded as _bie_fn
+            _region_gate_available = True
+        except Exception:
+            pass
+
     segments = []
     for idx, d in enumerate(thick):
         # פילטר לפי annotation_filter אם סופק
@@ -254,6 +272,12 @@ def extract_from_pdf(
         corners = [(bx, by), (bx + bw, by), (bx, by + bh), (bx + bw, by + bh)]
         if any(_point_in_zones(cx, cy, dim_zones) for cx, cy in corners):
             continue
+        # Phase 2: region gate
+        if _region_gate_available:
+            if _main_region and not _imd_fn(seg["bbox"], _main_region, threshold=0.25):
+                continue
+            if _excl_regions and _bie_fn(seg["bbox"], _excl_regions, threshold=0.5):
+                continue
         segments.append(seg)
 
     segments = _deduplicate(segments, threshold_px=6.0)

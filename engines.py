@@ -12,6 +12,13 @@ import math
 import logging
 from typing import Dict, List, Optional, Tuple
 
+try:
+    import numpy as np
+    _NP_AVAILABLE = True
+except ImportError:
+    np = None  # type: ignore
+    _NP_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -466,3 +473,676 @@ def get_page_rect_wh(vector_cache: Dict) -> Dict:
     x1 = float(pr.get("x1", pr.get("w", 2480)))
     y1 = float(pr.get("y1", pr.get("h", 3508)))
     return {"w": x1 - x0, "h": y1 - y0}
+
+
+# ════════════════════════════════════════════════
+# PHASE 2 — GEOMETRIC GATING + ANCHOR VALIDATION
+# ════════════════════════════════════════════════
+
+# ──────────────────────────────────────────────
+# ENGINE P2-1 — MAIN DRAWING GATE ENGINE
+# ──────────────────────────────────────────────
+
+def refine_main_drawing_region(
+    vector_cache: Dict,
+    text_semantics: Dict,
+    region_data: Dict,
+    page_rect: Dict,
+    preview_image=None,       # numpy BGR array, optional
+) -> Dict:
+    """
+    מחשב את אזור השרטוט הראשי האמיתי לפי צפיפות פרימיטיבים.
+
+    מחזיר:
+      main_drawing_region: [x0, y0, x1, y1] מדויק יותר
+      main_drawing_confidence: 0.0-1.0
+      density_map: dict {cell_key: density}
+    """
+    pw = page_rect.get("w", 2480)
+    ph = page_rect.get("h", 3508)
+    drawings = vector_cache.get("drawings", [])
+    excluded_regions = region_data.get("excluded_regions", [])
+
+    CELL_SIZE = max(50, pw / 40)
+    cols = max(1, int(pw / CELL_SIZE))
+    rows = max(1, int(ph / CELL_SIZE))
+
+    density_grid: Dict = {}
+    for d in drawings:
+        r = d.get("rect")
+        if not r:
+            continue
+        cx = (r[0] + r[2]) / 2
+        cy = (r[1] + r[3]) / 2
+        col = min(int(cx / CELL_SIZE), cols - 1)
+        row = min(int(cy / CELL_SIZE), rows - 1)
+        key = (row, col)
+        density_grid[key] = density_grid.get(key, 0) + 1
+
+    if not density_grid:
+        return {
+            "main_drawing_region": region_data.get("main_drawing_region", [0, 0, pw, ph]),
+            "main_drawing_confidence": 0.3,
+            "density_map": {}
+        }
+
+    max_density = max(density_grid.values())
+    threshold = max(2, max_density * 0.15)
+    active_cells = [(r, c) for (r, c), d in density_grid.items() if d >= threshold]
+
+    if not active_cells:
+        return {
+            "main_drawing_region": region_data.get("main_drawing_region", [0, 0, pw, ph]),
+            "main_drawing_confidence": 0.3,
+            "density_map": density_grid
+        }
+
+    min_row = min(r for r, c in active_cells)
+    max_row = max(r for r, c in active_cells)
+    min_col = min(c for r, c in active_cells)
+    max_col = max(c for r, c in active_cells)
+
+    MARGIN = CELL_SIZE * 0.5
+    x0 = max(0, min_col * CELL_SIZE - MARGIN)
+    y0 = max(0, min_row * CELL_SIZE - MARGIN)
+    x1 = min(pw, (max_col + 1) * CELL_SIZE + MARGIN)
+    y1 = min(ph, (max_row + 1) * CELL_SIZE + MARGIN)
+
+    raw_area = max(1, (x1 - x0) * (y1 - y0))
+    total_excl_in_main = 0
+    for er in excluded_regions:
+        ix0 = max(x0, er[0]); iy0 = max(y0, er[1])
+        ix1 = min(x1, er[2]); iy1 = min(y1, er[3])
+        if ix1 > ix0 and iy1 > iy0:
+            total_excl_in_main += (ix1 - ix0) * (iy1 - iy0)
+
+    confidence = 1.0 - min(0.8, total_excl_in_main / raw_area)
+
+    return {
+        "main_drawing_region": [round(x0), round(y0), round(x1), round(y1)],
+        "main_drawing_confidence": round(confidence, 2),
+        "density_map": {f"{r},{c}": d for (r, c), d in density_grid.items()},
+    }
+
+
+def is_in_main_drawing(bbox: List, main_region: List, threshold: float = 0.3) -> bool:
+    """בודק האם מרכז ה-bbox (או לפחות threshold% ממנו) נמצא ב-main_drawing_region."""
+    if not main_region:
+        return True
+
+    bx0, by0, bw, bh = bbox
+    bx1, by1 = bx0 + bw, by0 + bh
+    b_area = max(1, bw * bh)
+
+    cx = bx0 + bw / 2
+    cy = by0 + bh / 2
+    mr = main_region
+    if mr[0] <= cx <= mr[2] and mr[1] <= cy <= mr[3]:
+        return True
+
+    ix0 = max(bx0, mr[0]); iy0 = max(by0, mr[1])
+    ix1 = min(bx1, mr[2]); iy1 = min(by1, mr[3])
+    if ix1 <= ix0 or iy1 <= iy0:
+        return False
+
+    overlap = (ix1 - ix0) * (iy1 - iy0)
+    return (overlap / b_area) >= threshold
+
+
+# ──────────────────────────────────────────────
+# ENGINE P2-2 — EXCLUSION GATE ENGINE
+# ──────────────────────────────────────────────
+
+def compute_exclusion_gate(
+    bbox: List,
+    excluded_regions: List,
+    reject_threshold: float = 0.40,
+    penalty_threshold: float = 0.20,
+) -> Dict:
+    """
+    מחשב ציון חפיפה עם אזורים מוחרגים ומחזיר החלטה.
+
+    מחזיר:
+      exclusion_overlap: float (0-1)
+      exclusion_decision: "pass" | "penalty" | "reject"
+      exclusion_reason: str
+    """
+    if not excluded_regions:
+        return {"exclusion_overlap": 0.0, "exclusion_decision": "pass", "exclusion_reason": ""}
+
+    bx0, by0, bw, bh = bbox
+    bx1, by1 = bx0 + bw, by0 + bh
+    b_area = max(1, bw * bh)
+    cx = bx0 + bw / 2
+    cy = by0 + bh / 2
+
+    max_overlap_ratio = 0.0
+
+    for r in excluded_regions:
+        if r[0] <= cx <= r[2] and r[1] <= cy <= r[3]:
+            return {
+                "exclusion_overlap": 1.0,
+                "exclusion_decision": "reject",
+                "exclusion_reason": "center_in_excluded_region"
+            }
+
+        ix0 = max(bx0, r[0]); iy0 = max(by0, r[1])
+        ix1 = min(bx1, r[2]); iy1 = min(by1, r[3])
+        if ix1 > ix0 and iy1 > iy0:
+            overlap_ratio = (ix1 - ix0) * (iy1 - iy0) / b_area
+            if overlap_ratio > max_overlap_ratio:
+                max_overlap_ratio = overlap_ratio
+
+    if max_overlap_ratio >= reject_threshold:
+        return {
+            "exclusion_overlap": round(max_overlap_ratio, 3),
+            "exclusion_decision": "reject",
+            "exclusion_reason": f"bbox_overlap_{max_overlap_ratio:.0%}_with_excluded"
+        }
+    elif max_overlap_ratio >= penalty_threshold:
+        return {
+            "exclusion_overlap": round(max_overlap_ratio, 3),
+            "exclusion_decision": "penalty",
+            "exclusion_reason": f"partial_overlap_{max_overlap_ratio:.0%}"
+        }
+    else:
+        return {
+            "exclusion_overlap": round(max_overlap_ratio, 3),
+            "exclusion_decision": "pass",
+            "exclusion_reason": ""
+        }
+
+
+# ──────────────────────────────────────────────
+# ENGINE P2-3 — PRIMITIVE FAMILY GATE ENGINE
+# ──────────────────────────────────────────────
+
+PRIM_WALL = "wall_candidate"
+PRIM_OPENING = "opening_candidate"
+PRIM_DIMENSION = "dimension_line"
+PRIM_GRID = "grid_line"
+PRIM_LEADER = "leader_line"
+PRIM_SECTION = "section_marker_line"
+PRIM_TABLE = "table_border"
+PRIM_LEGEND = "legend_sample"
+PRIM_SITE = "site_boundary"
+PRIM_BUILDING = "building_line"
+PRIM_HATCH = "hatch_pattern"
+PRIM_UNKNOWN = "unknown"
+
+FORBIDDEN_FAMILIES = {PRIM_DIMENSION, PRIM_GRID, PRIM_TABLE, PRIM_LEGEND, PRIM_SECTION, PRIM_HATCH}
+
+_GRID_AXIS_PATTERN = re.compile(r'^[A-Z]$|^\d{1,2}$')
+_UKOK_PATTERN = re.compile(r'^(UK|OK|U\.K\.|O\.K\.)$', re.IGNORECASE)
+_SECTION_PATTERN = re.compile(r'^[A-Z]-?S\.?\d|^S-\d', re.IGNORECASE)
+
+
+def classify_primitive_families(
+    vector_cache: Dict,
+    text_semantics: Dict,
+    region_data: Dict,
+    page_rect: Dict,
+) -> Dict:
+    """
+    מסווג כל drawing primitive למשפחה.
+
+    מחזיר:
+      family_labels: dict {drawing_index: family_str}
+      forbidden_indices: set של indices שלא צריכים להיכנס לזיהוי
+      family_counts: dict {family_str: count}
+    """
+    drawings = vector_cache.get("drawings", [])
+    text_zones = text_semantics.get("text_zones", [])
+    legend_region = region_data.get("legend_region")
+    excluded_regions = region_data.get("excluded_regions", [])
+    pw = page_rect.get("w", 2480)
+    ph = page_rect.get("h", 3508)
+
+    numeric_text_zones: List = []
+    grid_text_zones: List = []
+    section_zones: List = []
+
+    for tz in text_zones:
+        t = tz.get("text", "").strip()
+        b = tz["bbox"]
+        stripped = re.sub(r'[\s\.,\-\'\"]', '', t)
+
+        if stripped.isdigit() or re.match(r'^\d+[,\.]\d+$', t.strip()):
+            numeric_text_zones.append(b)
+        if _GRID_AXIS_PATTERN.match(t.strip()):
+            grid_text_zones.append(b)
+        if _SECTION_PATTERN.match(t.strip()):
+            section_zones.append(b)
+
+    PROX = max(40, pw * 0.016)
+
+    def _bbox_near_zones(r, zones, expand=PROX):
+        if not r:
+            return False
+        cx = (r[0] + r[2]) / 2
+        cy = (r[1] + r[3]) / 2
+        for z in zones:
+            if (z[0] - expand) <= cx <= (z[2] + expand) and \
+               (z[1] - expand) <= cy <= (z[3] + expand):
+                return True
+        return False
+
+    family_labels: Dict = {}
+    family_counts: Dict = {}
+    forbidden_indices: set = set()
+
+    for idx, d in enumerate(drawings):
+        r = d.get("rect")
+        dashes = d.get("dashes") or []
+        sw = d.get("width") or d.get("stroke_width") or 0
+        layer = str(d.get("layer") or d.get("ocg") or "").lower()
+
+        family = PRIM_UNKNOWN
+
+        if r:
+            bx0, by0, bx1, by1 = r[0], r[1], r[2], r[3]
+            bw = abs(bx1 - bx0)
+            bh = abs(by1 - by0)
+            length = max(bw, bh)
+            cx = (bx0 + bx1) / 2
+            cy = (by0 + by1) / 2
+
+            if length < pw * 0.03 and bw > 0 and bh > 0:
+                aspect = max(bw, bh) / max(min(bw, bh), 0.1)
+                if aspect > 4 and length < pw * 0.02:
+                    family = PRIM_HATCH
+
+            if family == PRIM_UNKNOWN and excluded_regions:
+                if bbox_in_excluded([bx0, by0, bw, bh], excluded_regions, threshold=0.5):
+                    family = PRIM_TABLE
+
+            if family == PRIM_UNKNOWN and legend_region:
+                lr = legend_region
+                if lr[0] <= cx <= lr[2] and lr[1] <= cy <= lr[3]:
+                    family = PRIM_LEGEND
+
+            if family == PRIM_UNKNOWN:
+                is_very_long = length > pw * 0.6 or length > ph * 0.6
+                if is_very_long and _bbox_near_zones(r, grid_text_zones):
+                    family = PRIM_GRID
+                elif is_very_long and not dashes:
+                    family = PRIM_GRID
+
+            if family == PRIM_UNKNOWN and _bbox_near_zones(r, section_zones):
+                family = PRIM_SECTION
+
+            if family == PRIM_UNKNOWN:
+                if dashes:
+                    family = PRIM_DIMENSION
+                elif sw > 0 and sw < 0.6 and _bbox_near_zones(r, numeric_text_zones):
+                    family = PRIM_DIMENSION
+                elif sw == 0 and _bbox_near_zones(r, numeric_text_zones, expand=PROX * 0.7):
+                    family = PRIM_DIMENSION
+
+            if family == PRIM_UNKNOWN:
+                if dashes and length > pw * 0.15:
+                    family = PRIM_SITE
+
+            if family == PRIM_UNKNOWN:
+                if sw >= 1.0 and length > pw * 0.02:
+                    family = PRIM_WALL
+                elif sw >= 0.5 and length > pw * 0.04:
+                    family = PRIM_WALL
+
+        family_labels[idx] = family
+        family_counts[family] = family_counts.get(family, 0) + 1
+        if family in FORBIDDEN_FAMILIES:
+            forbidden_indices.add(idx)
+
+    return {
+        "family_labels": family_labels,
+        "forbidden_indices": forbidden_indices,
+        "family_counts": family_counts,
+    }
+
+
+# ──────────────────────────────────────────────
+# ENGINE P2-4 — INK / GEOMETRY OVERLAP ENGINE
+# ──────────────────────────────────────────────
+
+def compute_ink_overlap(
+    bbox: List,
+    vector_cache: Dict,
+    preview_image=None,
+    scale_factor: float = 1.0,
+) -> Dict:
+    """
+    בודק האם ה-bbox מכיל תוכן ציור אמיתי.
+
+    מחזיר:
+      ink_overlap_score: 0.0-1.0
+      vector_overlap_count: int
+      pixel_density: float או None
+    """
+    bx0, by0, bw, bh = bbox
+    bx1, by1 = bx0 + bw, by0 + bh
+
+    drawings = vector_cache.get("drawings", [])
+    vector_count = 0
+    for d in drawings:
+        r = d.get("rect")
+        if not r:
+            continue
+        if r[0] < bx1 and r[2] > bx0 and r[1] < by1 and r[3] > by0:
+            vector_count += 1
+
+    vector_score = min(1.0, vector_count / 5.0)
+
+    pixel_density = None
+    pixel_score = None
+
+    if preview_image is not None and _NP_AVAILABLE:
+        try:
+            h_img, w_img = preview_image.shape[:2]
+            sf = scale_factor
+            px0 = max(0, int(bx0 * sf))
+            py0 = max(0, int(by0 * sf))
+            px1 = min(w_img, int(bx1 * sf))
+            py1 = min(h_img, int(by1 * sf))
+
+            if px1 > px0 and py1 > py0:
+                crop = preview_image[py0:py1, px0:px1]
+                if len(crop.shape) == 3:
+                    gray = crop.mean(axis=2)
+                else:
+                    gray = crop
+                dark_pixels = (gray < 180).sum()
+                total_pixels = max(1, (px1 - px0) * (py1 - py0))
+                pixel_density = dark_pixels / total_pixels
+                pixel_score = min(1.0, pixel_density * 10)
+        except Exception:
+            pass
+
+    if pixel_score is not None:
+        ink_score = pixel_score * 0.6 + vector_score * 0.4
+    else:
+        ink_score = vector_score
+
+    return {
+        "ink_overlap_score": round(ink_score, 3),
+        "vector_overlap_count": vector_count,
+        "pixel_density": round(pixel_density, 4) if pixel_density is not None else None,
+    }
+
+
+# ──────────────────────────────────────────────
+# ENGINE P2-5 — ANCHOR SUPPORT ENGINE
+# ──────────────────────────────────────────────
+
+_EQUIPMENT_ANCHOR_TEXTS = {
+    "ארון כיבוי", "פנל כבאים", "כיבוי אש",
+    "פיר חשמל", "פיר תקשורת", "פיר שירות",
+    "מעלית", "עלייה במעלית", "ירידה במעלית",
+    "שער ברזל", "שער", "פחי אשפה", "חדר מזגנים",
+    "משאבה", "גנרטור", "ט' כיבוי", "ת.כ.",
+}
+
+_ROOM_ANCHOR_MIN_DIST_RATIO = 0.12
+
+
+def compute_anchor_support(
+    bbox: List,
+    text_semantics: Dict,
+    page_rect: Dict,
+    wall_segments: List = None,
+) -> Dict:
+    """
+    בודק האם ה-bbox מקבל תמיכה מ-"עוגן" הנדסי/סמנטי קרוב.
+
+    מחזיר:
+      anchor_support_score: 0.0-1.0
+      anchor_types: list[str]
+      anchor_boost: bool
+    """
+    pw = page_rect.get("w", 2480)
+
+    bx0, by0, bw, bh = bbox
+    cx = bx0 + bw / 2
+    cy = by0 + bh / 2
+
+    PROX_ROOM = pw * _ROOM_ANCHOR_MIN_DIST_RATIO
+    PROX_EQUIP = pw * 0.08
+    PROX_WALL = max(bw, bh) * 2.0
+
+    anchor_types: List[str] = []
+    anchor_boost = False
+    score = 0.0
+
+    rooms = text_semantics.get("rooms", [])
+    door_tags = text_semantics.get("door_tags", [])
+    area_texts = text_semantics.get("area_texts", [])
+    text_zones = text_semantics.get("text_zones", [])
+
+    for tz in text_zones:
+        t = tz.get("text", "")
+        for eq in _EQUIPMENT_ANCHOR_TEXTS:
+            if eq in t:
+                b = tz["bbox"]
+                tc = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]
+                dist = math.sqrt((cx - tc[0])**2 + (cy - tc[1])**2)
+                if dist < PROX_EQUIP:
+                    anchor_types.append("equipment_text")
+                    anchor_boost = True
+                    score += 0.6
+                    break
+
+    for room in rooms:
+        rb = room.get("bbox", [])
+        if len(rb) >= 4:
+            rc = [(rb[0] + rb[2]) / 2, (rb[1] + rb[3]) / 2]
+            dist = math.sqrt((cx - rc[0])**2 + (cy - rc[1])**2)
+            if dist < PROX_ROOM:
+                anchor_types.append("room_label")
+                score += 0.3
+                break
+
+    for at in area_texts:
+        ab = at.get("bbox", [])
+        if len(ab) >= 4:
+            ac = [(ab[0] + ab[2]) / 2, (ab[1] + ab[3]) / 2]
+            dist = math.sqrt((cx - ac[0])**2 + (cy - ac[1])**2)
+            if dist < PROX_ROOM * 0.6:
+                anchor_types.append("area_text")
+                score += 0.2
+                break
+
+    for dt in door_tags:
+        db = dt.get("bbox", [])
+        if len(db) >= 4:
+            dc = [(db[0] + db[2]) / 2, (db[1] + db[3]) / 2]
+            dist = math.sqrt((cx - dc[0])**2 + (cy - dc[1])**2)
+            if dist < PROX_EQUIP * 1.5:
+                anchor_types.append("door_tag")
+                score += 0.25
+                break
+
+    if wall_segments:
+        for seg in wall_segments:
+            sb = seg.get("bbox") or seg.get("bounding_box") or []
+            if len(sb) >= 4:
+                sx0, sy0, sw2, sh2 = sb[0], sb[1], sb[2], sb[3]
+                sx1, sy1 = sx0 + sw2, sy0 + sh2
+                expanded = [sx0 - PROX_WALL, sy0 - PROX_WALL,
+                            sx1 + PROX_WALL, sy1 + PROX_WALL]
+                if expanded[0] <= cx <= expanded[2] and expanded[1] <= cy <= expanded[3]:
+                    anchor_types.append("wall_nearby")
+                    score += 0.2
+                    break
+
+    return {
+        "anchor_support_score": round(min(1.0, score), 3),
+        "anchor_types": list(set(anchor_types)),
+        "anchor_boost": anchor_boost,
+    }
+
+
+# ──────────────────────────────────────────────
+# ENGINE P2-6 — CANDIDATE LEGALITY SCORING ENGINE
+# ──────────────────────────────────────────────
+
+LEGALITY_PASS_THRESHOLD = 0.55
+LEGALITY_SOFT_PASS_THRESHOLD = 0.35
+LEGALITY_REVIEW_THRESHOLD = 0.20
+
+
+def compute_legality_score(
+    main_region_in: bool,
+    exclusion_result: Dict,
+    primitive_family: str,
+    ink_result: Dict,
+    anchor_result: Dict,
+) -> Dict:
+    """
+    מאחד את כל ציוני החוקיות לציון אחד ומחזיר gate_decision.
+
+    מחזיר:
+      legality_score: 0.0-1.0
+      legality_breakdown: dict
+      gate_decision: "pass" | "soft_pass" | "review" | "reject"
+      rejection_reason: str או None
+    """
+    breakdown: Dict = {}
+
+    if not main_region_in:
+        return {
+            "legality_score": 0.0,
+            "legality_breakdown": {"main_region": False},
+            "gate_decision": "reject",
+            "rejection_reason": "outside_main_drawing_region",
+        }
+
+    if exclusion_result.get("exclusion_decision") == "reject":
+        return {
+            "legality_score": 0.0,
+            "legality_breakdown": {"exclusion": exclusion_result},
+            "gate_decision": "reject",
+            "rejection_reason": exclusion_result.get("exclusion_reason", "excluded_region_overlap"),
+        }
+
+    if primitive_family in FORBIDDEN_FAMILIES:
+        return {
+            "legality_score": 0.0,
+            "legality_breakdown": {"family": primitive_family},
+            "gate_decision": "reject",
+            "rejection_reason": f"forbidden_primitive_family:{primitive_family}",
+        }
+
+    score = 0.30
+    breakdown["main_region"] = True
+
+    if exclusion_result.get("exclusion_decision") == "penalty":
+        score -= 0.15
+        breakdown["exclusion_penalty"] = exclusion_result.get("exclusion_overlap", 0)
+    else:
+        score += 0.10
+        breakdown["exclusion_clear"] = True
+
+    if primitive_family == PRIM_WALL:
+        score += 0.20
+        breakdown["family_wall"] = True
+    elif primitive_family == PRIM_OPENING:
+        score += 0.15
+        breakdown["family_opening"] = True
+    elif primitive_family == PRIM_UNKNOWN:
+        score += 0.05
+    breakdown["primitive_family"] = primitive_family
+
+    ink_score = ink_result.get("ink_overlap_score", 0.5)
+    score += ink_score * 0.20
+    breakdown["ink_score"] = round(ink_score, 3)
+
+    if ink_score < 0.15:
+        score -= 0.25
+        breakdown["low_ink_penalty"] = True
+
+    anchor_score = anchor_result.get("anchor_support_score", 0.0)
+    anchor_boost = anchor_result.get("anchor_boost", False)
+    score += anchor_score * 0.20
+    breakdown["anchor_score"] = round(anchor_score, 3)
+
+    if anchor_boost:
+        score += 0.15
+        breakdown["anchor_boost"] = True
+
+    score = round(max(0.0, min(1.0, score)), 3)
+    breakdown["final_score"] = score
+
+    if score >= LEGALITY_PASS_THRESHOLD:
+        decision = "pass"
+    elif score >= LEGALITY_SOFT_PASS_THRESHOLD:
+        decision = "soft_pass"
+    elif score >= LEGALITY_REVIEW_THRESHOLD:
+        decision = "review"
+    else:
+        decision = "reject"
+
+    return {
+        "legality_score": score,
+        "legality_breakdown": breakdown,
+        "gate_decision": decision,
+        "rejection_reason": None if decision != "reject" else "low_legality_score",
+    }
+
+
+# ──────────────────────────────────────────────
+# ENGINE P2-7 — POST-GATE REJECTION ENGINE
+# ──────────────────────────────────────────────
+
+def post_gate_filter(
+    segments: List[Dict],
+    legality_map: Dict,
+    min_gate: str = "review",
+) -> Dict:
+    """
+    מסנן רשימת segments לפי legality map.
+
+    min_gate קובע מה הרמה המינימלית שעוברת:
+    - "pass"       → רק pass עובר
+    - "soft_pass"  → pass + soft_pass עוברים
+    - "review"     → pass + soft_pass + review עוברים
+    - "reject"     → הכל עובר
+
+    מחזיר:
+      filtered_segments, rejected_segments, rejection_log, pass_count, reject_count
+    """
+    ORDER = ["pass", "soft_pass", "review", "reject"]
+    min_idx = ORDER.index(min_gate)
+
+    filtered: List[Dict] = []
+    rejected: List[Dict] = []
+    log: Dict = {}
+
+    for seg in segments:
+        seg_id = seg.get("segment_id") or seg.get("id") or ""
+        legality = legality_map.get(seg_id)
+
+        if not legality:
+            filtered.append(seg)
+            continue
+
+        decision = legality.get("gate_decision", "review")
+        decision_idx = ORDER.index(decision) if decision in ORDER else 2
+
+        if decision_idx <= min_idx:
+            filtered.append({
+                **seg,
+                "legality_score": legality.get("legality_score"),
+                "gate_decision": decision,
+            })
+        else:
+            reason = legality.get("rejection_reason") or decision
+            rejected.append({**seg, "rejection_reason": reason})
+            log[seg_id] = reason
+
+    return {
+        "filtered_segments": filtered,
+        "rejected_segments": rejected,
+        "rejection_log": log,
+        "pass_count": len(filtered),
+        "reject_count": len(rejected),
+    }

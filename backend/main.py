@@ -176,6 +176,21 @@ except ImportError as _ve:
     print(f"[main] vector modules not available: {_ve}")
     _VECTOR_AVAILABLE = False
 
+# ── Phase 1 engines (pre-processing) ──────────────────────────────────────────
+try:
+    from engines import (
+        classify_document as _classify_document,
+        segment_regions as _segment_regions,
+        extract_text_semantics as _engines_text_semantics,
+        build_annotation_filter as _build_annotation_filter,
+        bbox_in_excluded as _bbox_in_excluded,
+        get_page_rect_wh as _get_page_rect_wh,
+    )
+    _ENGINES_AVAILABLE = True
+except ImportError as _eng_err:
+    print(f"[main] engines module not available: {_eng_err}")
+    _ENGINES_AVAILABLE = False
+
 def _build_vector_cache(pdf_bytes: bytes) -> Optional[dict]:
     """Build a structured cache from PDF vector data (fitz) for fast reuse.
 
@@ -2925,6 +2940,76 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         _ensure_arrays_loaded(plan_id, proj)
         scale_px_per_meter = float(get_scale_with_fallback(proj, default_scale=200.0))
 
+        # ════════════════════════════════════════════════════════════════════
+        # PHASE 1 ENGINES — pre-processing (classify, region, text, filter)
+        # ════════════════════════════════════════════════════════════════════
+        if _ENGINES_AVAILABLE:
+            _vc_raw = proj.get("vector_cache") or {}
+            if _vc_raw and _vc_raw.get("drawings"):
+                try:
+                    # build text_cache from existing vector_cache
+                    _text_cache_p1 = {
+                        "words": _vc_raw.get("words", []),
+                        "text_dict": _vc_raw.get("text_dict", {}),
+                    }
+                    _page_rect_p1 = _get_page_rect_wh(_vc_raw)
+
+                    # Engine 2: Document Classification
+                    _doc_class = _classify_document(_text_cache_p1, _vc_raw, _page_rect_p1)
+                    proj["doc_classification"] = _doc_class
+                    logging.info(
+                        f"[phase1] classify: type={_doc_class['sheet_type']} "
+                        f"conf={_doc_class['sheet_confidence']}"
+                    )
+
+                    # Engine 3: Region Segmentation
+                    _region_data = _segment_regions(_text_cache_p1, _vc_raw, _page_rect_p1)
+                    proj["region_data"] = _region_data
+                    logging.info(
+                        f"[phase1] regions: excluded={len(_region_data['excluded_regions'])}"
+                    )
+
+                    # Engine 4: Text Semantics (richer than vision_analyzer version)
+                    _text_sem_p1 = _engines_text_semantics(_text_cache_p1, _page_rect_p1)
+                    if _text_sem_p1:
+                        proj["text_semantics"] = _text_sem_p1  # prevents duplicate extraction below
+                    logging.info(
+                        f"[phase1] text: rooms={len(_text_sem_p1.get('rooms', []))} "
+                        f"scale={_text_sem_p1.get('scale')}"
+                    )
+
+                    # Engine 5: Annotation Filtering
+                    _ann_filter = _build_annotation_filter(
+                        _vc_raw, _text_sem_p1, _region_data, _page_rect_p1
+                    )
+                    proj["annotation_filter"] = _ann_filter
+                    logging.info(
+                        f"[phase1] filter: total={_ann_filter['total_drawings']} "
+                        f"filtered={_ann_filter['filtered_count']} "
+                        f"pass={_ann_filter['pass_count']}"
+                    )
+
+                    # Replace vector_cache with filtered version (keeps words/text_dict intact)
+                    _filtered_indices = _ann_filter["filtered_indices"]
+                    _all_drawings = _vc_raw.get("drawings", [])
+                    _filtered_drawings = [
+                        d for i, d in enumerate(_all_drawings)
+                        if i not in _filtered_indices
+                    ]
+                    proj["vector_cache_raw"] = _vc_raw  # backup original
+                    proj["vector_cache"] = {
+                        **_vc_raw,
+                        "drawings": _filtered_drawings,
+                    }
+                    print(
+                        f"[phase1] vector_cache updated: "
+                        f"{len(_all_drawings)} → {len(_filtered_drawings)} drawings"
+                    )
+
+                except Exception as _p1_err:
+                    import traceback as _p1_tb
+                    print(f"[phase1] engines failed (non-fatal): {_p1_err}\n{_p1_tb.format_exc()}")
+
         # ── חילוץ סמנטיקה טקסטואלית מה-vector cache ──────────────────────────
         _vc = proj.get("vector_cache")
         if _vc and not proj.get("text_semantics"):
@@ -3816,6 +3901,24 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
             db_save_auto_segments(plan_id, [s.model_dump() for s in all_segments])
         except Exception as _dsa_err:
             print(f"[DB] db_save_auto_segments failed: {_dsa_err}")
+
+        # ── Phase 1 post-filter: הסר segments שה-bbox שלהם חופף excluded regions ──
+        _excluded_rgns = (proj.get("region_data") or {}).get("excluded_regions", [])
+        if _ENGINES_AVAILABLE and _excluded_rgns:
+            _before_excl = len(all_segments)
+            all_segments = [
+                s for s in all_segments
+                if not _bbox_in_excluded(
+                    [s.bbox[0], s.bbox[1], s.bbox[2], s.bbox[3]],
+                    _excluded_rgns,
+                    threshold=0.5,
+                )
+            ]
+            if len(all_segments) < _before_excl:
+                print(
+                    f"[phase1] post-filter: {_before_excl} → {len(all_segments)} "
+                    f"segments after region exclusion"
+                )
 
         # ── Bbox refinement pass ──────────────────────────────────────────────
         orig_img = proj.get("original")

@@ -199,6 +199,7 @@ def extract_from_pdf(
     pdf_bytes: bytes,
     scale_px_per_meter: float,
     image_shape: dict,
+    filtered_indices: set = None,
 ) -> List[dict]:
     """
     קלט: bytes של PDF + scale + מידות תמונה.
@@ -237,8 +238,14 @@ def extract_from_pdf(
     _vc_words = {"words": _words_for_zones}
     dim_zones = _build_dimension_zones(_vc_words, sx, sy, margin=15.0)
 
+    # שמור original_idx → drawing mapping לפילטר filtered_indices
+    _fi = set(filtered_indices) if filtered_indices else set()
+
     segments = []
     for idx, d in enumerate(thick):
+        # פילטר לפי annotation_filter אם סופק
+        if idx in _fi:
+            continue
         seg = _drawing_to_segment(d, sx, sy, scale_px_per_meter, img_w, img_h, idx)
         if seg is None:
             continue

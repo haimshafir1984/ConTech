@@ -176,6 +176,33 @@ except ImportError as _ve:
     print(f"[main] vector modules not available: {_ve}")
     _VECTOR_AVAILABLE = False
 
+def _build_vector_cache(pdf_bytes: bytes) -> Optional[dict]:
+    """Build a structured cache from PDF vector data (fitz) for fast reuse.
+
+    Returns dict with keys: drawings, text_dict, words, page_rect.
+    Returns None if pdf_bytes is empty or fitz is unavailable.
+    """
+    if not pdf_bytes or len(pdf_bytes) < 100:
+        return None
+    try:
+        import fitz as _fitz_vc
+        doc = _fitz_vc.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[0]
+        drawings  = page.get_drawings()
+        text_dict = page.get_text("dict")
+        words     = page.get_text("words")   # list of (x0,y0,x1,y1,text,blk,line,word)
+        rect      = {
+            "x0": float(page.rect.x0), "y0": float(page.rect.y0),
+            "x1": float(page.rect.x1), "y1": float(page.rect.y1),
+        }
+        doc.close()
+        print(f"[_build_vector_cache] {len(drawings)} drawings, {len(words)} words")
+        return {"drawings": drawings, "text_dict": text_dict, "words": words, "page_rect": rect}
+    except Exception as e:
+        print(f"[_build_vector_cache] failed: {e}")
+        return None
+
+
 app = FastAPI(title="ConTech Analyzer API", version="1.0.0")
 
 # Thread pool for CPU-bound / blocking-IO work (keeps event loop free for /health)
@@ -1967,6 +1994,7 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             "assets": assets,
             "image_shape": {"width": int(image_proc.shape[1]), "height": int(image_proc.shape[0])},
             "pdf_bytes": tmp_pdf_bytes,
+            "vector_cache": _build_vector_cache(tmp_pdf_bytes),
             "planning": {
                 "categories": {},
                 "items": [],
@@ -2834,6 +2862,17 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         _ensure_arrays_loaded(proj)
         scale_px_per_meter = float(get_scale_with_fallback(proj, default_scale=200.0))
 
+        # ── חילוץ סמנטיקה טקסטואלית מה-vector cache ──────────────────────────
+        _vc = proj.get("vector_cache")
+        if _vc and not proj.get("text_semantics"):
+            try:
+                from .vision_analyzer import extract_text_semantics as _ets
+                _ts = _ets(_vc)
+                if _ts:
+                    proj["text_semantics"] = _ts
+            except Exception as _ts_err:
+                print(f"[auto-analyze] text_semantics failed: {_ts_err}")
+
         # ── ניסיון ראשון: מחלץ PDF וקטורי ────────────────────────────────────
         if _VECTOR_AVAILABLE:
             pdf_bytes = proj.get("pdf_bytes") or b""
@@ -2884,6 +2923,37 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
 
                 except Exception as _vec_err:
                     print(f"[auto-analyze] Vector extraction error: {_vec_err} — fallback to OpenCV")
+
+        # ── ניסיון שני: Union-Find chain merging מה-vector cache ──────────────
+        _vc2 = proj.get("vector_cache")
+        if _vc2:
+            try:
+                from brain import _walls_from_vectors as _wfv
+                _img_shape2 = proj.get("image_shape") or {"width": 1000, "height": 1000}
+                _chain_segs = _wfv(_vc2, scale_px_per_meter, _img_shape2)
+                if len(_chain_segs) >= 5:
+                    # Apply legend enrichment
+                    try:
+                        _pdf2 = proj.get("pdf_bytes") or b""
+                        if len(_pdf2) > 1000:
+                            _leg2 = parse_legend(_pdf2)
+                            if _leg2:
+                                _chain_segs = apply_legend_to_segments(_chain_segs, _leg2)
+                    except Exception:
+                        pass
+
+                    try:
+                        db_save_auto_segments(plan_id, _chain_segs)
+                    except Exception:
+                        pass
+                    _init_planning_if_missing(proj)
+                    proj["planning"]["auto_segments"] = _chain_segs
+                    _apply_auto_categories(proj, _chain_segs)
+                    _persist_plan_to_database(plan_id, proj)
+                    print(f"[auto-analyze] Chain-vector mode: {len(_chain_segs)} segments")
+                    return AutoAnalyzeResponse(segments=_chain_segs, vision_data=None)
+            except Exception as _chain_err:
+                print(f"[auto-analyze] chain-vector failed: {_chain_err}")
 
         # ── fallback: אלגוריתם OpenCV הקיים ──────────────────────────────────
 
@@ -3544,6 +3614,85 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         except Exception as _mf:
             print(f"[auto-analyze] Margin filter error: {_mf}")
 
+        # ── Legend bootstrapping via HSV swatches ─────────────────────────────
+        orig_img_for_legend = proj.get("original")
+        if isinstance(orig_img_for_legend, np.ndarray) and orig_img_for_legend.size > 0:
+            try:
+                from .vision_analyzer import _extract_legend, _classify_wall_by_legend
+                _vc_leg = proj.get("vector_cache") or {}
+                _leg_items = _extract_legend(orig_img_for_legend, _vc_leg)
+                if len(_leg_items) >= 2:
+                    proj["legend_items"] = _leg_items
+                    for _seg in all_segments:
+                        if _seg.element_class != "wall":
+                            continue
+                        bb = _seg.bbox
+                        bx, by, bw, bh = int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3])
+                        crop = orig_img_for_legend[
+                            max(0, by):min(orig_img_for_legend.shape[0], by+bh),
+                            max(0, bx):min(orig_img_for_legend.shape[1], bx+bw),
+                        ]
+                        if crop.size > 0:
+                            _lbl, _lconf = _classify_wall_by_legend(crop, _leg_items)
+                            if _lbl:
+                                _seg.suggested_subtype = _lbl
+                                _seg.confidence = max(_seg.confidence, round(_lconf, 3))
+            except Exception as _leg_err:
+                print(f"[auto-analyze] legend bootstrap error: {_leg_err}")
+
+        # ── Spatial graph: assign rooms from text semantics ────────────────────
+        _ts = proj.get("text_semantics") or {}
+        _ts_rooms = _ts.get("rooms") or []
+        if _ts_rooms:
+            try:
+                from brain import _assign_rooms_from_text as _art
+                _wall_segs_dicts = [s.model_dump() for s in all_segments if s.element_class == "wall"]
+                _vc_sp = proj.get("vector_cache") or {}
+                enriched_rooms = _art(_ts_rooms, _vc_sp, _wall_segs_dicts, scale_px_per_meter)
+                proj["rooms"] = enriched_rooms
+            except Exception as _art_err:
+                print(f"[auto-analyze] room assignment error: {_art_err}")
+
+        # ── Validation engine ──────────────────────────────────────────────────
+        try:
+            from brain import _validate_segments as _vs
+            _wall_list  = [s for s in all_segments if s.element_class == "wall"]
+            _segs_dicts = [s.model_dump() for s in all_segments]
+            _rooms_list = proj.get("rooms") or []
+            _validated  = _vs(_segs_dicts, _rooms_list, _wall_list, scale_px_per_meter)
+            # Write back review_status + flags to the AutoAnalyzeSegment objects
+            for _orig_seg, _v in zip(all_segments, _validated):
+                _orig_seg.confidence    = _v.get("confidence", _orig_seg.confidence)
+                if hasattr(_orig_seg, "flags"):
+                    _orig_seg.flags     = _v.get("flags", [])
+                if hasattr(_orig_seg, "review_status"):
+                    _orig_seg.review_status = _v.get("review_status", "auto")
+        except Exception as _ve:
+            print(f"[auto-analyze] validation engine error: {_ve}")
+
+        # ── AI hybrid: GPT-4o for ambiguous fixtures ───────────────────────────
+        _oai_key = os.environ.get("OPENAI_API_KEY", "")
+        if _oai_key:
+            _ambiguous = [
+                s for s in all_segments
+                if (s.confidence or 1.0) < 0.65 and s.element_class == "fixture"
+            ]
+            if _ambiguous:
+                try:
+                    from .vision_analyzer import _ai_classify_fixtures as _acf
+                    _orig_img2 = proj.get("original")
+                    if isinstance(_orig_img2, np.ndarray) and _orig_img2.size > 0:
+                        _amb_dicts = [s.model_dump() for s in _ambiguous]
+                        _updated   = _acf(_amb_dicts, _orig_img2, _oai_key)
+                        _amb_id_map = {d["segment_id"]: d for d in _updated}
+                        for _seg in all_segments:
+                            if _seg.segment_id in _amb_id_map:
+                                _upd = _amb_id_map[_seg.segment_id]
+                                _seg.suggested_subtype = _upd.get("suggested_subtype", _seg.suggested_subtype)
+                                _seg.confidence = _upd.get("confidence", _seg.confidence)
+                except Exception as _acf_err:
+                    print(f"[auto-analyze] AI fixture classify error: {_acf_err}")
+
         _init_planning_if_missing(proj)
         proj["planning"]["auto_segments"] = [s.model_dump() for s in all_segments]
 
@@ -3643,10 +3792,11 @@ async def manager_boq_summary(plan_id: str):
               print(f"[boq] cannot load vision_analysis: {_ve}")
               vision = {}
 
-      # ── 2. חדרים מ-Vision ──────────────────────────────────────────────────
+      # ── 2. חדרים — prefer proj["rooms"] (enriched) over vision rooms ────────
       rooms_table = []
       total_built_area = 0.0
-      for r in (vision.get("rooms") or []):
+      _rooms_source = proj.get("rooms") or vision.get("rooms") or []
+      for r in _rooms_source:
           if not isinstance(r, dict):
               continue
           name = r.get("name") or r.get("room_name") or "חדר"

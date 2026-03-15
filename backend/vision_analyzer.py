@@ -663,3 +663,349 @@ def analyze_plan_with_vision(pdf_path: str, max_pages: int = 5) -> dict:
         result = _openai_supplement_analysis(first_page_b64, result)
 
     return result
+
+
+# ── Text semantics extraction from vector cache ───────────────────────────────
+
+def extract_text_semantics(vector_cache: dict) -> dict:
+    """Parse raw words from vector_cache to extract scale, rooms, and opening counts.
+
+    Args:
+        vector_cache: dict built by _build_vector_cache() in main.py with keys
+                      'words', 'text_dict', 'drawings', 'page_rect'.
+    Returns:
+        dict with keys (all optional): scale_ratio, rooms, door_count,
+        window_count, opening_codes.
+    """
+    import re
+
+    if not vector_cache:
+        return {}
+
+    words_raw = vector_cache.get("words") or []
+    # words_raw items: (x0, y0, x1, y1, text, block_no, line_no, word_no)
+    texts = [str(w[4]) for w in words_raw if len(w) > 4 and str(w[4]).strip()]
+    full_text = " ".join(texts)
+
+    result: dict = {}
+
+    # ── Scale: "1:100", "1:50", "1/100" ─────────────────────────────────────
+    scale_match = re.search(r'1\s*[:\/]\s*(\d{2,4})', full_text)
+    if scale_match:
+        result["scale_ratio"] = int(scale_match.group(1))
+
+    # ── Hebrew room names followed by an area number ──────────────────────────
+    ROOM_KW = ["חדר", "מטבח", "סלון", "חדרון", "אמבטיה", "שירותים", 'ממ"ד',
+               "מרפסת", "כניסה", "מסדרון", "ספריה", "פרוזדור", "כביסה"]
+    room_list = []
+    for i, t in enumerate(texts):
+        if any(kw in t for kw in ROOM_KW):
+            # Look for an area value in the next 4 tokens
+            for j in range(i + 1, min(i + 5, len(texts))):
+                m = re.search(r'(\d+\.?\d*)', texts[j])
+                if m:
+                    room_list.append({"name": t.strip(), "area_m2": float(m.group(1))})
+                    break
+    if room_list:
+        result["rooms"] = room_list
+
+    # ── Door / window counts: ×N or xN markers ───────────────────────────────
+    door_marks = re.findall(r'[×x]\s*(\d+)', full_text)
+    if door_marks:
+        result["door_count"] = sum(int(d) for d in door_marks)
+
+    win_kw_count = len(re.findall(r'חלון', full_text))
+    if win_kw_count:
+        result["window_count"] = win_kw_count
+
+    # ── Opening codes: U1, K2, O3 etc. ───────────────────────────────────────
+    ok_codes = re.findall(r'\b[UKO]\d+\b', full_text)
+    if ok_codes:
+        result["opening_codes"] = ok_codes
+
+    print(f"[extract_text_semantics] scale={result.get('scale_ratio')} "
+          f"rooms={len(result.get('rooms', []))} "
+          f"doors={result.get('door_count', 0)} "
+          f"windows={result.get('window_count', 0)}")
+    return result
+
+
+# ── Legend bootstrapping via HSV swatch descriptors ──────────────────────────
+
+def _swatch_descriptor(img_crop) -> dict:
+    """Compute HSV statistics and fill ratio for a small swatch image crop."""
+    try:
+        import cv2 as _cv2
+        import numpy as _np
+        hsv = _cv2.cvtColor(img_crop, _cv2.COLOR_BGR2HSV)
+        return {
+            "mean_hue": float(_np.mean(hsv[:, :, 0])),
+            "mean_sat": float(_np.mean(hsv[:, :, 1])),
+            "mean_val": float(_np.mean(hsv[:, :, 2])),
+            "fill_ratio": float(_np.sum(hsv[:, :, 2] < 128) / (hsv.size / 3)),
+        }
+    except Exception:
+        return {"mean_hue": 0.0, "mean_sat": 0.0, "mean_val": 128.0, "fill_ratio": 0.5}
+
+
+def _classify_wall_by_legend(wall_crop, legend_items: list) -> tuple:
+    """Return (label, confidence) for a wall crop by matching its swatch
+    descriptor to legend items via Euclidean distance in descriptor space.
+    Returns (None, 0.0) when legend_items is empty or match is too distant.
+    """
+    if not legend_items:
+        return None, 0.0
+
+    desc = _swatch_descriptor(wall_crop)
+    THRESHOLD = 60.0  # descriptor distance threshold
+
+    best_label   = None
+    best_dist    = float("inf")
+
+    for item in legend_items:
+        ref = item.get("descriptor") or {}
+        dist = (
+            (desc["mean_hue"] - ref.get("mean_hue", 0)) ** 2 +
+            (desc["mean_sat"] - ref.get("mean_sat", 0)) ** 2 +
+            (desc["mean_val"] - ref.get("mean_val", 0)) ** 2 +
+            (desc["fill_ratio"] - ref.get("fill_ratio", 0.5)) ** 2 * 1000
+        ) ** 0.5
+
+        if dist < best_dist:
+            best_dist  = dist
+            best_label = item.get("label")
+
+    if best_dist < THRESHOLD and best_label:
+        conf = max(0.60, min(0.95, 1.0 - best_dist / THRESHOLD))
+        return best_label, conf
+    return None, 0.0
+
+
+def _extract_legend(img_bgr, vector_cache: dict) -> list:
+    """Locate the legend region, extract swatch+label rows, build descriptors.
+
+    Returns list of {"label": str, "descriptor": dict} items.
+    Returns [] if no legend found or on any error.
+    """
+    try:
+        import cv2 as _cv2
+        import numpy as _np
+    except ImportError:
+        return []
+
+    try:
+        if img_bgr is None or img_bgr.size == 0:
+            return []
+
+        img_h, img_w = img_bgr.shape[:2]
+        words_raw = (vector_cache or {}).get("words") or []
+
+        # ── Step 1: find legend anchor from keywords ──────────────────────────
+        LEGEND_KW = ["מקרא", "legend", "LEGEND", "LEGEND:", "מקרא:"]
+        anchor_x, anchor_y = None, None
+
+        for w in words_raw:
+            if len(w) > 4 and any(kw in str(w[4]) for kw in LEGEND_KW):
+                anchor_x = float(w[0])
+                anchor_y = float(w[1])
+                break
+
+        # ── Determine legend bbox in image pixel space ─────────────────────────
+        page_rect = (vector_cache or {}).get("page_rect") or {}
+        pw = (page_rect.get("x1", img_w) - page_rect.get("x0", 0)) or float(img_w)
+        ph = (page_rect.get("y1", img_h) - page_rect.get("y0", 0)) or float(img_h)
+        sx = img_w / pw
+        sy = img_h / ph
+
+        if anchor_x is not None and anchor_y is not None:
+            lx = max(0, int((anchor_x - 20) * sx))
+            ly = max(0, int((anchor_y - 10) * sy))
+            lx2 = min(img_w, int((anchor_x + 350) * sx))
+            ly2 = min(img_h, int((anchor_y + 300) * sy))
+        else:
+            # Fallback: bottom-right 25 % of image
+            lx  = int(img_w * 0.75)
+            ly  = int(img_h * 0.60)
+            lx2 = img_w
+            ly2 = img_h
+
+        if lx >= lx2 or ly >= ly2:
+            return []
+
+        legend_img = img_bgr[ly:ly2, lx:lx2]
+        legend_h, legend_w = legend_img.shape[:2]
+
+        if legend_w < 40 or legend_h < 30:
+            return []
+
+        # ── Step 2: detect horizontal row bands ──────────────────────────────
+        ROW_MIN, ROW_MAX = 15, 50
+        SWATCH_W = min(80, legend_w // 3)
+
+        # Collect words that fall inside this legend bbox (PDF-space clipping)
+        def _word_in_legend(w):
+            if len(w) < 5:
+                return False
+            wx0, wy0, wx1, wy1 = float(w[0])*sx, float(w[1])*sy, float(w[2])*sx, float(w[3])*sy
+            wcx = (wx0 + wx1) / 2 - lx
+            wcy = (wy0 + wy1) / 2 - ly
+            return 0 <= wcx <= legend_w and 0 <= wcy <= legend_h
+
+        legend_words = [w for w in words_raw if _word_in_legend(w)]
+
+        # Group words by approximate y-row
+        row_buckets: dict = {}
+        for w in legend_words:
+            cy_local = int(((float(w[1]) + float(w[3])) / 2) * sy - ly)
+            bucket   = (cy_local // ROW_MIN) * ROW_MIN
+            row_buckets.setdefault(bucket, []).append(w)
+
+        # ── Step 3+4: build descriptor per row ───────────────────────────────
+        legend_items = []
+        for row_y, row_words in sorted(row_buckets.items()):
+            if row_y < 0 or row_y + ROW_MIN > legend_h:
+                continue
+
+            row_y2 = min(legend_h, row_y + ROW_MAX)
+            swatch_crop = legend_img[row_y:row_y2, 0:SWATCH_W]
+
+            if swatch_crop.size == 0:
+                continue
+
+            # Label from words in this row (right portion)
+            label_tokens = sorted(row_words, key=lambda w: float(w[0]))
+            label_text   = " ".join(str(w[4]) for w in label_tokens).strip()
+
+            if not label_text:
+                continue
+
+            desc = _swatch_descriptor(swatch_crop)
+            legend_items.append({"label": label_text, "descriptor": desc})
+
+        print(f"[_extract_legend] Legend items found: {len(legend_items)}")
+        return legend_items
+
+    except Exception as e:
+        print(f"[_extract_legend] error: {e}")
+        return []
+
+
+# ── AI Hybrid: GPT-4o classification for ambiguous fixtures ──────────────────
+
+def _ai_classify_fixtures(ambiguous: list, img_bgr, openai_key: str) -> list:
+    """Use a single GPT-4o request to classify up to 8 low-confidence fixtures.
+
+    Crops 96×96 px around each fixture bbox, encodes as base64, sends all
+    crops in one API call. Updates suggested_subtype and raises confidence
+    to 0.82 for each matched item.
+
+    Returns the (possibly updated) ambiguous list unchanged on any error.
+    """
+    if not ambiguous or img_bgr is None or not openai_key:
+        return ambiguous
+
+    try:
+        import cv2 as _cv2
+        import base64 as _b64
+        import json as _json
+        import re  as _re
+        from openai import OpenAI as _OAI
+    except ImportError:
+        return ambiguous
+
+    try:
+        client = _OAI(api_key=openai_key)
+
+        # Limit to 8 fixtures
+        batch = ambiguous[:8]
+        img_h, img_w = img_bgr.shape[:2]
+        crops_b64 = []
+
+        for seg in batch:
+            bb = seg.get("bbox") if isinstance(seg, dict) else getattr(seg, "bbox", None)
+            if not bb or len(bb) < 4:
+                crops_b64.append(None)
+                continue
+            bx, by, bw, bh = int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3])
+            # Pad crop to 96×96
+            pad = 8
+            x1 = max(0, bx - pad);       y1 = max(0, by - pad)
+            x2 = min(img_w, bx + bw + pad); y2 = min(img_h, by + bh + pad)
+            crop = img_bgr[y1:y2, x1:x2]
+            if crop.size == 0:
+                crops_b64.append(None)
+                continue
+            crop = _cv2.resize(crop, (96, 96))
+            ok, buf = _cv2.imencode(".jpg", crop, [_cv2.IMWRITE_JPEG_QUALITY, 70])
+            if not ok:
+                crops_b64.append(None)
+                continue
+            crops_b64.append(_b64.b64encode(buf.tobytes()).decode())
+
+        # Build content with all valid crops
+        content = [{
+            "type": "text",
+            "text": (
+                "Each image is a small cropped symbol from an architectural floor plan. "
+                "Classify each symbol as one of: sink, toilet, bathtub, door, stairs, "
+                "electrical_panel, furniture, unknown. "
+                "Reply ONLY as JSON array: [{\"idx\":0,\"type\":\"sink\"}, ...]"
+            ),
+        }]
+        valid_indices = []
+        for i, b64 in enumerate(crops_b64):
+            if b64:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"},
+                })
+                valid_indices.append(i)
+
+        if not valid_indices:
+            return ambiguous
+
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=400,
+            messages=[{"role": "user", "content": content}],
+        )
+        raw = resp.choices[0].message.content or ""
+
+        # Parse JSON from response
+        m = _re.search(r'\[.*\]', raw, _re.DOTALL)
+        if not m:
+            return ambiguous
+        classifications = _json.loads(m.group())
+
+        LABEL_MAP = {
+            "sink":            "כיור / אסלה",
+            "toilet":          "כיור / אסלה",
+            "bathtub":         "אמבטיה / מקלחת",
+            "door":            "דלת",
+            "stairs":          "מדרגות",
+            "electrical_panel":"לוח חשמל",
+            "furniture":       "ריהוט / מכשיר",
+        }
+
+        for item in classifications:
+            arr_idx = int(item.get("idx", -1))
+            if arr_idx < 0 or arr_idx >= len(valid_indices):
+                continue
+            seg_idx = valid_indices[arr_idx]
+            seg     = batch[seg_idx]
+            gpt_type = str(item.get("type", "unknown")).lower()
+            mapped   = LABEL_MAP.get(gpt_type)
+            if mapped:
+                if isinstance(seg, dict):
+                    seg["suggested_subtype"] = mapped
+                    seg["confidence"]        = 0.82
+                else:
+                    setattr(seg, "suggested_subtype", mapped)
+                    setattr(seg, "confidence", 0.82)
+
+        print(f"[_ai_classify_fixtures] Classified {len(classifications)} fixtures via GPT-4o")
+        return batch + ambiguous[8:]
+
+    except Exception as e:
+        print(f"[_ai_classify_fixtures] error: {e}")
+        return ambiguous

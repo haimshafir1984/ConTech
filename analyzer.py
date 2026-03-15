@@ -94,6 +94,60 @@ def parse_scale(scale_input) -> Optional[int]:
     return None
 
 
+def _hsv_segment(img_bgr: np.ndarray, scale: float) -> Tuple[np.ndarray, bool]:
+    """HSV color segmentation for color architectural plans.
+
+    Separates black walls from red dimension lines and blue MEP layers.
+
+    Args:
+        img_bgr: BGR image as numpy array (from OpenCV).
+        scale:   scale_px_per_meter, unused directly but reserved for future
+                 size-based filtering.
+
+    Returns:
+        (wall_mask, is_color_plan) where:
+        - wall_mask: uint8 binary mask of detected wall pixels
+        - is_color_plan: True when the image has significant color content
+                         (mean HSV saturation > 20)
+    """
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    _h, s, _v = cv2.split(hsv)
+
+    # Determine whether this is a colour plan
+    mean_sat = float(np.mean(s))
+    is_color_plan = mean_sat > 20.0
+
+    if not is_color_plan:
+        return np.zeros(img_bgr.shape[:2], dtype=np.uint8), False
+
+    # ── Black walls: low saturation AND low value (dark pixels) ──────────────
+    black_mask = cv2.inRange(hsv,
+                             np.array([0,   0,   0], dtype=np.uint8),
+                             np.array([180, 60, 80], dtype=np.uint8))
+
+    # ── Red dimension / hatching lines: hue 0–10 or 170–180, high sat ─────────
+    red_lo = cv2.inRange(hsv,
+                         np.array([0,   100, 50], dtype=np.uint8),
+                         np.array([10,  255, 255], dtype=np.uint8))
+    red_hi = cv2.inRange(hsv,
+                         np.array([170, 100, 50], dtype=np.uint8),
+                         np.array([180, 255, 255], dtype=np.uint8))
+    red_mask = cv2.bitwise_or(red_lo, red_hi)
+
+    # Wall pixels = dark minus red annotations
+    wall_mask = cv2.subtract(black_mask, red_mask)
+
+    # Remove noise with opening
+    k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    wall_mask = cv2.morphologyEx(wall_mask, cv2.MORPH_OPEN, k3, iterations=2)
+
+    # Keep only thick strokes (removes dimension lines, text, hatching)
+    k4 = cv2.getStructuringElement(cv2.MORPH_RECT, (4, 4))
+    wall_mask = cv2.morphologyEx(wall_mask, cv2.MORPH_OPEN, k4, iterations=2)
+
+    return wall_mask, True
+
+
 def evaluate_flooring_mask_quality(mask: Optional[np.ndarray]) -> Dict:
     """
     מחשב מדד איכות בסיסי למסכת ריצוף (רעש/דלילות).

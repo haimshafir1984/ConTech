@@ -2,6 +2,7 @@ import os
 import base64
 import json
 import logging
+from typing import Optional
 logger = logging.getLogger(__name__)
 
 try:
@@ -15,6 +16,377 @@ except ImportError:
     fitz = None
 
 import streamlit as st
+import uuid as _uuid
+from collections import defaultdict as _defaultdict
+
+
+# ── Vector-based wall detection ───────────────────────────────────────────────
+
+def _is_dark_color(color: tuple) -> bool:
+    """Return True if the colour tuple (r,g,b) represents a dark stroke."""
+    if not color or len(color) < 3:
+        return True
+    r, g, b = float(color[0]), float(color[1]), float(color[2])
+    return r < 0.3 and g < 0.3 and b < 0.3
+
+
+def _walls_from_vectors(
+    vector_cache: dict,
+    scale_px_per_meter: float,
+    image_shape: Optional[dict] = None,
+) -> list:
+    """Extract wall segments from PDF vector data via Union-Find line chaining.
+
+    Extracts individual "l" (line) items from thick, dark path drawings,
+    chains co-linear endpoint-adjacent segments using Union-Find, filters
+    chains shorter than 0.5 m, and returns bbox segments in pixel space.
+
+    Args:
+        vector_cache:      dict from _build_vector_cache() — keys: drawings,
+                           page_rect, words, text_dict.
+        scale_px_per_meter: pixels per metre for length filtering.
+        image_shape:       {"width": W, "height": H} of the raster image.
+
+    Returns:
+        List of segment dicts compatible with AutoAnalyzeResponse.segments.
+        Returns [] when vector_cache is empty or no thick dark lines found.
+    """
+    if not vector_cache:
+        return []
+
+    drawings  = vector_cache.get("drawings") or []
+    page_rect = vector_cache.get("page_rect") or {}
+
+    pw = (page_rect.get("x1", 1000) - page_rect.get("x0", 0)) or 1000.0
+    ph = (page_rect.get("y1", 1000) - page_rect.get("y0", 0)) or 1000.0
+
+    img_w = (image_shape or {}).get("width",  1000)
+    img_h = (image_shape or {}).get("height", 1000)
+
+    # Scale factors: PDF points → pixels
+    sx = img_w / pw
+    sy = img_h / ph
+
+    # ── Collect raw line items from thick dark paths ──────────────────────────
+    raw_lines = []
+    for d in drawings:
+        if (d.get("width") or 0) < 0.3:
+            continue
+        if not _is_dark_color(d.get("color") or (0, 0, 0)):
+            continue
+        for item in (d.get("items") or []):
+            if not item or item[0] != "l":
+                continue
+            # item = ("l", Point, Point)
+            try:
+                p1, p2 = item[1], item[2]
+                raw_lines.append({
+                    "x1": float(p1.x), "y1": float(p1.y),
+                    "x2": float(p2.x), "y2": float(p2.y),
+                    "width": d.get("width") or 1.0,
+                })
+            except Exception:
+                continue
+
+    if len(raw_lines) < 3:
+        print(f"[_walls_from_vectors] Only {len(raw_lines)} raw lines — skipping")
+        return []
+
+    # ── Union-Find: chain segments whose endpoints are within 3 pt ───────────
+    parent = list(range(len(raw_lines)))
+
+    def _find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def _union(a: int, b: int) -> None:
+        parent[_find(a)] = _find(b)
+
+    SNAP = 3.0  # PDF points snap tolerance
+    for i in range(len(raw_lines)):
+        li = raw_lines[i]
+        for j in range(i + 1, len(raw_lines)):
+            lj = raw_lines[j]
+            for px, py in [(li["x1"], li["y1"]), (li["x2"], li["y2"])]:
+                for qx, qy in [(lj["x1"], lj["y1"]), (lj["x2"], lj["y2"])]:
+                    if abs(px - qx) < SNAP and abs(py - qy) < SNAP:
+                        _union(i, j)
+                        break
+
+    # ── Group by component and build bounding boxes in pixel space ───────────
+    groups: dict = _defaultdict(list)
+    for i, line in enumerate(raw_lines):
+        groups[_find(i)].append(line)
+
+    min_px = 0.5 * scale_px_per_meter  # 0.5 m minimum wall length in pixels
+
+    segments = []
+    for grp_lines in groups.values():
+        xs = [l["x1"] for l in grp_lines] + [l["x2"] for l in grp_lines]
+        ys = [l["y1"] for l in grp_lines] + [l["y2"] for l in grp_lines]
+        x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
+
+        # Convert to pixel space
+        bx = x0 * sx
+        by = y0 * sy
+        bw = max(1.0, (x1 - x0) * sx)
+        bh = max(1.0, (y1 - y0) * sy)
+
+        # Filter walls shorter than 0.5 m
+        if max(bw, bh) < min_px:
+            continue
+
+        # Skip obvious page-frame lines (>80 % of image dimension)
+        if bw > img_w * 0.80 or bh > img_h * 0.80:
+            continue
+
+        ratio = max(bw, bh) / max(min(bw, bh), 1)
+        is_wall = ratio >= 3.0
+        max_w = max(l["width"] for l in grp_lines)
+        subtype = "בטון" if max_w >= 1.0 else "בלוקים"
+
+        segments.append({
+            "segment_id":        f"vw_{_uuid.uuid4().hex[:8]}",
+            "element_class":     "wall" if is_wall else "fixture",
+            "bbox":              [bx, by, bw, bh],
+            "confidence":        0.85 if max_w >= 0.5 else 0.75,
+            "suggested_type":    "קירות",
+            "suggested_subtype": subtype,
+            "wall_type":         subtype if is_wall else None,
+            "label":             None,
+            "room_name":         None,
+            "area_label":        None,
+            "category_color":    None,
+            "material":          None,
+            "has_insulation":    None,
+            "fire_resistance":   None,
+            "_source":           "vector_walls",
+        })
+
+    print(f"[_walls_from_vectors] {len(segments)} wall segments from {len(raw_lines)} lines")
+    return segments
+
+
+# ── Spatial graph: text labels → room polygons ───────────────────────────────
+
+def _assign_rooms_from_text(
+    rooms_text: list,
+    vector_cache: dict,
+    wall_segs: list,
+    scale_px_per_meter: float,
+) -> list:
+    """Match room labels from text_semantics to geometric areas.
+
+    For each room in rooms_text:
+    1. Find the word position in vector_cache["words"].
+    2. Collect wall segment bboxes that surround that point within a radius.
+    3. Compute geom_area_m2 from the convex hull of surrounding wall bboxes.
+    4. Compute area_match_ratio = |geom - text| / text; flag if > 0.25.
+
+    Returns enriched room list. Stores pixel_cx, pixel_cy, geom_area_m2,
+    area_match_ratio, area_mismatch (bool) on each room dict.
+    """
+    try:
+        import cv2 as _cv2
+        import numpy as _np
+    except ImportError:
+        return rooms_text
+
+    if not rooms_text or not vector_cache:
+        return rooms_text
+
+    words_raw  = vector_cache.get("words") or []
+    page_rect  = vector_cache.get("page_rect") or {}
+    pw = (page_rect.get("x1", 1000) - page_rect.get("x0", 0)) or 1000.0
+    ph = (page_rect.get("y1", 1000) - page_rect.get("y0", 0)) or 1000.0
+
+    # word positions in PDF-point space
+    word_pts = []
+    for w in words_raw:
+        if len(w) > 4 and str(w[4]).strip():
+            word_pts.append({
+                "text": str(w[4]).strip(),
+                "cx":   (float(w[0]) + float(w[2])) / 2,
+                "cy":   (float(w[1]) + float(w[3])) / 2,
+            })
+
+    # Convert wall segment bboxes (pixel space) → PDF-point space
+    px_to_pt_x = pw / max(float(scale_px_per_meter), 1)
+    px_to_pt_y = ph / max(float(scale_px_per_meter), 1)
+
+    def _bbox_of(seg):
+        """Extract bbox list [x,y,w,h] from dict or object."""
+        if isinstance(seg, dict):
+            return seg.get("bbox")
+        return getattr(seg, "bbox", None)
+
+    enriched  = []
+    mismatches = 0
+
+    for room in rooms_text:
+        room_copy  = dict(room)
+        name       = room.get("name", "")
+        text_area  = float(room.get("area_m2") or 0)
+
+        # ── Find word position ────────────────────────────────────────────────
+        tokens = [t for t in name.split() if len(t) > 2]
+        best_pos = None
+        for wp in word_pts:
+            if any(tok in wp["text"] or wp["text"] in tok for tok in tokens):
+                best_pos = wp
+                break
+
+        if best_pos:
+            room_copy["pixel_cx"] = best_pos["cx"]
+            room_copy["pixel_cy"] = best_pos["cy"]
+
+        # ── Collect surrounding wall bboxes ───────────────────────────────────
+        if best_pos and wall_segs:
+            cx_pt = best_pos["cx"]
+            cy_pt = best_pos["cy"]
+            radius = pw * 0.35  # 35 % of page width as search radius
+
+            near_bboxes = []
+            for seg in wall_segs:
+                bb = _bbox_of(seg)
+                if not bb or len(bb) < 4:
+                    continue
+                bx_pt = bb[0] * px_to_pt_x
+                by_pt = bb[1] * px_to_pt_y
+                if abs(bx_pt - cx_pt) < radius and abs(by_pt - cy_pt) < radius:
+                    near_bboxes.append(bb)
+
+            if near_bboxes:
+                all_pts = _np.array(
+                    [[b[0], b[1]] for b in near_bboxes] +
+                    [[b[0]+b[2], b[1]+b[3]] for b in near_bboxes],
+                    dtype=_np.float32,
+                )
+                hull   = _cv2.convexHull(all_pts)
+                area_px2 = float(_cv2.contourArea(hull))
+                geom_m2  = round(area_px2 / max(scale_px_per_meter ** 2, 1), 2)
+                room_copy["geom_area_m2"] = geom_m2
+
+                if text_area > 0:
+                    ratio = abs(geom_m2 - text_area) / text_area
+                    room_copy["area_match_ratio"] = round(ratio, 3)
+                    room_copy["area_mismatch"]    = ratio > 0.25
+                    if ratio > 0.25:
+                        mismatches += 1
+
+        enriched.append(room_copy)
+
+    avg = mismatches / max(len(enriched), 1)
+    print(f"[_assign_rooms_from_text] {len(enriched)} rooms, {mismatches} mismatches "
+          f"(avg_mismatch_rate={avg:.2f})")
+    return enriched
+
+
+# ── Confidence & Self-Validation Engine ──────────────────────────────────────
+
+def _dist(x1: float, y1: float, x2: float, y2: float) -> float:
+    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+
+
+def _validate_segments(
+    segments: list,
+    rooms: list,
+    walls: list,
+    scale_px_per_meter: float,
+) -> list:
+    """Run validation rules on each segment and set confidence, flags,
+    review_status.
+
+    Rules:
+    - area_match:     room geom_area vs text_area within 25 %
+    - door_near_wall: fixture centre within 50 px of any wall centre
+    - min_wall_length: wall length_m >= 0.3 m
+
+    Confidence is multiplied by 0.95 when all applicable rules pass,
+    reduced by 0.70 per failed rule (floor 0.10).
+    review_status: "auto" >= 0.85, "medium" 0.60-0.85, "review" < 0.60 or flags.
+    """
+    def _cx(seg):
+        bb = seg.get("bbox") if isinstance(seg, dict) else getattr(seg, "bbox", None)
+        if bb and len(bb) >= 4:
+            return bb[0] + bb[2] / 2
+        return 0.0
+
+    def _cy(seg):
+        bb = seg.get("bbox") if isinstance(seg, dict) else getattr(seg, "bbox", None)
+        if bb and len(bb) >= 4:
+            return bb[1] + bb[3] / 2
+        return 0.0
+
+    def _get(seg, key, default=None):
+        if isinstance(seg, dict):
+            return seg.get(key, default)
+        return getattr(seg, key, default)
+
+    def _set(seg, key, val):
+        if isinstance(seg, dict):
+            seg[key] = val
+        else:
+            setattr(seg, key, val)
+
+    wall_centres = [(_cx(w), _cy(w)) for w in walls]
+
+    out = []
+    for seg in segments:
+        conf    = float(_get(seg, "confidence", 0.75))
+        flags   = []
+        ec      = _get(seg, "element_class", "")
+        lm      = float(_get(seg, "length_m",  0.0) or 0)
+
+        # Rule: min_wall_length
+        if ec == "wall" and lm < 0.3:
+            flags.append("min_wall_length")
+            conf *= 0.70
+
+        # Rule: door_near_wall (fixture should be near a wall)
+        if ec == "fixture" and wall_centres:
+            fcx, fcy = _cx(seg), _cy(seg)
+            if not any(_dist(fcx, fcy, wx, wy) < 50 for wx, wy in wall_centres):
+                flags.append("door_near_wall")
+                conf *= 0.70
+
+        # Rule: area_match for room segments
+        if ec == "room":
+            geom  = float(_get(seg, "area_m2", 0) or 0)
+            label = _get(seg, "area_label", "") or ""
+            # Try to extract text_area from area_label "12.5 מ״ר"
+            import re as _re
+            m = _re.search(r'(\d+\.?\d*)', label)
+            if m and geom > 0:
+                text_a = float(m.group(1))
+                if text_a > 0 and abs(geom - text_a) / text_a > 0.25:
+                    flags.append("area_match")
+                    conf *= 0.70
+
+        if not flags:
+            conf = min(conf * 1.05, 1.0)   # tiny boost when clean
+
+        conf = max(0.10, min(conf, 1.0))
+
+        if conf >= 0.85 and not flags:
+            status = "auto"
+        elif conf >= 0.60:
+            status = "medium"
+        else:
+            status = "review"
+
+        _set(seg, "confidence", round(conf, 3))
+        _set(seg, "flags", flags)
+        _set(seg, "review_status", status)
+        out.append(seg)
+
+    auto_n   = sum(1 for s in out if _get(s, "review_status") == "auto")
+    medium_n = sum(1 for s in out if _get(s, "review_status") == "medium")
+    review_n = sum(1 for s in out if _get(s, "review_status") == "review")
+    print(f"[_validate_segments] Segments: {auto_n} auto / {medium_n} medium / {review_n} review")
+    return out
 
 
 def get_anthropic_client():

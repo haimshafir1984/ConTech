@@ -400,3 +400,133 @@ OPENAI_API_KEY=...         # אופציונלי — GPT-4o Vision supplement
 ```
 
 `OPENAI_API_KEY` — אם לא קיים, ה-supplement פשוט לא רץ (ללא שגיאה).
+
+---
+
+## 🔬 שיטת הזיהוי האוטומטי — הסבר מלא
+
+> נכתב במרץ 2026 לצורך הבנת הצינור ומחשבה על גישות שיפור.
+
+### שלב 0 — העלאת PDF ויצירת תמונה
+
+`FloorPlanAnalyzer.pdf_to_image()` ממיר את ה-PDF לתמונה BGR באמצעות PyMuPDF (fitz).
+הסקייל מחושב כך שהצלע הארוכה לא תעלה על **2000px** (מכפיל מקסימלי 2.0).
+תוצאה: תמונה אחת flatten — **כל מידע וקטורי (קווים, צבעים, רוחב שבץ) אובד** ברגע הזה.
+
+---
+
+### שלב 1 — בניית מסכות ב-FloorPlanAnalyzer (בזמן upload)
+
+המנתח מריץ **4 passes** על גרסת grayscale:
+
+**Pass 1 — טקסט ברור:** מוצא אובייקטים קטנים (area < 800px), מאורכים, density גבוהה → `text_mask`.
+
+**Pass 2 — סמלים וכותרות:** OTSU + adaptive threshold → `MORPH_OPEN` (3×3, 2 iter) + (4×4, 2 iter) להסרת קווים דקים → מחפש רכיבים מוארכים דקים → `symbols_mask`.
+
+**Pass 3 — מספרי חדרים:** מוצא אזורים סגורים על ידי דילציה + NOT → מחפש מספרים קטנים בתוכם → `room_numbers_mask`.
+
+**Pass 4 — קירות עבים (thick_walls):** בכל 4 המקומות:
+```python
+OTSU + adaptive threshold → binary
+MORPH_OPEN (ellipse 3×3, 2 iter)  # ניקוי רעש
+MORPH_OPEN (rect 4×4, 2 iter)     # מחיקת קווים דקים, שמירת קירות עבים
+```
+ואז מחסיר `text_mask + symbols_mask + room_numbers_mask` → `thick_walls`.
+
+גם מחשב: `skeleton` (morphological thinning), `concrete_mask` ו-`blocks_mask` (לפי HSV color).
+
+**⚠️ הנחת יסוד שבורה:** הלוגיקה כולה מניחה תוכנית שחור-על-לבן עם קירות עבים שחורים.
+תוכנית MEP צבעונית (כמו תוכנית תקרה) — אין בה "קירות עבים שחורים", ה-thick_walls יוצא ריק.
+
+---
+
+### שלב 2 — ניסיון וקטורי (בזמן לחיצת "נתח")
+
+```
+proj.get("pdf_bytes") → בדרך כלל None
+```
+ה-pdf_bytes נשמר ב-`tmp_pdf_bytes` (משתנה מקומי בפונקציה) ולא ב-`PROJECTS[plan_id]`.
+לכן `len(pdf_bytes) > 1000` נכשל — קפיצה ישירה ל-OpenCV fallback.
+
+**תיקון פשוט:** בזמן upload, הוסף `proj["pdf_bytes"] = _raw_pdf_bytes`.
+
+גם אם ה-bytes היו מגיעים: `_vector_extract` מחפש paths עם `stroke_width >= 0.28pt` — לא בטוח שהתוכנה שיצרה את ה-PDF (Revit/ArchiCAD) מייצאת paths כאלה.
+
+---
+
+### שלב 3 — OpenCV Fallback (ה-detection הראשי)
+
+**3a — זיהוי ROI:** סורק צפיפות עמודות/שורות עם `FRAME_THRESHOLD = 0.25`.
+מנסה לזהות title block בצד שמאל (density 0.03–0.20). עם thick_walls ריק — ROI ייכשל.
+
+**3b — Skeleton:** קודם מנסה להשתמש ב-`proj["skeleton"]` המחושב בעלאה.
+אם לא קיים — מחשב מחדש ב-**¼ רזולוציה** (לחיסכון בזיכרון).
+תוכנית 2000px → skeleton על 500px → קירות 7-10px → ב-¼ = 2-3px → skeleton לא עובד.
+
+```python
+# Morphological thinning (ב-_skeletonize):
+element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3))
+while True:
+    eroded = cv2.erode(binary, element)
+    temp = cv2.dilate(eroded, element)
+    temp = cv2.subtract(binary, temp)
+    skeleton = cv2.bitwise_or(skeleton, temp)
+    binary = eroded.copy()
+    if cv2.countNonZero(binary) == 0: break
+```
+
+**3c — חיתוך ב-branch points:** pixel עם ≥4 שכנים (כולל עצמו) = צומת → נמחק.
+כל "זרוע" בין שני צמתים = connected component נפרד.
+
+**3d — Connected Components + סיווג:**
+עבור כל label:
+- `skel_area >= 5` (לפחות 5px)
+- מרחיב skeleton חזרה בדילציה (`half_thick = scale * 0.10`) AND עם thick_walls → `region_roi`
+- מסנן לפי מרכז מחוץ ל-ROI
+- `aspect = bw/bh`, `is_elongated = aspect > 3 or < 0.33`
+- `length_area_ratio = length_m / area_m2`
+- **wall vs fixture:** fixture = לא מוארך + ratio < 4.0 + area < 1.5m²
+- **fixture subtype** (לפי area_m2 + aspect): פרט קטן / כיור-אסלה / אמבטיה-מקלחת / ריהוט
+- **wall type** (לפי מרחק מקצה + אורך): exterior / interior / partition
+- **חומר** (לפי overlap עם concrete/blocks masks)
+
+**3e — Hough Lines gate:** אם < 5 קירות → `HoughLinesP` על התמונה המקורית, `min_line_len = scale * 1.5m`, מקסימום 30 segments.
+
+**3f — Step 5b fixture fallback:** אם 0 fixtures → thresholding כהה-על-בהיר, מסיר אזור קירות, מחפש compact shapes (aspect 0.25–4.0, area 0.08–2.5 m²).
+
+---
+
+### סיכום מבנה הצינור
+
+```
+PDF upload
+  └─ pdf_to_image (fitz, max 2000px)
+  └─ FloorPlanAnalyzer.process_file()
+        ├─ Pass 1-3: text/symbols/room_numbers masks
+        ├─ Pass 4: thick_walls (OTSU + adaptive + morph×2)
+        ├─ skeleton (morphological thinning)
+        └─ concrete_mask, blocks_mask (HSV color)
+
+"נתח תוכנית"
+  ├─ Vector (PyMuPDF drawings) → ❌ pdf_bytes=None → skip
+  └─ OpenCV fallback:
+        ├─ ROI detection (density-based)
+        ├─ skeleton (מאחסון או ¼ רזולוציה)
+        ├─ branch-point cut → connected components
+        ├─ bbox + aspect + area → wall/fixture classification
+        ├─ material: concrete/blocks mask overlap
+        ├─ Hough Lines gate (if < 5 walls)
+        └─ Step 5b: compact shapes from original image
+```
+
+---
+
+### נקודות תורפה — גישות שיפור אפשריות
+
+| גישה | תיאור | קושי |
+|------|--------|------|
+| **תיקון pdf_bytes** | שמור `proj["pdf_bytes"] = _raw_pdf_bytes` בעלאה | LOW — bug fix פשוט |
+| **Claude Vision ישירות** | שלח תמונת PDF ל-Claude עם פרומפט "list walls/fixtures as JSON with bounding boxes" | MEDIUM |
+| **HSV segmentation** | פלח לפי צבע (כחול=חשמל, אדום=אינסטלציה) — מתאים לתוכניות MEP | MEDIUM |
+| **OCR מקרא + template matching** | מחלץ סמלי מקרא → template matching על כל התוכנית | HIGH |
+| **רזולוציה גבוהה יותר** | `target_max_dim=4000` במקום 2000 — מכפיל רוחב קירות | LOW |

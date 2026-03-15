@@ -203,20 +203,7 @@ def _build_vector_cache(pdf_bytes: bytes) -> Optional[dict]:
         return None
 
 
-from contextlib import asynccontextmanager
-
-@asynccontextmanager
-async def _lifespan(application):
-    """Run DB init in a background thread so /health can respond immediately."""
-    import asyncio
-    loop = asyncio.get_event_loop()
-    try:
-        await loop.run_in_executor(None, init_database)
-    except Exception as _db_err:
-        print(f"[startup] init_database failed (non-fatal): {_db_err}")
-    yield  # server is now running
-
-app = FastAPI(title="ConTech Analyzer API", version="1.0.0", lifespan=_lifespan)
+app = FastAPI(title="ConTech Analyzer API", version="1.0.0")
 
 # Thread pool for CPU-bound / blocking-IO work (keeps event loop free for /health)
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="contech-worker")
@@ -239,7 +226,11 @@ DEFAULT_UNIT_PRICES: Dict[str, float] = {
     "ריצוף/חיפוי": 250.0,
 }
 
-# CORS  (init_database now called via lifespan above) — מאפשר לפרונטאנד לתקשר עם הבאקאנד
+# DB init runs in a background thread — does NOT block uvicorn startup or /health
+import threading as _threading
+_threading.Thread(target=init_database, daemon=True, name="db-init").start()
+
+# CORS — מאפשר לפרונטאנד לתקשר עם הבאקאנד
 # ניתן להגדיר ALLOWED_ORIGINS כמשתנה סביבה ב-Render (מופרד בפסיקים)
 _cors_env = os.environ.get("ALLOWED_ORIGINS", "")
 _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
@@ -478,14 +469,24 @@ def _decode_gray(data: bytes) -> Optional[np.ndarray]:
     return cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
 
 
-def _ensure_arrays_loaded(proj: Dict) -> None:
+def _ensure_arrays_loaded(proj_or_plan_id, proj: Dict = None) -> None:  # type: ignore[assignment]
     """
     אם proj נטען מה-DB (אחרי restart), מנסה לטעון מחדש את ה-numpy arrays.
     סדר עדיפויות:
       1. דיסק (נתיב שנשמר ב-metadata) — מהיר, עובד בסביבה מקומית
       2. DB BLOB (img_original / img_thick_walls) — שרידות בין restarts ב-Render
     מעדכן את proj in-place.
+    קבלת פרמטרים:
+      _ensure_arrays_loaded(proj)            — פורמט ישן
+      _ensure_arrays_loaded(plan_id, proj)   — פורמט חדש עם plan_id כ-fallback
     """
+    if proj is None:
+        # ישן: _ensure_arrays_loaded(proj)
+        proj = proj_or_plan_id
+        _extra_fallback_key = ""
+    else:
+        # חדש: _ensure_arrays_loaded(plan_id, proj)
+        _extra_fallback_key = str(proj_or_plan_id) if proj_or_plan_id else ""
     meta = proj.get("metadata", {})
 
     def _load_color_disk(key: str):
@@ -544,7 +545,8 @@ def _ensure_arrays_loaded(proj: Dict) -> None:
         proj.get("blocks_mask") is None
     )
     if _needs_blob:
-        filename = meta.get("filename") or meta.get("plan_id", "")
+        filename = (meta.get("filename") or meta.get("plan_id") or
+                    _extra_fallback_key or "")
         if filename:
             try:
                 (orig_bytes, walls_bytes, flooring_bytes,
@@ -2870,7 +2872,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
     """
     try:
         proj = _get_project_or_404(plan_id)
-        _ensure_arrays_loaded(proj)
+        _ensure_arrays_loaded(plan_id, proj)
         scale_px_per_meter = float(get_scale_with_fallback(proj, default_scale=200.0))
 
         # ── חילוץ סמנטיקה טקסטואלית מה-vector cache ──────────────────────────
@@ -3765,9 +3767,11 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         except Exception as _dsa_err:
             print(f"[DB] db_save_auto_segments failed: {_dsa_err}")
 
+        _legend_out = proj.get("legend_items") or []
         return AutoAnalyzeResponse(
             segments=all_segments,
             vision_data=vision_data,
+            legend_items=_legend_out if len(_legend_out) >= 2 else None,
         )
 
     except HTTPException:

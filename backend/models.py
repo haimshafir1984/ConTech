@@ -1,6 +1,6 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class PaperSizeInfo(BaseModel):
@@ -117,6 +117,8 @@ class WorkSectionCreateRequest(BaseModel):
 
 # ── Auto-analyze response ──────────────────────────────────────────────────
 class AutoAnalyzeSegment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     segment_id: str
     label: str            # "קיר צפוני", "כיור", …
     suggested_type: str   # "קירות" / "אביזר" / "לא ידוע"
@@ -124,7 +126,7 @@ class AutoAnalyzeSegment(BaseModel):
     confidence: float     # 0.0 – 1.0
     length_m: float
     area_m2: float
-    bbox: list[float]     # [x, y, w, h] natural coords
+    bbox: List[float]     # [x, y, w, h] natural coords
     element_class: str = "wall"  # "wall" | "fixture" | "room"
     # שדות עשירים
     wall_type: str = "interior"
@@ -134,6 +136,9 @@ class AutoAnalyzeSegment(BaseModel):
     room_name: Optional[str] = None
     area_label: Optional[str] = None
     category_color: Optional[str] = None
+    # Phase 2: confidence engine fields
+    review_status: Optional[str] = None   # "auto" | "medium" | "review"
+    flags: Optional[List[str]] = None
 
 
 class PlanningState(BaseModel):
@@ -218,8 +223,9 @@ class AutoAnalyzeVisionData(BaseModel):
 
 
 class AutoAnalyzeResponse(BaseModel):
-    segments: list[AutoAnalyzeSegment]
+    segments: List[AutoAnalyzeSegment]
     vision_data: Optional[AutoAnalyzeVisionData] = None
+    legend_items: Optional[List[dict]] = None
 
 
 class ConfirmAutoSegmentRequest(BaseModel):

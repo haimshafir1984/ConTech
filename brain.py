@@ -147,6 +147,11 @@ def _walls_from_vectors(
         max_w = max(l["width"] for l in grp_lines)
         subtype = "בטון" if max_w >= 1.0 else "בלוקים"
 
+        # Compute length_m and area_m2 (required by AutoAnalyzeSegment)
+        length_px = max(bw, bh)
+        length_m = round(length_px / max(scale_px_per_meter, 1.0), 3)
+        area_m2 = round((bw * bh) / max(scale_px_per_meter ** 2, 1.0), 4)
+
         segments.append({
             "segment_id":        f"vw_{_uuid.uuid4().hex[:8]}",
             "element_class":     "wall" if is_wall else "fixture",
@@ -154,15 +159,16 @@ def _walls_from_vectors(
             "confidence":        0.85 if max_w >= 0.5 else 0.75,
             "suggested_type":    "קירות",
             "suggested_subtype": subtype,
-            "wall_type":         subtype if is_wall else None,
-            "label":             None,
+            "wall_type":         subtype if is_wall else "interior",
+            "label":             subtype,
+            "length_m":          length_m,
+            "area_m2":           area_m2,
+            "material":          "לא_ידוע",
+            "has_insulation":    False,
+            "fire_resistance":   None,
             "room_name":         None,
             "area_label":        None,
             "category_color":    None,
-            "material":          None,
-            "has_insulation":    None,
-            "fire_resistance":   None,
-            "_source":           "vector_walls",
         })
 
     print(f"[_walls_from_vectors] {len(segments)} wall segments from {len(raw_lines)} lines")

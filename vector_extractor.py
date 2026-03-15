@@ -114,6 +114,9 @@ def _drawing_to_segment(
     elif not is_wall:
         conf = 0.70
 
+    length_m = round(max(width_m, height_m), 3)
+    area_m2  = round(width_m * height_m, 4)
+
     return {
         "segment_id":        f"vec_{seg_idx:04d}_{uuid.uuid4().hex[:6]}",
         "element_class":     element_class,
@@ -121,17 +124,16 @@ def _drawing_to_segment(
         "confidence":        conf,
         "suggested_type":    stype,
         "suggested_subtype": ssubtype,
-        "wall_type":         ssubtype if element_class == "wall" else None,
-        "label":             None,
+        "wall_type":         ssubtype if element_class == "wall" else "interior",
+        "label":             ssubtype,
+        "length_m":          length_m,
+        "area_m2":           area_m2,
+        "material":          "לא_ידוע",
+        "has_insulation":    False,
+        "fire_resistance":   None,
         "room_name":         None,
         "area_label":        None,
         "category_color":    None,
-        "material":          None,
-        "has_insulation":    None,
-        "fire_resistance":   None,
-        "_source":           "vector",
-        "_stroke_width":     stroke_w,
-        "_color":            list(color[:3]) if color else [0, 0, 0],
     }
 
 

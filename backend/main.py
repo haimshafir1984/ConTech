@@ -167,6 +167,15 @@ def _safe_json_dumps(obj, **kwargs) -> str:
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+# ── Vector PDF extractor + Legend parser (optional, graceful fallback) ────────
+try:
+    from vector_extractor import extract_from_pdf as _vector_extract
+    from legend_parser    import parse_legend, apply_legend_to_segments
+    _VECTOR_AVAILABLE = True
+except ImportError as _ve:
+    print(f"[main] vector modules not available: {_ve}")
+    _VECTOR_AVAILABLE = False
+
 app = FastAPI(title="ConTech Analyzer API", version="1.0.0")
 
 # Thread pool for CPU-bound / blocking-IO work (keeps event loop free for /health)
@@ -1759,11 +1768,18 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
     - מחזיר PlanDetail לתצוגה בצד React
     """
     suffix = ".pdf"
+    _raw_pdf_bytes = await file.read()
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
+        tmp.write(_raw_pdf_bytes)
         tmp_path = tmp.name
 
     filename = file.filename or os.path.basename(tmp_path)
+
+    # שמור PDF bytes לשימוש מאוחר יותר על ידי vector extractor
+    try:
+        tmp_pdf_bytes = _raw_pdf_bytes
+    except Exception:
+        tmp_pdf_bytes = b""
 
     try:
         loop = asyncio.get_event_loop()
@@ -1950,6 +1966,7 @@ async def manager_upload_plan(file: UploadFile = File(...)) -> PlanDetail:
             "llm_suggestions": llm_data,
             "assets": assets,
             "image_shape": {"width": int(image_proc.shape[1]), "height": int(image_proc.shape[0])},
+            "pdf_bytes": tmp_pdf_bytes,
             "planning": {
                 "categories": {},
                 "items": [],
@@ -2756,6 +2773,52 @@ def _is_page_frame(seg, image_w: float, image_h: float) -> bool:
     return False
 
 
+def _apply_auto_categories(proj: dict, segments: list) -> None:
+    """מוסיף קטגוריות אוטומטיות ל-planning.categories לפי מה שנמצא."""
+    planning = proj.setdefault("planning", {})
+    cats     = planning.setdefault("categories", {})
+
+    AUTO_BASE = [
+        ("wall_concrete", "קירות",            "בטון",    2.6, "#1D4ED8"),
+        ("wall_blocks",   "קירות",            "בלוקים",  2.4, "#059669"),
+        ("wall_gypsum",   "קירות",            "גבס",     1.0, "#D97706"),
+        ("fix_sanitary",  "כלים סניטריים",   "כיור",    1.0, "#0EA5E9"),
+        ("fix_stairs",    "פרטים",            "מדרגות",  1.0, "#F59E0B"),
+    ]
+    for key, ctype, csubtype, param, color in AUTO_BASE:
+        existing = next(
+            (k for k, v in cats.items() if v.get("type") == ctype and v.get("subtype") == csubtype),
+            None,
+        )
+        if not existing:
+            cats[key] = {
+                "type":        ctype,
+                "subtype":     csubtype,
+                "param_value": param,
+                "param_note":  "",
+                "color":       color,
+            }
+
+    for seg in segments:
+        stype    = seg.get("suggested_type",    "") or ""
+        ssubtype = seg.get("suggested_subtype", "") or ""
+        if not stype or not ssubtype or ssubtype == "פרט קטן":
+            continue
+        already = any(
+            v.get("type") == stype and v.get("subtype") == ssubtype
+            for v in cats.values()
+        )
+        if not already:
+            cat_key = f"auto_{stype[:3]}_{ssubtype[:4]}_{len(cats)}"
+            cats[cat_key] = {
+                "type":        stype,
+                "subtype":     ssubtype,
+                "param_value": 2.6 if stype == "קירות" else 1.0,
+                "param_note":  "",
+                "color":       "#334155",
+            }
+
+
 # ── Auto-analyze endpoint ──────────────────────────────────────────────────
 @app.post("/manager/planning/{plan_id}/auto-analyze", response_model=AutoAnalyzeResponse)
 async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
@@ -2770,6 +2833,59 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
         proj = _get_project_or_404(plan_id)
         _ensure_arrays_loaded(proj)
         scale_px_per_meter = float(get_scale_with_fallback(proj, default_scale=200.0))
+
+        # ── ניסיון ראשון: מחלץ PDF וקטורי ────────────────────────────────────
+        if _VECTOR_AVAILABLE:
+            pdf_bytes = proj.get("pdf_bytes") or b""
+            if len(pdf_bytes) > 1000:
+                try:
+                    img_shape   = proj.get("image_shape") or {"width": 1000, "height": 1000}
+                    vector_segs = _vector_extract(pdf_bytes, scale_px_per_meter, img_shape)
+
+                    if len(vector_segs) >= 5:
+                        # פעל על מקרא אם קיים
+                        try:
+                            legend = parse_legend(pdf_bytes)
+                            if legend:
+                                vector_segs = apply_legend_to_segments(vector_segs, legend)
+                        except Exception as _le:
+                            print(f"[auto-analyze] legend parse failed: {_le}")
+
+                        # שמור ל-DB + planning
+                        try:
+                            db_save_auto_segments(plan_id, vector_segs)
+                        except Exception as _dsa:
+                            print(f"[auto-analyze] db_save_auto_segments failed: {_dsa}")
+
+                        _init_planning_if_missing(proj)
+                        proj["planning"]["auto_segments"] = vector_segs
+                        _apply_auto_categories(proj, vector_segs)
+                        _persist_plan_to_database(plan_id, proj)
+
+                        def _build_vision_data_early(p):
+                            m = p.get("metadata") or {}
+                            try:
+                                from .models import AutoAnalyzeVisionData
+                                return AutoAnalyzeVisionData(
+                                    rooms=m.get("llm_rooms"),
+                                    materials=m.get("vision_materials"),
+                                    plan_title=m.get("plan_title"),
+                                )
+                            except Exception:
+                                return None
+
+                        print(f"[auto-analyze] Vector mode: {len(vector_segs)} segments")
+                        return AutoAnalyzeResponse(
+                            segments=vector_segs,
+                            vision_data=_build_vision_data_early(proj),
+                        )
+                    else:
+                        print(f"[auto-analyze] Vector yielded only {len(vector_segs)} segs — fallback to OpenCV")
+
+                except Exception as _vec_err:
+                    print(f"[auto-analyze] Vector extraction error: {_vec_err} — fallback to OpenCV")
+
+        # ── fallback: אלגוריתם OpenCV הקיים ──────────────────────────────────
 
         # ── Build vision_data early so ALL return paths include it ────────────
         def _build_vision_data(p: Dict) -> Optional[AutoAnalyzeVisionData]:

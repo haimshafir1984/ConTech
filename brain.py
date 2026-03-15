@@ -70,7 +70,7 @@ def _walls_from_vectors(
     # ── Collect raw line items from thick dark paths ──────────────────────────
     raw_lines = []
     for d in drawings:
-        if (d.get("width") or 0) < 0.3:
+        if (d.get("width") or 0) < 1.0:   # קירות בלבד — מסנן מידות/האצ'ינג
             continue
         if not _is_dark_color(d.get("color") or (0, 0, 0)):
             continue
@@ -120,7 +120,7 @@ def _walls_from_vectors(
     for i, line in enumerate(raw_lines):
         groups[_find(i)].append(line)
 
-    min_px = 0.5 * scale_px_per_meter  # 0.5 m minimum wall length in pixels
+    min_px = 0.8 * scale_px_per_meter  # 0.8 m minimum wall length in pixels
 
     segments = []
     for grp_lines in groups.values():
@@ -134,8 +134,13 @@ def _walls_from_vectors(
         bw = max(1.0, (x1 - x0) * sx)
         bh = max(1.0, (y1 - y0) * sy)
 
-        # Filter walls shorter than 0.5 m
+        # Filter walls shorter than 0.8 m
         if max(bw, bh) < min_px:
+            continue
+
+        # Additional: filter groups whose bbox is too small (< 0.8 m in longest dimension)
+        length_check = max(bw, bh) / max(scale_px_per_meter, 1.0)
+        if length_check < 0.8:
             continue
 
         # Skip obvious page-frame lines (>80 % of image dimension)

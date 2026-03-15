@@ -878,6 +878,7 @@ export const PlanningPage: React.FC = () => {
   const [autoApproveToast, setAutoApproveToast] = React.useState<string | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = React.useState<string | null>(null);
   const [showPendingOnly, setShowPendingOnly] = React.useState(true);
+  const [showLowConfOnly, setShowLowConfOnly] = React.useState<boolean>(false);
   const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number; segId: string } | null>(null);
   const [popoverType, setPopoverType] = React.useState<string>("");
   const [popoverSubtype, setPopoverSubtype] = React.useState<string>("");
@@ -1718,6 +1719,48 @@ export const PlanningPage: React.FC = () => {
     }
   };
 
+  // ── Approve all pending segments (regardless of confidence) ──
+  const handleApproveAll = React.useCallback(async () => {
+    if (!selectedPlanId || !autoSegments || !planningState) return;
+    const prevCount = Object.keys(autoConfirmedKeys).length;
+    const pending = autoSegments.filter(s => !autoConfirmedKeys[s.segment_id]);
+    if (pending.length === 0) {
+      setAutoApproveToast("אין פריטים ממתינים לאישור");
+      setTimeout(() => setAutoApproveToast(null), 3000);
+      return;
+    }
+    setLoading(true);
+    try {
+      const newConfirmedKeys: Record<string, string> = { ...autoConfirmedKeys };
+      let lastState = planningState;
+      for (const seg of pending) {
+        const match = Object.values(planningState.categories).find(
+          c => c.type === seg.suggested_type && c.subtype === seg.suggested_subtype,
+        );
+        const catKey = match?.key ?? (seg.element_class === "wall" ? "wall_interior" : "fixture_general");
+        try {
+          const { data } = await apiClient.post<PlanningState>(
+            `/manager/planning/${encodeURIComponent(selectedPlanId)}/confirm-auto-segment`,
+            { segment_id: seg.segment_id, category_key: catKey, bbox: seg.bbox },
+          );
+          lastState = data;
+          newConfirmedKeys[seg.segment_id] = catKey;
+        } catch { continue; }
+      }
+      setPlanningState(lastState);
+      setAutoConfirmedKeys(newConfirmedKeys);
+      const confirmedCount = Object.keys(newConfirmedKeys).length - prevCount;
+      setAutoApproveToast(`✅ אושרו ${confirmedCount} פריטים אוטומטית`);
+      setTimeout(() => setAutoApproveToast(null), 4000);
+      setError("");
+    } catch (e) {
+      const detail = axios.isAxiosError(e) ? (e.response?.data?.detail as string | undefined) || e.message : String(e);
+      setError(`שגיאה באישור הכל: ${detail}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [autoSegments, autoConfirmedKeys, planningState, selectedPlanId]);
+
   const handleDeleteSegment = async (segId: string) => {
     if (!selectedPlanId) return;
     try {
@@ -1917,6 +1960,31 @@ export const PlanningPage: React.FC = () => {
     }
     return Array.from(map.values()).sort((a, b) => a.cat.type.localeCompare(b.cat.type));
   }, [planningState]);
+
+  // ── Category summary for auto segments ──
+  const segmentSummary = React.useMemo(() => {
+    const groups: Record<string, { count: number; confirmed: number; color: string; label: string }> = {};
+    for (const s of (autoSegments ?? [])) {
+      const key = s.element_class === "wall"
+        ? (s.suggested_subtype || "קיר")
+        : (s.suggested_subtype || "אביזר");
+      if (!groups[key]) {
+        groups[key] = {
+          count: 0, confirmed: 0,
+          color: s.element_class === "wall" ? "#2563EB" : "#0EA5E9",
+          label: key,
+        };
+      }
+      groups[key].count++;
+      if (autoConfirmedKeys[s.segment_id]) groups[key].confirmed++;
+    }
+    return Object.values(groups).sort((a, b) => b.count - a.count);
+  }, [autoSegments, autoConfirmedKeys]);
+
+  const lowConfSegments = React.useMemo(
+    () => (autoSegments ?? []).filter(s => (s.confidence ?? 1) < 0.70 && !autoConfirmedKeys[s.segment_id]),
+    [autoSegments, autoConfirmedKeys],
+  );
 
   const activeColor = "#10B981";
 
@@ -2923,37 +2991,106 @@ export const PlanningPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Status summary strip */}
-              {autoSegments !== null && autoSegments.length > 0 && (() => {
-                const autoCount   = autoSegments.filter(s => s.review_status === "auto").length;
-                const mediumCount = autoSegments.filter(s => s.review_status === "medium").length;
-                const reviewCount = autoSegments.filter(s => s.review_status === "review").length;
-                return (
-                  <div style={{ display: "flex", gap: 8, marginBottom: 10, flexShrink: 0, padding: "0 12px" }}>
-                    <div style={{
-                      flex: 1, background: "#f0fdf4", border: "1px solid #bbf7d0",
-                      borderRadius: 6, padding: "6px 8px", textAlign: "center",
-                    }}>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: "#16a34a" }}>{autoCount}</div>
-                      <div style={{ fontSize: 10, color: "#15803d" }}>אוטומטי</div>
-                    </div>
-                    <div style={{
-                      flex: 1, background: "#fffbeb", border: "1px solid #fde68a",
-                      borderRadius: 6, padding: "6px 8px", textAlign: "center",
-                    }}>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: "#d97706" }}>{mediumCount}</div>
-                      <div style={{ fontSize: 10, color: "#b45309" }}>בינוני</div>
-                    </div>
-                    <div style={{
-                      flex: 1, background: "#fef2f2", border: "1px solid #fecaca",
-                      borderRadius: 6, padding: "6px 8px", textAlign: "center",
-                    }}>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: "#dc2626" }}>{reviewCount}</div>
-                      <div style={{ fontSize: 10, color: "#b91c1c" }}>לבדיקה</div>
-                    </div>
+              {/* ── Approve all bar ── */}
+              {autoSegments !== null && autoSegments.length > 0 && (
+                <div style={{
+                  padding: "12px 14px",
+                  background: "var(--blue-50)",
+                  borderBottom: "1px solid var(--blue-100)",
+                  display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
+                  flexShrink: 0,
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => void handleApproveAll()}
+                    disabled={loading || autoSegments.filter(s => !autoConfirmedKeys[s.segment_id]).length === 0}
+                    style={{
+                      flex: 1, minWidth: 140,
+                      padding: "8px 14px",
+                      background: "var(--blue)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "var(--r-sm)",
+                      fontWeight: 700,
+                      fontSize: 14,
+                      cursor: loading ? "not-allowed" : "pointer",
+                      opacity: loading || autoSegments.filter(s => !autoConfirmedKeys[s.segment_id]).length === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    ✅ אשר הכל ({autoSegments.filter(s => !autoConfirmedKeys[s.segment_id]).length} ממתינים)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowLowConfOnly(v => !v)}
+                    style={{
+                      padding: "7px 12px",
+                      background: showLowConfOnly ? "var(--amber-light)" : "#fff",
+                      border: "1px solid var(--s200)",
+                      borderRadius: "var(--r-sm)",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ⚠ בדוק {lowConfSegments.length} לא-בטוחים
+                  </button>
+                </div>
+              )}
+
+              {/* ── Segment summary by category ── */}
+              {autoSegments !== null && segmentSummary.length > 0 && (
+                <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--s100)", flexShrink: 0 }}>
+                  <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8 }}>
+                    סה"כ {autoSegments.length} פריטים &bull; {Object.keys(autoConfirmedKeys).length} אושרו
                   </div>
-                );
-              })()}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {segmentSummary.map(grp => (
+                      <div key={grp.label} style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "6px 10px",
+                        background: "var(--s50)",
+                        borderRadius: "var(--r-sm)",
+                        fontSize: 13,
+                      }}>
+                        <div style={{
+                          width: 10, height: 10, borderRadius: "50%",
+                          background: grp.color, flexShrink: 0,
+                        }} />
+                        <span style={{ flex: 1, fontWeight: 500 }}>{grp.label}</span>
+                        <span style={{ color: "var(--text-2)", fontSize: 12 }}>
+                          {grp.confirmed}/{grp.count}
+                        </span>
+                        <div style={{
+                          width: 50, height: 4, background: "var(--s200)", borderRadius: 2, overflow: "hidden",
+                        }}>
+                          <div style={{
+                            width: `${grp.count > 0 ? (grp.confirmed / grp.count) * 100 : 0}%`,
+                            height: "100%", background: grp.color, transition: "width 0.3s",
+                          }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Low-conf segments list ── */}
+              {showLowConfOnly && lowConfSegments.length > 0 && (
+                <div style={{
+                  padding: "8px 14px",
+                  fontSize: 12,
+                  color: "var(--amber)",
+                  background: "var(--amber-light)",
+                  borderBottom: "1px solid var(--s100)",
+                  flexShrink: 0,
+                }}>
+                  ⚠️ {lowConfSegments.length} פריטים עם confidence נמוך — לבדיקה ידנית
+                </div>
+              )}
+              {showLowConfOnly && lowConfSegments.length === 0 && (
+                <div style={{ padding: 20, textAlign: "center", color: "var(--text-3)", fontSize: 13, flexShrink: 0 }}>
+                  ✅ אין פריטים לא-בטוחים כרגע
+                </div>
+              )}
 
               {/* Aggregated summaries */}
               <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>

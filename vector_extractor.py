@@ -88,6 +88,11 @@ def _drawing_to_segment(
     if rect is None:
         return None
 
+    # ── פילטר: קירות בלבד — מסנן קווי מידות, האצ'ינג, גריד ──
+    # קירות בלבד ≥ 1.0pt; מידות/האצ'ינג בדרך כלל ≤ 0.5pt
+    if stroke_w < 1.0:
+        return None
+
     bx = float(rect.x0) * sx
     by = float(rect.y0) * sy
     bw = max(1.0, float(rect.width)  * sx)
@@ -102,6 +107,16 @@ def _drawing_to_segment(
     height_m = bh / max(scale_px_per_meter, 1)
     ratio    = max(bw, bh) / max(min(bw, bh), 1)
     is_wall  = ratio >= 3.0
+
+    # ── פילטר אורך: קיר מינימלי 0.8 מטר ──
+    length_m_check = max(width_m, height_m)
+    if length_m_check < 0.8:
+        return None
+
+    # ── פילטר: shapes ריבועיות קטנות אינן קירות ──
+    area_m2_check = width_m * height_m
+    if ratio < 2.5 and area_m2_check < FIXTURE_AREA_SMALL:
+        return None
     element_class = "wall" if is_wall else "fixture"
 
     stype, ssubtype = _classify_by_color(color, stroke_w, width_m, height_m)

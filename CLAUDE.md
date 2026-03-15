@@ -209,22 +209,18 @@ scrollable panel body** — visible on every tab without scrolling. (Removed fro
 
 ## Performance & Stability — Pending Changes
 
-8 approved changes await implementation. See `STABILITY_PLAN.md` for full breakdown.
-Use `STABILITY_PROMPT.md` as ready-to-paste Claude Code prompt.
+**✅ כבר יושם (לא לחזור):**
+- `ThreadPoolExecutor(max_workers=4)` — line 169
+- `database.py connect_timeout=8` — psycopg2
+- `init_database()` → background thread (startup fix)
+- `.slice(-50)` history/reports limits
+- `useCallback` for `handleDrawComplete`
+- AbortController for plan-switch
+- `_plans_cols_cache` schema cache
 
-**Already done (do not repeat):**
-- `ThreadPoolExecutor(max_workers=4)` — already set in `main.py` line 169
-
-**Pending (safe→risky order):**
+**⏳ עדיין ממתין:**
 1. `vision_analyzer.py` — `pix = None` after pixmap use (LOW)
-2. `WorkerPage.tsx` — `.slice(-50)` history list limit (LOW)
-3. `DashboardPage.tsx` — `.slice(-50)` reports list limit (LOW)
-4. `brain.py` (root) — add `logging` + replace bare `except:` (LOW)
-5. `WorkerPage.tsx` — fix `loadReports` → `setReports(await listWorkerReports(...))` (LOW, bug fix)
-6. `WorkerPage.tsx` + `workerApi.ts` — AbortController for plan-switch fetch (MEDIUM)
-7. `WorkerPage.tsx` — `useCallback` for `handleDrawComplete` (MEDIUM)
-8. `database.py` (root) — cache `information_schema` check in `_plans_cols_cache` (MEDIUM)
-9. `DashboardPage.tsx` — move CSS injection from module-level to `useEffect` (MEDIUM)
+2. `DashboardPage.tsx` — move CSS injection from module-level to `useEffect` (MEDIUM)
 
 ---
 
@@ -381,10 +377,67 @@ async def manager_boq_summary(plan_id):
 
 ---
 
+### Session D — תיקון Validation + Cold-start + Over-detection (מרץ 2026)
+
+#### בעיות שנמצאו ותוקנו
+
+**✅ `brain.py` + `vector_extractor.py` — ValidationError בסגמנטים:**
+- Vector mode החזיר 917 סגמנטים → 4612 שגיאות Pydantic (כל segment חסר `length_m`, `area_m2`, `label`)
+- Chain-vector החזיר 117 סגמנטים → 594 שגיאות Pydantic
+- **תיקון**: הוסף `length_m`, `area_m2`, `label` לכל segment dict + הסרת שדות `_source`, `_stroke_width` לא-חוקיים
+- **תיקון**: default values לשדות `wall_type`, `material`, `has_insulation` (היו `None`, שגיאה)
+
+**✅ `backend/models.py` — AutoAnalyzeSegment:**
+- הוסף `model_config = ConfigDict(extra="ignore")` — שדות נוספים לא גורמים לקריסה
+- הוסף `review_status: Optional[str]` + `flags: Optional[List[str]]` (Phase 2)
+- הוסף `legend_items` ל-`AutoAnalyzeResponse`
+
+**✅ `backend/main.py` — Cold-start: plan=? → segments=[]:**
+- `_ensure_arrays_loaded` לא ידע לטעון תמונות מ-DB אחרי restart כי `meta.get("filename")` ריק
+- **תיקון**: פונקציה מקבלת `plan_id` כ-argument נוסף כ-fallback:
+  ```python
+  def _ensure_arrays_loaded(proj_or_plan_id, proj: Dict = None):
+  ```
+- כעת: `_ensure_arrays_loaded(plan_id, proj)` — `plan_id` משמש כ-fallback key לטעינת BLOBs
+
+**✅ `backend/main.py` — init_database() blocking startup:**
+- הועבר ל-background thread: `threading.Thread(target=init_database, daemon=True).start()`
+- Render health check עובר כי uvicorn מתחיל מיד
+
+**✅ `database.py` — psycopg2 timeout:**
+- `connect_timeout=8` נוסף ל-`psycopg2.connect()` — מנע startup hang
+
+**✅ `legend_parser.py` + `vector_extractor.py` — import errors:**
+- `import fitz` / `import anthropic` עטופים ב-`try/except` למניעת ImportError בסביבה חסרה
+
+#### הבעיה שנותרת: 900+ סגמנטים
+
+**הסיבה**: Vector mode (PyMuPDF drawings) מזהה כל path ב-PDF כסגמנט:
+- קווי מידות, גריד אקסים, האצ'ינג, קווי עזר — כולם נכנסים
+- תוכנית טיפוסית: ~917 סגמנטים במקום ~50-80 קירות אמיתיים
+- גם אחרי פילטר `stroke_width >= 0.3` ו-`_is_dark_color` — עדיין over-detection
+
+**מה לא עובד ב-chain-vector**: Union-Find chains lines מ-drawings, אבל הבעיה זהה — יותר מדי paths קיימים ב-PDF.
+
+**הפתרון הנכון ב-backend** — צריך לפלטר paths לפי:
+1. `stroke_width >= 1.0pt` (קירות בלבד — מידות בדרך כלל ≤ 0.5pt)
+2. אורך מינימלי >= 1 מטר (מסנן קווי האצ'ינג הקצרים)
+3. התעלמות מ-dashed lines (קווי מידה)
+4. HSV color: רק dark gray/black (לא אדום/כחול MEP)
+
+**הפתרון הנכון ב-UX** — במקום רשימה של 900 פריטים:
+- מציג **סיכום לפי קטגוריה** בלבד (כמה קירות חיצוניים, כמה פנימיים, כמה אביזרים)
+- כפתור "אשר הכל" בלחיצה אחת — ללא עיון בכל פריט
+- רק פריטים ב-confidence נמוך (<70%) יוצגו לבדיקה ידנית
+- מחיקה גורפת לפי סוג (למשל: מחק כל פריט מסוג "מידה")
+
+---
+
 ## 🐛 באגים ידועים (פתוחים)
 
 | באג | קובץ | תיקון |
 |-----|------|--------|
+| Vector mode: 900+ סגמנטים (over-detection) | `vector_extractor.py`, `brain.py` | ראה פתרון בסעיף למעלה — פילטר stroke_width ≥ 1pt + אורך ≥ 1m |
 | BOQ מחזיר 503 | `backend/main.py` | הוסף `db_get_vision_analysis(plan_id)` כ-fallback |
 | קנבס מציג 30% תחתון בלבד | `PlanningPage.tsx` | הגבל `scale` לפי `containerH` גם |
 | overlay כהה מדי (0.45) | `PlanningPage.tsx` | שנה ל-`rgba(0,0,0,0.12)` |
@@ -442,11 +495,9 @@ MORPH_OPEN (rect 4×4, 2 iter)     # מחיקת קווים דקים, שמירת 
 
 ### שלב 2 — ניסיון וקטורי (בזמן לחיצת "נתח")
 
-```
-proj.get("pdf_bytes") → בדרך כלל None
-```
-ה-pdf_bytes נשמר ב-`tmp_pdf_bytes` (משתנה מקומי בפונקציה) ולא ב-`PROJECTS[plan_id]`.
-לכן `len(pdf_bytes) > 1000` נכשל — קפיצה ישירה ל-OpenCV fallback.
+**✅ תוקן**: `proj["pdf_bytes"] = tmp_pdf_bytes` נשמר בזמן upload.
+כעת הוקטורי רץ ומחזיר **~917 סגמנטים** — over-detection קיצוני.
+סיבה: כל path ב-PDF (קווי מידות, גריד, האצ'ינג, פרטי תכנון) הופך לסגמנט.
 
 **תיקון פשוט:** בזמן upload, הוסף `proj["pdf_bytes"] = _raw_pdf_bytes`.
 

@@ -377,6 +377,11 @@ def build_annotation_filter(
     6. מרכז ה-path קרוב לטקסט מספרי (± zone מידה)
     """
     drawings = vector_cache.get("drawings", [])
+    # Cap to avoid O(N) startup cost on large PDFs
+    MAX_DRAWINGS_FILTER = 2000
+    if len(drawings) > MAX_DRAWINGS_FILTER:
+        print(f"[build_annotation_filter] capping {len(drawings)} → {MAX_DRAWINGS_FILTER} drawings")
+        drawings = drawings[:MAX_DRAWINGS_FILTER]
     text_zones = text_semantics.get("text_zones", [])
     excluded_regions = region_data.get("excluded_regions", [])
 
@@ -692,6 +697,11 @@ def classify_primitive_families(
       family_counts: dict {family_str: count}
     """
     drawings = vector_cache.get("drawings", [])
+    # Cap at 1500 drawings to avoid O(N²) slowdown on large PDFs (Phase 2 guard)
+    MAX_DRAWINGS = 1500
+    if len(drawings) > MAX_DRAWINGS:
+        print(f"[classify_primitive_families] capping {len(drawings)} → {MAX_DRAWINGS} drawings")
+        drawings = drawings[:MAX_DRAWINGS]
     text_zones = text_semantics.get("text_zones", [])
     legend_region = region_data.get("legend_region")
     excluded_regions = region_data.get("excluded_regions", [])

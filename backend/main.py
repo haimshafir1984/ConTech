@@ -2938,7 +2938,7 @@ def _apply_auto_categories(proj: dict, segments: list) -> None:
 
 # ── Auto-analyze endpoint ──────────────────────────────────────────────────
 @app.post("/manager/planning/{plan_id}/auto-analyze", response_model=AutoAnalyzeResponse)
-async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
+def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
     """
     Segment thick_walls into individual wall segments using skeleton-based
     junction splitting (branch-point removal).
@@ -4119,7 +4119,7 @@ async def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
 
 
 @app.get("/manager/planning/{plan_id}/boq-summary")
-async def manager_boq_summary(plan_id: str):
+def manager_boq_summary(plan_id: str):
     """
     מחשב כתב כמויות מקוצר ממידע Vision + CV2.
     מחזיר: שטחי חדרים, אורך+שטח קירות לפי סוג, ספירת פתחים ואביזרים.
@@ -4665,7 +4665,7 @@ async def manager_export_drawing_data_json(plan_id: str) -> Dict:
 
 
 @app.post("/manager/area-analysis/{plan_id}/run", response_model=FloorAnalysisResponse)
-async def manager_run_area_analysis(
+def manager_run_area_analysis(
     plan_id: str, request: FloorAnalysisRunRequest
 ) -> FloorAnalysisResponse:
     proj = _get_project_or_404(plan_id)

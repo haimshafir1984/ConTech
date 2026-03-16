@@ -15,7 +15,10 @@ try:
 except ImportError:
     fitz = None
 
-import streamlit as st
+try:
+    import streamlit as st
+except ImportError:
+    st = None  # type: ignore  — FastAPI env has no streamlit server
 import uuid as _uuid
 from collections import defaultdict as _defaultdict
 

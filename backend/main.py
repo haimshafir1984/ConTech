@@ -3092,6 +3092,7 @@ def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                     vector_segs = _vector_extract(
                         pdf_bytes, scale_px_per_meter, img_shape,
                         region_data=proj.get("region_data"),
+                        annotation_filter=proj.get("annotation_filter"),
                     )
 
                     if len(vector_segs) >= 5:
@@ -4037,15 +4038,20 @@ def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                     # P2-1: Main region check
                     _in_main = _is_in_main_drawing(_bbox, _main_reg) if _main_reg else True
 
-                    # P2-6: Legality Score (primitive family = UNKNOWN unless we can derive it)
+                    # P2-6: Legality Score — look up real primitive family via drawing_source_index
+                    _family_labels = _pf_post.get("family_labels", {})
+                    _source_idx    = _sd.get("drawing_source_index")
+                    _family        = _family_labels.get(_source_idx, _PRIM_UNKNOWN)
                     _leg_r = _compute_legality_score(
                         main_region_in=_in_main,
                         exclusion_result=_excl_r,
-                        primitive_family=_PRIM_UNKNOWN,
+                        primitive_family=_family,
                         ink_result=_ink_r,
                         anchor_result=_anc_r,
                     )
                     legality_map[_seg_id] = _leg_r
+                    # propagate rejection_reason into segment dict so post_gate_filter carries it through
+                    _sd["rejection_reason"] = _leg_r.get("rejection_reason")
                     segments_as_dicts.append(_sd)
 
                 # P2-7: Post-Gate Rejection (min_gate=soft_pass)
@@ -4063,17 +4069,23 @@ def manager_auto_analyze(plan_id: str) -> AutoAnalyzeResponse:
                 proj["phase2_rejected"] = _gate_res["rejected_segments"]
 
                 # Repack filtered segments as AutoAnalyzeSegment
+                # Drop only legality_breakdown (too verbose); keep legality_score, gate_decision, drawing_source_index
                 from .models import AutoAnalyzeSegment as _AAS
+                _mapped = 0; _unknown = 0
                 _filtered_segs: List = []
                 for _fs in _gate_res["filtered_segments"]:
                     try:
                         _filtered_segs.append(_AAS(**{
                             k: v for k, v in _fs.items()
-                            if k not in ("legality_score", "gate_decision",
-                                         "rejection_reason", "legality_breakdown")
+                            if k != "legality_breakdown"
                         }))
+                        if _fs.get("drawing_source_index") is not None:
+                            _mapped += 1
+                        else:
+                            _unknown += 1
                     except Exception as _rp_err:
                         logging.warning(f"[p2] repack segment {_fs.get('segment_id')}: {_rp_err}")
+                logging.info(f"[p2-families] mapped_segments={_mapped} unknown_segments={_unknown}")
 
                 if _filtered_segs:
                     _before_p2 = len(all_segments)

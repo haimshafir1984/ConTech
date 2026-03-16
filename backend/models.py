@@ -139,6 +139,10 @@ class AutoAnalyzeSegment(BaseModel):
     # Phase 2: confidence engine fields
     review_status: Optional[str] = None   # "auto" | "medium" | "review"
     flags: Optional[List[str]] = None
+    drawing_source_index: Optional[int] = None
+    legality_score: Optional[float] = None
+    gate_decision: Optional[str] = None
+    rejection_reason: Optional[str] = None
 
 
 class PlanningState(BaseModel):

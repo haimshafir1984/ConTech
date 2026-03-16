@@ -159,12 +159,13 @@ def _drawing_to_segment(
         "label":             ssubtype,
         "length_m":          length_m,
         "area_m2":           area_m2,
-        "material":          "לא_ידוע",
-        "has_insulation":    False,
-        "fire_resistance":   None,
-        "room_name":         None,
-        "area_label":        None,
-        "category_color":    None,
+        "material":              "לא_ידוע",
+        "has_insulation":        False,
+        "fire_resistance":       None,
+        "room_name":             None,
+        "area_label":            None,
+        "category_color":        None,
+        "drawing_source_index":  seg_idx,
     }
 
 
@@ -201,6 +202,7 @@ def extract_from_pdf(
     image_shape: dict,
     filtered_indices: set = None,
     region_data: dict = None,
+    annotation_filter: dict = None,
 ) -> List[dict]:
     """
     קלט: bytes של PDF + scale + מידות תמונה.
@@ -241,6 +243,8 @@ def extract_from_pdf(
 
     # שמור original_idx → drawing mapping לפילטר filtered_indices
     _fi = set(filtered_indices) if filtered_indices else set()
+    # merge annotation_filter indices (Phase 1 output)
+    _fi |= set((annotation_filter or {}).get("filtered_indices", []))
 
     # Phase 2: region gate data
     _main_region: Optional[list] = None
@@ -260,11 +264,14 @@ def extract_from_pdf(
             pass
 
     segments = []
-    for idx, d in enumerate(thick):
-        # פילטר לפי annotation_filter אם סופק
-        if idx in _fi:
+    for orig_idx, d in enumerate(drawings):
+        # preserve original drawing index so family_labels[orig_idx] maps correctly
+        if (d.get("width") or 0) < WALL_STROKE_THRESHOLD:
             continue
-        seg = _drawing_to_segment(d, sx, sy, scale_px_per_meter, img_w, img_h, idx)
+        # פילטר לפי annotation_filter אם סופק (indices are into drawings, not thick)
+        if orig_idx in _fi:
+            continue
+        seg = _drawing_to_segment(d, sx, sy, scale_px_per_meter, img_w, img_h, orig_idx)
         if seg is None:
             continue
         # סנן segments שפינותיהם חופפות אזור מספרי מידה
@@ -283,7 +290,7 @@ def extract_from_pdf(
     segments = _deduplicate(segments, threshold_px=6.0)
     segments = _filter_page_frame(segments, img_w, img_h)
 
-    print(f"[vector_extractor] Extracted {len(segments)} segments from {len(thick)} thick paths")
+    print(f"[vector-extract] total={len(drawings)} thick={len(thick)} skipped_by_annotation_filter={len(_fi & set(range(len(drawings))))} emitted={len(segments)}")
     return segments
 
 
